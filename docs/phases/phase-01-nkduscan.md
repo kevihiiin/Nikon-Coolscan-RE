@@ -93,25 +93,6 @@ All must be met to mark phase complete:
 **Where to look**: NKDSBP2.dll exports, RTTI classes, string references
 **Output**: Comparison notes in `docs/kb/components/nkduscan/overview.md`
 
-## Key Addresses / Patterns
-
-### IOCTL Codes for usbscan.sys
-- `0x80002004`: IOCTL_SEND_USB_REQUEST (vendor request)
-- `0x80002014`: IOCTL_GET_PIPE_CONFIGURATION
-- `0x80002024`: IOCTL_RESET_PIPE
-- `0x80002018`: IOCTL_GET_VERSION
-- Look for constants in `0x8000XXXX` range
-
-### USB-SCSI Protocol Opcodes (from prior recon)
-- `0xD0`: Phase query (vendor-specific USB command to ask scanner's current phase)
-- `0x06`: REQUEST SENSE (standard SCSI, but wrapped in USB)
-- `0x12`: INQUIRY
-- `0x00`: TEST UNIT READY
-
-### RTTI Search Pattern
-- String `.?AV` in .rdata section marks MSVC `type_info::name`
-- Follow pointer chain: type_info -> RTTIClassHierarchyDescriptor -> base class array
-
 ## Prerequisite Knowledge
 - `docs/kb/architecture/system-overview.md` (Phase 0)
 - `docs/kb/architecture/software-layers.md` (Phase 0)

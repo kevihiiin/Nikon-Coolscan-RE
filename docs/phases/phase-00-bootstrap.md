@@ -7,7 +7,7 @@ Set up the complete project infrastructure: git repo, directory structure, Ghidr
 All must be met to mark phase complete:
 - [ ] Git repo initialized with full directory structure committed
 - [ ] At least one H8/300H SLEIGH module builds and can disassemble the firmware reset vector (0x100) correctly
-- [ ] All 13 PE32 binaries imported into Ghidra projects with auto-analysis complete (no import errors)
+- [ ] All 12 PE32 binaries imported into Ghidra projects with auto-analysis complete (no import errors)
 - [ ] Firmware imported into Ghidra CoolscanFirmware project with H8/300H processor
 - [ ] r2 `firmware_init.r2` script runs without error and labels vector table + known strings
 - [ ] PE export extraction script produces CSV for all DLLs

@@ -20,7 +20,7 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 │  - Scan workflow orchestration                        │
 │  - UI parameter mapping                               │
 │  - Command queue management                           │
-│  - 242 RTTI classes (MFC-based)                       │
+│  - 321 RTTI classes (MFC 7.0 based)                    │
 │  - Image processing: DRAG/ICE integration             │
 └──────────────────────┬───────────────────────────────┘
                        │ MAID API (MAIDEntryPoint)
@@ -30,7 +30,7 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 │  - SCSI CDB construction                             │
 │  - Model-specific parameters                          │
 │  - Capability ID -> SCSI command mapping              │
-│  - 6 RTTI classes                                     │
+│  - 6 RTTI classes (all standard library, none Nikon)   │
 │  Exports: MAIDEntryPoint, NkCtrlEntry, NkMDCtrlEntry │
 └──────────────────────┬───────────────────────────────┘
                        │ NkDriverEntry API
@@ -68,7 +68,7 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 **Path**: `Twain_Source/NikonScan4.ds` (2.3MB PE32 DLL)
 **Interface**: Standard TWAIN `DS_Entry` with DG/DAT/MSG triplets
 **Role**: Top-level orchestration of scan operations
-**Key classes** (from RTTI, 242 total):
+**Key classes** (from RTTI, 321 total):
 - `CCommandQueue`, `CStoppableCommandQueue`, `CUnstoppableCommandQueue` -- scan operation sequencing
 - `CProcessCommand`, `CDRAGProcessCommand`, `CRevProcessCommand` -- individual operations
 - `CMaidBase`, `CMaidImageData`, `CMaidModule`, `CMaidSource` -- MAID interface wrappers
@@ -82,11 +82,12 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 **Path**: `Module_E/LS5000.md3` (~1MB PE32 DLL)
 **Interface**: `MAIDEntryPoint` (MAID callback), `NkCtrlEntry`, `NkMDCtrlEntry`
 **Role**: Translate MAID capability requests into SCSI commands
-**Imports**: `NkDriverEntry` from NKDUSCAN.dll
+**Imports**: Transport DLLs loaded at runtime via `LoadLibraryA`/`GetProcAddress` (not static import). Also imports from SETUPAPI.dll (device enumeration), KERNEL32, USER32, GDI32, ADVAPI32, WINMM.
 **Key info**:
 - MAID = "Module Architecture for Imaging Devices" (Nikon's internal framework)
-- Each scanner model has its own .md3 module (LS4000, LS5000, LS8000, LS9000)
+- Four .md3 modules: LS4000 (shared by LS-40 + LS-4000), LS5000 (shared by LS-50 + LS-5000), LS8000, LS9000
 - Module constructs SCSI CDBs and calls NkDriverEntry to send them
+- LS5000.md3 is MD3 version 3.50; all others are MD3 version 3.01
 - `NkCtrlEntry` mangled: `?NkCtrlEntry@@YGFFFFPAX@Z` = `short __stdcall NkCtrlEntry(short, short, short, short, void*)`
 
 ### Layer 3: NKDUSCAN.dll (USB Transport)
@@ -107,7 +108,7 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 **Interface**: Same `NkDriverEntry` export
 **Role**: Wrap SCSI commands in SBP-2 ORBs over IEEE 1394
 **Key classes** (from RTTI):
-- `CSBP2Command`, `CSBP2Session`, `CSBP2Device`, `CSBP2DeviceManager`, `CSBP2SessionsCollection`
+- `CSBP2CommandManager`, `CSBP2Command`, `CSBP2Session`, `CSBP2Device`, `CSBP2DeviceManager`, `CSBP2SessionsCollection`
 
 ### Side-loaded: Image Processing DLLs
 - `DRAGNKL1.dll`, `DRAGNKX2.dll` -- DRAG (Digital ROC And GEM) image processing
@@ -129,16 +130,22 @@ Full protocol documentation: [USB Protocol](usb-protocol.md) (Phase 1)
 
 | Binary | Size | Exports | RTTI Classes | Ghidra Project |
 |--------|------|---------|-------------|----------------|
-| NikonScan4.ds | 2.3MB | DS_Entry + MFC | 242 | NikonScan_TWAIN |
-| LS5000.md3 | ~1MB | 3 (MAID+Ctrl) | 6 | NikonScan_Modules |
-| NKDUSCAN.dll | 90KB | 1 (NkDriverEntry) | 14 | NikonScan_Drivers |
-| NKDSBP2.dll | 86KB | 1 (NkDriverEntry) | 13 | NikonScan_Drivers |
-| ICEDLL.dll | varies | 34 (DICE API) | 0 | NikonScan_ICE |
-| DRAGNKL1.dll | varies | varies | 0 | NikonScan_TWAIN |
+| NikonScan4.ds | 2.2MB | 59 (DS_Entry + scanner API) | 321 | NikonScan_TWAIN |
+| LS5000.md3 | 1.0MB | 3 (MAID+Ctrl) | 6 (stdlib only) | NikonScan_Modules |
+| LS4000.md3 | 824KB | 3 (MAID+Ctrl) | -- | NikonScan_Modules |
+| LS8000.md3 | 936KB | 3 (MAID+Ctrl) | -- | NikonScan_Modules |
+| LS9000.md3 | 1.1MB | 3 (MAID+Ctrl) | -- | NikonScan_Modules |
+| NKDUSCAN.dll | 88KB | 1 (NkDriverEntry) | 14 | NikonScan_Drivers |
+| NKDSBP2.dll | 84KB | 1 (NkDriverEntry) | 13 | NikonScan_Drivers |
+| ICEDLL.dll | 280KB | 36 (DICE API) | 0 | NikonScan_ICE |
+| ICENKNL1.dll | 344KB | 36 (DICE API) | 0 | NikonScan_ICE |
+| ICENKNX2.dll | 432KB | 36 (DICE API) | 0 | NikonScan_ICE |
+| DRAGNKL1.dll | 484KB | 48 (DRAG API) | 0 | NikonScan_TWAIN |
+| DRAGNKX2.dll | 176KB | 44 (DRAG API) | 0 | NikonScan_TWAIN |
 
 ## Open Questions
 
-- [ ] What are all the NkDriverEntry function codes? (Phase 1)
+- [ ] What are all the NkDriverEntry function codes? (Phase 1) -- dispatch table found: 9 codes (1-9), at 0x10003c40
 - [ ] What MAID capability IDs exist? (Phase 2)
 - [ ] How does the command queue handle async scan operations? (Phase 3)
 - [ ] What is "Revelation" processing? Related to scanner revelation mask?

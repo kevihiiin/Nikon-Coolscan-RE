@@ -1,0 +1,8 @@
+[project]
+name = "coolscan-re"
+version = "0.1.0"
+description = "Reverse engineering Nikon Coolscan film scanner firmware and drivers"
+requires-python = ">=3.10"
+dependencies = [
+    "pefile>=2024.8.26",
+]

@@ -84,34 +84,6 @@ All must be met to mark phase complete:
 **Where to look**: Compare string dumps and export lists
 **Output**: Comparison table in `docs/kb/components/ls5000-md3/scsi-command-build.md`
 
-## Key Addresses / Patterns
-
-### Standard SCSI Opcodes (Scanner Device Type)
-| Opcode | Name | CDB Length |
-|--------|------|------------|
-| 0x00 | TEST UNIT READY | 6 |
-| 0x03 | REQUEST SENSE | 6 |
-| 0x12 | INQUIRY | 6 |
-| 0x15 | MODE SELECT(6) | 6 |
-| 0x1A | MODE SENSE(6) | 6 |
-| 0x1B | SCAN | 6 |
-| 0x24 | SET WINDOW | 10 |
-| 0x25 | GET WINDOW | 10 |
-| 0x28 | READ(10) | 10 |
-| 0x2A | SEND(10) | 10 |
-
-### NkCtrlEntry Mangled Name
-`?NkCtrlEntry@@YGFFFFPAX@Z` decodes to: `short __stdcall NkCtrlEntry(short, short, short, short, void*)`
-
-### CDB Construction Pattern
-Look for code like:
-```
-memset(cdb_buffer, 0, 10);  // or 6, 12, 16
-cdb_buffer[0] = OPCODE;
-cdb_buffer[1] = LUN << 5;
-cdb_buffer[4] = length;     // or cdb_buffer[7..8] for 10-byte CDBs
-```
-
 ## Prerequisite Knowledge
 - Phase 1 `NkDriverEntry` API: `docs/kb/components/nkduscan/api.md`
 - Phase 1 USB protocol: `docs/kb/architecture/usb-protocol.md`

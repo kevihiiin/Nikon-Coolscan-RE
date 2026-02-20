@@ -6,7 +6,7 @@ Understand how the scanner receives and dispatches SCSI commands. Verify host-si
 ## Completion Criteria
 All must be met to mark phase complete:
 - [ ] Reset vector startup code (0x100) fully traced: SP init, bus controller setup, peripheral config, jump to main
-- [ ] All active interrupt vectors (12 found in recon) mapped to handler functions with purpose identified
+- [ ] All active interrupt vectors (15 found in recon) mapped to handler functions with purpose identified
 - [ ] ISP1581 USB controller interaction code identified: endpoint setup, bulk read/write, status queries
 - [ ] SCSI command dispatch mechanism found (switch/table) and all opcode handlers identified
 - [ ] At least 5 opcode handlers fully reversed (matching host-side findings from Phase 2)
@@ -115,35 +115,6 @@ All must be met to mark phase complete:
 - Discrepancies: any mismatch indicates an error in either host or device analysis
 **Where to look**: Compare Phase 2 `docs/kb/scsi-commands/` with firmware handler analysis
 **Output**: Cross-validation notes in each relevant KB doc (update Confidence to "Verified")
-
-## Key Addresses / Patterns
-
-### Memory Map
-| Address Range | Size | Purpose |
-|--------------|------|---------|
-| 0x000000-0x07FFFF | 512KB | Flash (firmware) |
-| 0x400000-0x41FFFF | 128KB | Main RAM |
-| 0x600000-0x6000FF | 256B | ISP1581 USB controller registers |
-| 0x800000-0x83FFFF | 256KB | ASIC DSL RAM |
-| 0xC00000-0xC0FFFF | 64KB | Buffer RAM |
-
-### H8/3003 I/O Registers (partial)
-| Address | Register | Purpose |
-|---------|----------|---------|
-| 0xFEE000 | FLMCR | Flash memory control |
-| 0xFFFF80 | P1DDR | Port 1 data direction |
-| 0xFFFFB0 | PBDR | Port B data |
-| 0xFFFFB2 | PCDR | Port C data |
-
-### Flash Layout
-| Offset | Size | Purpose |
-|--------|------|---------|
-| 0x00000 | 0x4000 | Vector table + startup |
-| 0x20000 | 0x40000 | Main firmware code |
-| 0x60000 | 0x20000 | Logging area |
-
-### Known Firmware Strings
-- `"Nikon   LS-50 ED        1.02"` -- SCSI INQUIRY response (28 chars, space-padded)
 
 ## Prerequisite Knowledge
 - `docs/kb/architecture/usb-protocol.md` (Phase 1)

@@ -4,15 +4,16 @@ Reverse engineering Nikon Coolscan film scanner firmware and Windows drivers to 
 
 ## Target Scanners
 
-| Model | Name | Resolution | Film | Interface |
-|-------|------|-----------|------|-----------|
-| **LS-50** | Coolscan V ED | 4000 DPI | 35mm | USB 2.0 |
-| LS-5000 | Super Coolscan 5000 ED | 4000 DPI | 35mm | USB 2.0 |
-| LS-4000 | Coolscan 4000 ED | 2900 DPI | 35mm | IEEE 1394 + USB |
-| LS-8000 | Super Coolscan 8000 ED | 4000 DPI | 35mm + 120 | IEEE 1394 + USB |
-| LS-9000 | Super Coolscan 9000 ED | 4000 DPI | 35mm + 120 | IEEE 1394 + USB |
+| Model | Name | Film | Interface | Module |
+|-------|------|------|-----------|--------|
+| LS-40 | Coolscan IV ED | 35mm | USB only | LS4000.md3 |
+| **LS-50** | Coolscan V ED | 35mm | USB only | LS5000.md3 |
+| LS-5000 | Super Coolscan 5000 ED | 35mm | USB only | LS5000.md3 |
+| LS-4000 | Super Coolscan 4000 ED | 35mm | IEEE 1394 only | LS4000.md3 |
+| LS-8000 | Super Coolscan 8000 ED | 35mm + 120 | IEEE 1394 only | LS8000.md3 |
+| LS-9000 | Super Coolscan 9000 ED | 35mm + 120 | IEEE 1394 only | LS9000.md3 |
 
-Primary target is the LS-50 (firmware dump available).
+Primary target is the LS-50 (firmware dump available). No scanner supports both USB and FireWire.
 
 ## Architecture
 

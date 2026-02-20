@@ -1,6 +1,5 @@
-# Binary originals (too large for git)
-*.iso
-*.bin
+# Binaries (too large for git -- see binaries/README.md for download instructions)
+binaries/
 
 # Ghidra project files (regenerated)
 *.lock
@@ -29,6 +28,12 @@ Thumbs.db
 *~
 .vscode/
 .idea/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Serena MCP cache
+.serena/
 
 # Keep directory structure (don't ignore .gitkeep)
 !.gitkeep

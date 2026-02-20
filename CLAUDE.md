@@ -5,7 +5,7 @@
 Reverse engineering Nikon Coolscan film scanner firmware and Windows drivers to document
 the complete SCSI communication protocol. End goal: build modern cross-platform drivers.
 
-**Primary target**: Coolscan V (LS-50). Later: LS-5000, LS-8000, LS-9000.
+**Primary target**: Coolscan V (LS-50, uses LS5000.md3 module). Later: LS-5000, LS-4000, LS-8000, LS-9000.
 
 ## Session Bootstrap (READ THESE IN ORDER)
 
@@ -39,7 +39,7 @@ Do the actual RE work: decompile, trace, pattern match, cross-reference.
 
 ### 3. VERIFY -- Cross-check the finding
 - Can this be confirmed from another source? (host-side vs device-side, string xref, etc.)
-- Set confidence level: Verified (2+ sources), High (clear evidence), Medium (reasonable), Low (speculative)
+- Set confidence level (see RE Approach below)
 
 ### 4. KB -- Write it up
 - **ALL new knowledge MUST go to `docs/kb/`** -- the KB is our final deliverable
@@ -72,29 +72,35 @@ If a finding is too uncertain (Low confidence), still add it to KB but mark it c
 
 Full path prefix: `binaries/software/NikonScan403_installed/`
 
-1. `Drivers/NKDUSCAN.dll` (90KB) -- USB transport layer
-   - Exports: `NkDriverEntry`. Classes: CUSB2Command, CUSBSession, CUSBDeviceTable
-   - Uses DeviceIoControl -> usbscan.sys to send SCSI over USB
+1. `Drivers/NKDUSCAN.dll` (88KB) -- USB transport layer (LS-40, LS-50, LS-5000)
+   - Exports: `NkDriverEntry` (1 export, 9 function codes). 14 RTTI classes.
+   - Key classes: CUSB2Command, CUSBSession, CUSBDeviceTable, CUSBDevInfo, CSBP2CommandManager
+   - Uses DeviceIoControl -> usbscan.sys, WriteFile/ReadFile on bulk pipes
    - **Ghidra project**: NikonScan_Drivers
 
-2. `Module_E/LS5000.md3` (1MB) -- Scanner model module
+2. `Module_E/LS5000.md3` (1MB) -- Scanner model module (shared by LS-50 + LS-5000)
    - Exports: MAIDEntryPoint, NkCtrlEntry, NkMDCtrlEntry
+   - Loads transport DLL at runtime (LoadLibraryA/GetProcAddress, NOT static import)
    - Constructs SCSI CDBs, calls NkDriverEntry to send them
    - **Ghidra project**: NikonScan_Modules
+   - **Note**: No LS50.md3 exists. LS-50 and LS-5000 share this module.
 
-3. `Twain_Source/NikonScan4.ds` (2.3MB) -- TWAIN data source
-   - Full scan workflow: preview, scan, autofocus, calibrate
-   - Maps UI settings to MAID capabilities to SCSI commands
+3. `Twain_Source/NikonScan4.ds` (2.2MB) -- TWAIN data source
+   - 59 exports (DS_Entry + scanner-specific API: StartScan, GetSource, etc.)
+   - 321 RTTI classes (MFC 7.0 based). Full scan workflow orchestration.
+   - Model-agnostic: delegates all hardware specifics to .md3 modules
    - **Ghidra project**: NikonScan_TWAIN
 
 4. **Firmware**: `binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin` (512KB)
    - CPU: Hitachi H8/3003 (H8/300H, 24-bit, big-endian)
+   - Contains INQUIRY strings for both "LS-50 ED" and "LS-5000" (shared lineage)
    - Handles SCSI commands device-side, controls motors/lamp/CCD
    - **Ghidra project**: CoolscanFirmware (H8/300H processor)
    - **r2 script**: r2/scripts/firmware_init.r2
 
-5. `Drivers/NKDSBP2.dll` (86KB) -- IEEE1394/SBP2 transport
-   - Same NkDriverEntry interface as NKDUSCAN but for FireWire
+5. `Drivers/NKDSBP2.dll` (84KB) -- IEEE1394/SBP2 transport (LS-4000, LS-8000, LS-9000)
+   - Same NkDriverEntry interface as NKDUSCAN but for FireWire (SBP-2 over 1394)
+   - 13 RTTI classes: CSBP2CommandManager, CSBP2Command, CSBP2Session, CSBP2Device, etc.
    - **Ghidra project**: NikonScan_Drivers
 
 ## Architecture (call chain)
@@ -104,6 +110,7 @@ NikonScan4.ds (TWAIN) -> LS5000.md3 (MAID) -> NKDUSCAN.dll (USB) -> usbscan.sys 
 ```
 
 USB wraps SCSI: CDB via bulk-out, phase query opcode 0xD0, sense retrieval opcode 0x06.
+(Verified from NKDUSCAN.dll disassembly @ 0x10002b50. NOT USB Mass Storage — custom vendor protocol.)
 
 ## Phases
 
@@ -139,13 +146,11 @@ A finding is only **"Verified"** when confirmed from both sides.
 - **Low**: Speculation -- needs verification. Still log and KB it, but mark clearly
 
 ### When stuck
-1. Log what was tried and what failed (component attempt log)
-2. Mark KB entry with `Confidence: Low` + open questions
-3. Move on -- other components often clarify things later
-4. Add a "REVISIT" note in the phase log
+Log the failure, mark KB as Low confidence, add REVISIT to phase log, and move on. Use `/unstuck` for suggestions.
 
 ## Tools
 
+- **uv** for Python -- Use `uv run` to execute Python scripts (deps in `pyproject.toml`)
 - **Ghidra** at `/opt/ghidra` -- PE32 DLLs (x86:LE:32) and firmware (H8/300H via SLEIGH module)
   - Headless: `/opt/ghidra/support/analyzeHeadless`
   - Projects: `ghidra/projects/`
@@ -176,13 +181,10 @@ The `docs/kb/` directory is the entire point of this project. It must be **compr
 that a junior developer can understand the Coolscan SCSI protocol** and write a driver from it.
 
 Rules:
-- **ALL new knowledge MUST go to `docs/kb/`** -- findings that only exist in logs or conversation are lost
+- **ALL new knowledge MUST go to `docs/kb/`** -- findings only in logs or conversation are lost
 - Every KB doc has: Status, Last Updated, Phase, Confidence level
-- Explain the "why" not just the "what" -- context matters for driver writers
-- Include hex dumps, decompiled snippets, diagrams where they help understanding
-- Evidence must cite source: `NKDUSCAN.dll:0x1234` or `firmware:0x20100`
-- Cross-reference with relative links: `[USB Protocol](../architecture/usb-protocol.md)`
-- When in doubt, write MORE detail, not less
+- Explain "why" not just "what". Cite source: `BINARY:0xADDRESS`. Cross-reference with relative links.
+- When in doubt, write MORE detail, not less. Use `/update-kb` skill for proper format.
 
 KB structure:
 - `docs/kb/architecture/` -- System overview, software layers, USB protocol, MAID interface
@@ -193,55 +195,31 @@ KB structure:
 
 ## Skills & Subagents
 
-RE-specific commands in `.claude/skills/`. **Skills** run in main context (quick writes). **Subagents** run in a forked context to keep the main conversation lean -- all heavy reading stays in the fork.
+RE-specific slash commands in `.claude/skills/`. Skills run in main context; subagents fork to keep main context lean.
 
-### Skills (main context -- need current findings)
-| Command | Purpose |
-|---------|---------|
-| `/log-finding [component]` | Append structured finding to component + phase log |
-| `/update-kb [path]` | Create/update KB doc with proper format |
+| Command | Type | Purpose |
+|---------|------|---------|
+| `/log-finding [component]` | skill | Append finding to component + phase log |
+| `/update-kb [path]` | skill | Create/update KB doc with proper format |
+| `/unstuck` | subagent | Suggest next steps from logs + KB gaps |
+| `/xref [pattern]` | subagent | Search pattern across all binaries |
+| `/phase-check [N]` | subagent | Check phase completion |
+| `/verify [kb-doc]` | subagent | Cross-validate host vs device side |
+| `/ghidra-run [proj] [script]` | background | Run Ghidra headless |
+| `/prefetch-refs [N]` | background | Gather reference material |
 
-### Subagents (forked context -- heavy reading stays in fork)
-| Command | Purpose |
-|---------|---------|
-| `/unstuck` | Read all logs + KB open questions, suggest what to try next |
-| `/xref [pattern]` | Search pattern across all binaries |
-| `/phase-check [N]` | Check phase completion status |
-| `/verify [kb-doc]` | Cross-validate finding host vs device side |
-| `/ghidra-run [project] [script]` | Run Ghidra headless (background) |
-| `/prefetch-refs [N]` | Gather reference material (background) |
+Auto-launch subagents when: analyzing an opcode (xref other binaries), documenting a CDB (verify against firmware), or running Ghidra scripts.
 
-### When Claude Should Auto-Launch Subagents
-In addition to user-invoked commands, Claude should proactively launch subagents for:
-- **Multi-binary search**: When analyzing a SCSI opcode in one DLL, launch a subagent to search all other DLLs + firmware for the same opcode
-- **Host-device cross-ref**: When documenting a CDB format, launch a subagent to find the matching firmware handler
-- **Background Ghidra**: When a script needs to run, launch it in background and continue other work
+## Scanner Models (from INF files — ground truth)
 
-## Hardware Quick Reference
+USB only (NKDUSCAN.dll): LS-40 (PID 4000), LS-50 (PID 4001), LS-5000 (PID 4002)
+FireWire only (NKDSBP2.dll): LS-4000, LS-8000, LS-9000
+**No model supports both USB and FireWire.**
 
-- CPU: Hitachi H8/3003 (H8/300H family), 24-bit address, big-endian
-- Flash: MBM29F400BC, 512KB NOR, TSOP48
-- USB controller: Philips ISP1581, mapped at 0x600000
-- RAM: 128KB at 0x400000, 256KB ASIC DSL RAM at 0x800000, 64KB buffer at 0xC00000
-- GPIO: PB4-7=film motor, PC3-5=adapter ID, PC6=door sensor, PC7=adapter detect
-- USB: VID 04B0, PID 4001 (LS-50), 4002 (LS-5000)
-- SCSI INQUIRY: "Nikon   LS-50 ED        1.02"
+Module mapping: LS4000.md3 (LS-40 + LS-4000), LS5000.md3 (LS-50 + LS-5000), LS8000.md3, LS9000.md3
 
-## Firmware Flash Layout
+## Quick Hardware Reference
 
-| Offset | Size | Purpose |
-|--------|------|---------|
-| 0x00000 | 0x4000 | Vector table + startup |
-| 0x04000 | 0x2000 | Bootloader flags |
-| 0x06000 | 0x2000 | Settings |
-| 0x08000 | 0x8000 | Extended settings |
-| 0x10000 | 0x10000 | Recovery firmware |
-| 0x20000 | 0x40000 | Main firmware |
-| 0x60000 | 0x20000 | Logging |
-
-## Naming Conventions for Reversed Symbols
-
-- Prefix with component: `usb_`, `scsi_`, `maid_`, `fw_`, `ice_`
-- Descriptive: `usb_send_scsi_command`, `scsi_build_set_window_cdb`
-- Unknown: `usb_unk_0x1234` (component + address) until purpose is clear
-- Data tables: `tbl_scsi_dispatch`, `tbl_adapter_ids`, `tbl_motor_params`
+See `docs/kb/reference/memory-map.md` and `docs/kb/reference/` for full details.
+- CPU: H8/3003 (H8/300H), 24-bit, big-endian | USB: VID 04B0, PID 4001 (LS-50)
+- Main firmware at flash 0x20000 | ISP1581 USB at 0x600000 | RAM at 0x400000

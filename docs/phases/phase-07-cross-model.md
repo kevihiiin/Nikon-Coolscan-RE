@@ -71,23 +71,24 @@ All PE32 paths relative to `binaries/software/NikonScan403_installed/`.
 
 ## Key Model Information
 
-| Model | Name | Resolution | Film | Interface | USB PID |
-|-------|------|-----------|------|-----------|---------|
-| LS-40 | Coolscan IV | 2900 DPI | 35mm | USB 1.1 | ? |
-| LS-50 | Coolscan V | 4000 DPI | 35mm | USB 2.0 | 0x4001 |
-| LS-4000 | Coolscan 4000 | 2900 DPI | 35mm | 1394 + USB | ? |
-| LS-5000 | Coolscan 5000 | 4000 DPI | 35mm | USB 2.0 | 0x4002 |
-| LS-8000 | Super Coolscan 8000 | 4000 DPI | 35mm+120 | 1394 + USB | ? |
-| LS-9000 | Super Coolscan 9000 | 4000 DPI | 35mm+120 | 1394 + USB | ? |
+| Model | Name | Film | Interface | USB PID | Module |
+|-------|------|------|-----------|---------|--------|
+| LS-40 | Coolscan IV ED | 35mm | USB only | 0x4000 | LS4000.md3 |
+| LS-50 | Coolscan V ED | 35mm | USB only | 0x4001 | LS5000.md3 |
+| LS-4000 | Super Coolscan 4000 ED | 35mm | 1394 only | -- | LS4000.md3 |
+| LS-5000 | Super Coolscan 5000 ED | 35mm | USB only | 0x4002 | LS5000.md3 |
+| LS-8000 | Super Coolscan 8000 ED | 35mm+120 | 1394 only | -- | LS8000.md3 |
+| LS-9000 | Super Coolscan 9000 ED | 35mm+120 | 1394 only | -- | LS9000.md3 |
 
 ## Prerequisite Knowledge
 - All Phase 1-5 KB docs (complete LS-50/LS-5000 protocol)
 - Phase 1: NKDUSCAN.dll analysis (for NKDSBP2 comparison)
 
 ## KB Deliverables
+- `docs/kb/scanners/coolscan-iv-ls40.md`
 - `docs/kb/scanners/coolscan-v-ls50.md`
+- `docs/kb/scanners/super-coolscan-4000.md`
 - `docs/kb/scanners/super-coolscan-5000.md`
-- `docs/kb/scanners/coolscan-4000.md`
 - `docs/kb/scanners/super-coolscan-8000.md`
 - `docs/kb/scanners/super-coolscan-9000.md`
 - `docs/kb/architecture/sbp2-transport.md`

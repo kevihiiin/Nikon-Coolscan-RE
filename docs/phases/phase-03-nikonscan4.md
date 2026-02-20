@@ -85,23 +85,6 @@ All must be met to mark phase complete:
 **Where to look**: TWAIN capability handlers (MSG_SET), trace to MAID capability set calls
 **Output**: Parameter mapping table in `docs/kb/components/nikonscan4-ds/scan-workflow.md`
 
-## Key Addresses / Patterns
-
-### TWAIN Data Groups
-- `DG_CONTROL (0x0001)`: Control operations (capability, status, identity)
-- `DG_IMAGE (0x0002)`: Image operations (transfer, layout)
-
-### Key TWAIN Triplets
-- `DG_CONTROL/DAT_IDENTITY/MSG_OPENDS`: Open data source (init connection)
-- `DG_CONTROL/DAT_CAPABILITY/MSG_SET`: Set a capability value
-- `DG_IMAGE/DAT_IMAGENATIVEXFER/MSG_GET`: Transfer image data
-- `DG_CONTROL/DAT_PENDINGXFERS/MSG_ENDXFER`: End transfer
-
-### String Patterns
-- "Preview", "Scan", "AutoFocus", "Calibrat" -- workflow identification
-- "Resolution", "BitDepth", "ColorMode" -- capability names
-- "MAID" -- MAID interface references
-
 ## Prerequisite Knowledge
 - Phase 1: `docs/kb/components/nkduscan/api.md` (NkDriverEntry)
 - Phase 2: `docs/kb/scsi-commands/` (SCSI command catalog), `docs/kb/components/ls5000-md3/maid-entrypoint.md`

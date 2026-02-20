@@ -26,9 +26,9 @@ NikonScan4.ds  (TWAIN data source -- scan workflow orchestration)
 | Layer | Binary | Role |
 |-------|--------|------|
 | TWAIN | `NikonScan4.ds` | User-facing scan operations, workflow sequencing |
-| MAID | `LS5000.md3` | Model-specific SCSI command building |
-| Transport | `NKDUSCAN.dll` / `NKDSBP2.dll` | USB / FireWire SCSI transport |
-| Kernel | `usbscan.sys` | OS USB scanner class driver |
+| MAID | `LS5000.md3` (or LS4000/8000/9000) | Model-specific SCSI command building |
+| Transport | `NKDUSCAN.dll` (USB) / `NKDSBP2.dll` (1394) | USB or FireWire SCSI transport (never both per model) |
+| Kernel | `usbscan.sys` (USB) / `scsiscan.sys` (1394) | OS scanner class driver |
 | Firmware | LS-50 flash ROM | Device-side SCSI handler, hardware control |
 
 ## Image Processing (Post-Scan)

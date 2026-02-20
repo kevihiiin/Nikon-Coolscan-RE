@@ -8,7 +8,7 @@
 ### Criteria Status
 - [x] Git repo initialized with full directory structure committed
 - [x] H8/300H SLEIGH module builds and disassembles firmware reset vector correctly
-- [x] All 13 PE32 binaries imported into Ghidra projects with auto-analysis complete
+- [x] All 12 PE32 binaries imported into Ghidra projects with auto-analysis complete
 - [x] Firmware imported into Ghidra CoolscanFirmware project with H8/300H processor
 - [x] r2 `firmware_init.r2` script runs without error and labels vector table + known strings
 - [x] PE export extraction script produces CSV for all DLLs
