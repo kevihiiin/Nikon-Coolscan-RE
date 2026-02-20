@@ -1,3 +1,4 @@
 [submodule "tools/ghidra-h8/sleigh-h8"]
 	path = tools/ghidra-h8/sleigh-h8
 	url = https://github.com/carllom/sleigh-h8.git
+	ignore = dirty
