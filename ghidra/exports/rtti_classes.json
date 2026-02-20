@@ -1,0 +1,2247 @@
+{
+  "NKDUSCAN.dll": {
+    "class_count": 14,
+    "struct_count": 6,
+    "classes": [
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVbad_alloc@std@@",
+        "demangled": "std::bad_alloc",
+        "offset": "0x00012028",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVexception@std@@",
+        "demangled": "std::exception",
+        "offset": "0x00012044",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVCSBP2CommandManager@@",
+        "demangled": "CSBP2CommandManager",
+        "offset": "0x00012060",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVlogic_error@std@@",
+        "demangled": "std::logic_error",
+        "offset": "0x00012084",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVlength_error@std@@",
+        "demangled": "std::length_error",
+        "offset": "0x000120A4",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVCSBP2Command@@",
+        "demangled": "CSBP2Command",
+        "offset": "0x000120DC",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVCUSB2Command@@",
+        "demangled": "CUSB2Command",
+        "offset": "0x000120F8",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVCUSBDevInfo@@",
+        "demangled": "CUSBDevInfo",
+        "offset": "0x00012130",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVCUSBDeviceTable@@",
+        "demangled": "CUSBDeviceTable",
+        "offset": "0x00012168",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVout_of_range@std@@",
+        "demangled": "std::out_of_range",
+        "offset": "0x000121AC",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVCUSBSessionsCollection@@",
+        "demangled": "CUSBSessionsCollection",
+        "offset": "0x000121CC",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVCUSBSession@@",
+        "demangled": "CUSBSession",
+        "offset": "0x0001220C",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVtype_info@@",
+        "demangled": "type_info",
+        "offset": "0x00012234",
+        "type": "class"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AVbad_exception@std@@",
+        "demangled": "std::bad_exception",
+        "offset": "0x0001254C",
+        "type": "class"
+      }
+    ],
+    "structs": [
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AUICommandManager@@",
+        "demangled": "ICommandManager",
+        "offset": "0x00012008",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AUICommand@@",
+        "demangled": "ICommand",
+        "offset": "0x000120C4",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AUIDeviceInfo@@",
+        "demangled": "IDeviceInfo",
+        "offset": "0x00012114",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AUIDeviceTable@@",
+        "demangled": "IDeviceTable",
+        "offset": "0x0001214C",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AUISessionsCollection@@",
+        "demangled": "ISessionsCollection",
+        "offset": "0x00012188",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDUSCAN.dll",
+        "raw_name": ".?AUISession@@",
+        "demangled": "ISession",
+        "offset": "0x000121F4",
+        "type": "struct"
+      }
+    ]
+  },
+  "NKDSBP2.dll": {
+    "class_count": 13,
+    "struct_count": 6,
+    "classes": [
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVbad_alloc@std@@",
+        "demangled": "std::bad_alloc",
+        "offset": "0x00011028",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVexception@std@@",
+        "demangled": "std::exception",
+        "offset": "0x00011044",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVCSBP2CommandManager@@",
+        "demangled": "CSBP2CommandManager",
+        "offset": "0x00011060",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVlogic_error@std@@",
+        "demangled": "std::logic_error",
+        "offset": "0x00011084",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVlength_error@std@@",
+        "demangled": "std::length_error",
+        "offset": "0x000110A4",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVCSBP2Command@@",
+        "demangled": "CSBP2Command",
+        "offset": "0x000110DC",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVCSBP2Device@@",
+        "demangled": "CSBP2Device",
+        "offset": "0x00011130",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVout_of_range@std@@",
+        "demangled": "std::out_of_range",
+        "offset": "0x0001114C",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVCSBP2DeviceManager@@",
+        "demangled": "CSBP2DeviceManager",
+        "offset": "0x0001116C",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVCSBP2SessionsCollection@@",
+        "demangled": "CSBP2SessionsCollection",
+        "offset": "0x000111B4",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVCSBP2Session@@",
+        "demangled": "CSBP2Session",
+        "offset": "0x000111F4",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVtype_info@@",
+        "demangled": "type_info",
+        "offset": "0x0001121C",
+        "type": "class"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AVbad_exception@std@@",
+        "demangled": "std::bad_exception",
+        "offset": "0x0001152C",
+        "type": "class"
+      }
+    ],
+    "structs": [
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AUICommandManager@@",
+        "demangled": "ICommandManager",
+        "offset": "0x00011008",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AUICommand@@",
+        "demangled": "ICommand",
+        "offset": "0x000110C4",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AUIDeviceManager@@",
+        "demangled": "IDeviceManager",
+        "offset": "0x000110F8",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AUIDevice@@",
+        "demangled": "IDevice",
+        "offset": "0x00011118",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AUISessionsCollection@@",
+        "demangled": "ISessionsCollection",
+        "offset": "0x00011190",
+        "type": "struct"
+      },
+      {
+        "binary": "NKDSBP2.dll",
+        "raw_name": ".?AUISession@@",
+        "demangled": "ISession",
+        "offset": "0x000111DC",
+        "type": "struct"
+      }
+    ]
+  },
+  "ICEDLL.dll": {
+    "class_count": 0,
+    "struct_count": 0,
+    "classes": [],
+    "structs": []
+  },
+  "ICENKNL1.dll": {
+    "class_count": 0,
+    "struct_count": 0,
+    "classes": [],
+    "structs": []
+  },
+  "ICENKNX2.dll": {
+    "class_count": 0,
+    "struct_count": 0,
+    "classes": [],
+    "structs": []
+  },
+  "LS4000.md3": {
+    "class_count": 6,
+    "struct_count": 0,
+    "classes": [
+      {
+        "binary": "LS4000.md3",
+        "raw_name": ".?AVexception@@",
+        "demangled": "exception",
+        "offset": "0x000BC198",
+        "type": "class"
+      },
+      {
+        "binary": "LS4000.md3",
+        "raw_name": ".?AVlogic_error@std@@",
+        "demangled": "std::logic_error",
+        "offset": "0x000BC1B0",
+        "type": "class"
+      },
+      {
+        "binary": "LS4000.md3",
+        "raw_name": ".?AVlength_error@std@@",
+        "demangled": "std::length_error",
+        "offset": "0x000BC1D0",
+        "type": "class"
+      },
+      {
+        "binary": "LS4000.md3",
+        "raw_name": ".?AVout_of_range@std@@",
+        "demangled": "std::out_of_range",
+        "offset": "0x000BC1F0",
+        "type": "class"
+      },
+      {
+        "binary": "LS4000.md3",
+        "raw_name": ".?AVbad_alloc@std@@",
+        "demangled": "std::bad_alloc",
+        "offset": "0x000BEC10",
+        "type": "class"
+      },
+      {
+        "binary": "LS4000.md3",
+        "raw_name": ".?AVtype_info@@",
+        "demangled": "type_info",
+        "offset": "0x000BEC4C",
+        "type": "class"
+      }
+    ],
+    "structs": []
+  },
+  "LS5000.md3": {
+    "class_count": 6,
+    "struct_count": 0,
+    "classes": [
+      {
+        "binary": "LS5000.md3",
+        "raw_name": ".?AVexception@@",
+        "demangled": "exception",
+        "offset": "0x000CE1F0",
+        "type": "class"
+      },
+      {
+        "binary": "LS5000.md3",
+        "raw_name": ".?AVlogic_error@std@@",
+        "demangled": "std::logic_error",
+        "offset": "0x000CE208",
+        "type": "class"
+      },
+      {
+        "binary": "LS5000.md3",
+        "raw_name": ".?AVlength_error@std@@",
+        "demangled": "std::length_error",
+        "offset": "0x000CE228",
+        "type": "class"
+      },
+      {
+        "binary": "LS5000.md3",
+        "raw_name": ".?AVout_of_range@std@@",
+        "demangled": "std::out_of_range",
+        "offset": "0x000CE248",
+        "type": "class"
+      },
+      {
+        "binary": "LS5000.md3",
+        "raw_name": ".?AVbad_alloc@std@@",
+        "demangled": "std::bad_alloc",
+        "offset": "0x000F03A8",
+        "type": "class"
+      },
+      {
+        "binary": "LS5000.md3",
+        "raw_name": ".?AVtype_info@@",
+        "demangled": "type_info",
+        "offset": "0x000F03DC",
+        "type": "class"
+      }
+    ],
+    "structs": []
+  },
+  "LS8000.md3": {
+    "class_count": 6,
+    "struct_count": 0,
+    "classes": [
+      {
+        "binary": "LS8000.md3",
+        "raw_name": ".?AVexception@@",
+        "demangled": "exception",
+        "offset": "0x000D15A8",
+        "type": "class"
+      },
+      {
+        "binary": "LS8000.md3",
+        "raw_name": ".?AVlogic_error@std@@",
+        "demangled": "std::logic_error",
+        "offset": "0x000D15C0",
+        "type": "class"
+      },
+      {
+        "binary": "LS8000.md3",
+        "raw_name": ".?AVlength_error@std@@",
+        "demangled": "std::length_error",
+        "offset": "0x000D15E0",
+        "type": "class"
+      },
+      {
+        "binary": "LS8000.md3",
+        "raw_name": ".?AVout_of_range@std@@",
+        "demangled": "std::out_of_range",
+        "offset": "0x000D1600",
+        "type": "class"
+      },
+      {
+        "binary": "LS8000.md3",
+        "raw_name": ".?AVbad_alloc@std@@",
+        "demangled": "std::bad_alloc",
+        "offset": "0x000D7240",
+        "type": "class"
+      },
+      {
+        "binary": "LS8000.md3",
+        "raw_name": ".?AVtype_info@@",
+        "demangled": "type_info",
+        "offset": "0x000D727C",
+        "type": "class"
+      }
+    ],
+    "structs": []
+  },
+  "LS9000.md3": {
+    "class_count": 6,
+    "struct_count": 0,
+    "classes": [
+      {
+        "binary": "LS9000.md3",
+        "raw_name": ".?AVexception@@",
+        "demangled": "exception",
+        "offset": "0x000DA9F0",
+        "type": "class"
+      },
+      {
+        "binary": "LS9000.md3",
+        "raw_name": ".?AVlogic_error@std@@",
+        "demangled": "std::logic_error",
+        "offset": "0x000DAA08",
+        "type": "class"
+      },
+      {
+        "binary": "LS9000.md3",
+        "raw_name": ".?AVlength_error@std@@",
+        "demangled": "std::length_error",
+        "offset": "0x000DAA28",
+        "type": "class"
+      },
+      {
+        "binary": "LS9000.md3",
+        "raw_name": ".?AVout_of_range@std@@",
+        "demangled": "std::out_of_range",
+        "offset": "0x000DAA48",
+        "type": "class"
+      },
+      {
+        "binary": "LS9000.md3",
+        "raw_name": ".?AVbad_alloc@std@@",
+        "demangled": "std::bad_alloc",
+        "offset": "0x00102640",
+        "type": "class"
+      },
+      {
+        "binary": "LS9000.md3",
+        "raw_name": ".?AVtype_info@@",
+        "demangled": "type_info",
+        "offset": "0x0010267C",
+        "type": "class"
+      }
+    ],
+    "structs": []
+  },
+  "NikonScan4.ds": {
+    "class_count": 242,
+    "struct_count": 4,
+    "classes": [
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCObject@@",
+        "demangled": "CObject",
+        "offset": "0x00162088",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCmdTarget@@",
+        "demangled": "CCmdTarget",
+        "offset": "0x001620A0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCWnd@@",
+        "demangled": "CWnd",
+        "offset": "0x001620BC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCTextWnd@@",
+        "demangled": "CTextWnd",
+        "offset": "0x001620D0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCGdiObject@@",
+        "demangled": "CGdiObject",
+        "offset": "0x001620E8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCBrush@@",
+        "demangled": "CBrush",
+        "offset": "0x00162104",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFont@@",
+        "demangled": "CFont",
+        "offset": "0x0016211C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCBitmap@@",
+        "demangled": "CBitmap",
+        "offset": "0x00162130",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCStatic@@",
+        "demangled": "CStatic",
+        "offset": "0x00162148",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDialog@@",
+        "demangled": "CDialog",
+        "offset": "0x00162160",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkAbout@@",
+        "demangled": "CNkAbout",
+        "offset": "0x00162178",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCHeuristic@@",
+        "demangled": "CHeuristic",
+        "offset": "0x00162190",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCMLCriteria@CCMLEngMgr@@",
+        "demangled": "CCMLEngMgr::CCMLCriteria",
+        "offset": "0x001621AC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVIMgr@CStratoFilterCMLEngine@@",
+        "demangled": "CStratoFilterCMLEngine::IMgr",
+        "offset": "0x001621D4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVexception@@",
+        "demangled": "exception",
+        "offset": "0x00162200",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVlogic_error@std@@",
+        "demangled": "std::logic_error",
+        "offset": "0x00162218",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVlength_error@std@@",
+        "demangled": "std::length_error",
+        "offset": "0x00162238",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCMLEngMgr@@",
+        "demangled": "CCMLEngMgr",
+        "offset": "0x00162258",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCRgn@@",
+        "demangled": "CRgn",
+        "offset": "0x00162278",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCascadePane@@",
+        "demangled": "CCascadePane",
+        "offset": "0x0016228C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCascadeGroup@@",
+        "demangled": "CCascadeGroup",
+        "offset": "0x001622A8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrameWnd@@",
+        "demangled": "CFrameWnd",
+        "offset": "0x001622C4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMiniFrameWnd@@",
+        "demangled": "CMiniFrameWnd",
+        "offset": "0x001622DC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCascadeFrame@@",
+        "demangled": "CCascadeFrame",
+        "offset": "0x001622F8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCommandQueuePtrWrapper@@",
+        "demangled": "CCommandQueuePtrWrapper",
+        "offset": "0x00162318",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCommandQueueManager@@",
+        "demangled": "CCommandQueueManager",
+        "offset": "0x00162340",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCommandQueue@@",
+        "demangled": "CCommandQueue",
+        "offset": "0x00162364",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkNotifyThumbnailWnd@@",
+        "demangled": "INkNotifyThumbnailWnd",
+        "offset": "0x00162380",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCControlArea@@",
+        "demangled": "CControlArea",
+        "offset": "0x001623A4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCtrlParent@@",
+        "demangled": "CCtrlParent",
+        "offset": "0x001623D4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCProcessCommand@@",
+        "demangled": "CProcessCommand",
+        "offset": "0x001623F0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDRAGPrepareCommand@@",
+        "demangled": "CDRAGPrepareCommand",
+        "offset": "0x00162410",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDRAGBase@@",
+        "demangled": "CDRAGBase",
+        "offset": "0x00162450",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVIStratoDataSource@@",
+        "demangled": "IStratoDataSource",
+        "offset": "0x00162468",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVIStratoImage@@",
+        "demangled": "IStratoImage",
+        "offset": "0x00162488",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDRAGProcessCommand@@",
+        "demangled": "CDRAGProcessCommand",
+        "offset": "0x001624A4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCListBox@@",
+        "demangled": "CListBox",
+        "offset": "0x001624C8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDeviceListBox@@",
+        "demangled": "CDeviceListBox",
+        "offset": "0x001624E0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCButton@@",
+        "demangled": "CButton",
+        "offset": "0x00162500",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgBatchSettings@@",
+        "demangled": "CDlgBatchSettings",
+        "offset": "0x00162518",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgCMYKWarning@@",
+        "demangled": "CDlgCMYKWarning",
+        "offset": "0x00162538",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgPreferences@@",
+        "demangled": "CDlgPreferences",
+        "offset": "0x00162558",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkState@@",
+        "demangled": "INkState",
+        "offset": "0x00162578",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkUSM@@",
+        "demangled": "CNkUSM",
+        "offset": "0x00162590",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCUnstoppableCommandQueue@@",
+        "demangled": "CUnstoppableCommandQueue",
+        "offset": "0x001625A8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkButtonBase@@",
+        "demangled": "CNkButtonBase",
+        "offset": "0x001625D0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkPushButton@@",
+        "demangled": "CNkPushButton",
+        "offset": "0x001625EC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkCheckBox@@",
+        "demangled": "CNkCheckBox",
+        "offset": "0x00162608",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkPreviewCtrlFilter@@",
+        "demangled": "INkPreviewCtrlFilter",
+        "offset": "0x00162624",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkMaidUser@@",
+        "demangled": "INkMaidUser",
+        "offset": "0x00162648",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMenu@@",
+        "demangled": "CMenu",
+        "offset": "0x00162664",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVout_of_range@std@@",
+        "demangled": "std::out_of_range",
+        "offset": "0x00162678",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCStoppableCommandQueue@@",
+        "demangled": "CStoppableCommandQueue",
+        "offset": "0x001626B4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgPreview@@",
+        "demangled": "CDlgPreview",
+        "offset": "0x001626DC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidBase@@",
+        "demangled": "CMaidBase",
+        "offset": "0x00162718",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCTwainMaidImage@@",
+        "demangled": "CTwainMaidImage",
+        "offset": "0x00162730",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgSettingsDelete@@",
+        "demangled": "CDlgSettingsDelete",
+        "offset": "0x00162750",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgResSettingsDelete@@",
+        "demangled": "CDlgResSettingsDelete",
+        "offset": "0x00162774",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgSettingsLoad@@",
+        "demangled": "CDlgSettingsLoad",
+        "offset": "0x00162798",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgResSettingsLoad@@",
+        "demangled": "CDlgResSettingsLoad",
+        "offset": "0x001627B8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCEdit@@",
+        "demangled": "CEdit",
+        "offset": "0x001627DC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgResSettingsSave@@",
+        "demangled": "CDlgResSettingsSave",
+        "offset": "0x001627F0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgRotateWarning@@",
+        "demangled": "CDlgRotateWarning",
+        "offset": "0x00162814",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCSliderCtrl@@",
+        "demangled": "CSliderCtrl",
+        "offset": "0x00162834",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgSaveOptions@@",
+        "demangled": "CDlgSaveOptions",
+        "offset": "0x00162850",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgScanErrors@@",
+        "demangled": "CDlgScanErrors",
+        "offset": "0x00162870",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgSettingsSave@@",
+        "demangled": "CDlgSettingsSave",
+        "offset": "0x00162890",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCQueueAcquireImage@@",
+        "demangled": "CQueueAcquireImage",
+        "offset": "0x001628B0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCProgressTabPageBase@@",
+        "demangled": "CProgressTabPageBase",
+        "offset": "0x001628D4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgTaskLog@@",
+        "demangled": "CDlgTaskLog",
+        "offset": "0x001628F8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDlgTaskQueue@@",
+        "demangled": "CDlgTaskQueue",
+        "offset": "0x00162914",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkEditBox@@",
+        "demangled": "CNkEditBox",
+        "offset": "0x00162930",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoCascadeGroup@@",
+        "demangled": "CFrescoCascadeGroup",
+        "offset": "0x00162950",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoCascadeFrame@@",
+        "demangled": "CFrescoCascadeFrame",
+        "offset": "0x00162974",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCInitialItemEnumQueue@@",
+        "demangled": "CInitialItemEnumQueue",
+        "offset": "0x00162998",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDRAGProcessCommandQueue@@",
+        "demangled": "CDRAGProcessCommandQueue",
+        "offset": "0x001629BC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCAsyncCommandQueue@@",
+        "demangled": "CAsyncCommandQueue",
+        "offset": "0x001629E4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMessageCommandQueue@@",
+        "demangled": "CMessageCommandQueue",
+        "offset": "0x00162A08",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkRevelation@@",
+        "demangled": "CNkRevelation",
+        "offset": "0x00162A2C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidBaseData@@",
+        "demangled": "CMaidBaseData",
+        "offset": "0x00162A48",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidImageData@@",
+        "demangled": "CMaidImageData",
+        "offset": "0x00162A64",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoMaidImage@@",
+        "demangled": "CFrescoMaidImage",
+        "offset": "0x00162A84",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoPreviewMaidImage@@",
+        "demangled": "CFrescoPreviewMaidImage",
+        "offset": "0x00162AA4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidItem@@",
+        "demangled": "CMaidItem",
+        "offset": "0x00162ACC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoMaidItem@@",
+        "demangled": "CFrescoMaidItem",
+        "offset": "0x00162AE4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidModule@@",
+        "demangled": "CMaidModule",
+        "offset": "0x00162B04",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoMaidModule@@",
+        "demangled": "CFrescoMaidModule",
+        "offset": "0x00162B20",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidSource@@",
+        "demangled": "CMaidSource",
+        "offset": "0x00162B40",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoMaidSource@@",
+        "demangled": "CFrescoMaidSource",
+        "offset": "0x00162B5C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoMaidThumbnail@@",
+        "demangled": "CFrescoMaidThumbnail",
+        "offset": "0x00162B7C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVVNkTwainContainer@@",
+        "demangled": "VNkTwainContainer",
+        "offset": "0x00162BA8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkOneInstance@@",
+        "demangled": "CNkOneInstance",
+        "offset": "0x00162BC8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVIProfileLookup@@",
+        "demangled": "IProfileLookup",
+        "offset": "0x00162BE8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainSource@@",
+        "demangled": "CNkTwainSource",
+        "offset": "0x00162C08",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoTwainSourceInitializer@@",
+        "demangled": "CFrescoTwainSourceInitializer",
+        "offset": "0x00162C28",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCProfileLookup@@",
+        "demangled": "CProfileLookup",
+        "offset": "0x00162C54",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVVNkTwainOneValue@@",
+        "demangled": "VNkTwainOneValue",
+        "offset": "0x00162C74",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVVNkTwainEnumeration@@",
+        "demangled": "VNkTwainEnumeration",
+        "offset": "0x00162D50",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainTripletHandler@@",
+        "demangled": "CNkTwainTripletHandler",
+        "offset": "0x00162DD0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainSrcApp@@",
+        "demangled": "CNkTwainSrcApp",
+        "offset": "0x00162DF8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoTwainSource@@",
+        "demangled": "CFrescoTwainSource",
+        "offset": "0x00162E18",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCWinThread@@",
+        "demangled": "CWinThread",
+        "offset": "0x00162F14",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCWinApp@@",
+        "demangled": "CWinApp",
+        "offset": "0x00162F30",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoSourceDLL@@",
+        "demangled": "CFrescoSourceDLL",
+        "offset": "0x00162F48",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVIFrescoToolPalette@@",
+        "demangled": "IFrescoToolPalette",
+        "offset": "0x00162F68",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVICascadeOwner@@",
+        "demangled": "ICascadeOwner",
+        "offset": "0x00162F8C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoToolPalette@@",
+        "demangled": "CFrescoToolPalette",
+        "offset": "0x00162FA8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCTabCtrl@@",
+        "demangled": "CTabCtrl",
+        "offset": "0x00162FCC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrmProgress@@",
+        "demangled": "CFrmProgress",
+        "offset": "0x00162FE4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCHLockFile@@",
+        "demangled": "CHLockFile",
+        "offset": "0x00163000",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCHLockIRes@@",
+        "demangled": "CHLockIRes",
+        "offset": "0x0016301C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidBasePtrWrapper@@",
+        "demangled": "CMaidBasePtrWrapper",
+        "offset": "0x00163038",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkMAIDCapInfo@@",
+        "demangled": "CNkMAIDCapInfo",
+        "offset": "0x0016307C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCExtrasGroupMember@@",
+        "demangled": "CExtrasGroupMember",
+        "offset": "0x0016309C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCMaidThumbnailData@@",
+        "demangled": "CMaidThumbnailData",
+        "offset": "0x001630C0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCBitmapButton@@",
+        "demangled": "CBitmapButton",
+        "offset": "0x001630E4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkBitmapButton@@",
+        "demangled": "CNkBitmapButton",
+        "offset": "0x00163100",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkArrowButton@@",
+        "demangled": "CNkArrowButton",
+        "offset": "0x00163120",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkButton@@",
+        "demangled": "CNkButton",
+        "offset": "0x00163140",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCComboBox@@",
+        "demangled": "CComboBox",
+        "offset": "0x00163158",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkComboBox@@",
+        "demangled": "CNkComboBox",
+        "offset": "0x00163170",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVIAsyncTileDrawer@@",
+        "demangled": "IAsyncTileDrawer",
+        "offset": "0x0016318C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVIStratoDataDestination@@",
+        "demangled": "IStratoDataDestination",
+        "offset": "0x001631AC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkRulerDrawer@@",
+        "demangled": "INkRulerDrawer",
+        "offset": "0x001631D4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkPreviewCtrl@@",
+        "demangled": "CNkPreviewCtrl",
+        "offset": "0x001631F4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkDrawingPreview@@",
+        "demangled": "CNkDrawingPreview",
+        "offset": "0x00163214",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkDropMenu@@",
+        "demangled": "CNkDropMenu",
+        "offset": "0x00163234",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkEdit@@",
+        "demangled": "CNkEdit",
+        "offset": "0x00163250",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCCommonDialog@@",
+        "demangled": "CCommonDialog",
+        "offset": "0x00163268",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFileDialog@@",
+        "demangled": "CFileDialog",
+        "offset": "0x00163284",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkFileDialog@@",
+        "demangled": "CNkFileDialog",
+        "offset": "0x001632A0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkHelpTarget@@",
+        "demangled": "INkHelpTarget",
+        "offset": "0x001632BC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkHelpBar@@",
+        "demangled": "CNkHelpBar",
+        "offset": "0x001632D8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkImageProcSet@@",
+        "demangled": "CNkImageProcSet",
+        "offset": "0x001632F4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVbad_cast@@",
+        "demangled": "bad_cast",
+        "offset": "0x00163314",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPreviewWndWrapper@@",
+        "demangled": "CPreviewWndWrapper",
+        "offset": "0x0016332C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkMaidSourceManager@@",
+        "demangled": "CNkMaidSourceManager",
+        "offset": "0x00163350",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkSettings@@",
+        "demangled": "CNkSettings",
+        "offset": "0x00163384",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkSlider@@",
+        "demangled": "CNkSlider",
+        "offset": "0x001633A0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkStringBase@@",
+        "demangled": "CNkStringBase",
+        "offset": "0x001633B8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkString@@",
+        "demangled": "CNkString",
+        "offset": "0x001633D4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkAppPointerWrapper@@",
+        "demangled": "CNkAppPointerWrapper",
+        "offset": "0x001633EC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainSourceEntry@@",
+        "demangled": "CNkTwainSourceEntry",
+        "offset": "0x00163410",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVVNkTwainArray@@",
+        "demangled": "VNkTwainArray",
+        "offset": "0x0016345C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCTW_FRAME@@",
+        "demangled": "CTW_FRAME",
+        "offset": "0x001635AC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainIncomingArray@@",
+        "demangled": "CNkTwainIncomingArray",
+        "offset": "0x001635C4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainIncomingEnumeration@@",
+        "demangled": "CNkTwainIncomingEnumeration",
+        "offset": "0x001635E8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVVNkTwainRange@@",
+        "demangled": "VNkTwainRange",
+        "offset": "0x00163614",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainFix32Range@@",
+        "demangled": "CNkTwainFix32Range",
+        "offset": "0x00163630",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainIncomingRange@@",
+        "demangled": "CNkTwainIncomingRange",
+        "offset": "0x00163654",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainFix32OneValue@@",
+        "demangled": "CNkTwainFix32OneValue",
+        "offset": "0x00163678",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainIncomingOneValue@@",
+        "demangled": "CNkTwainIncomingOneValue",
+        "offset": "0x0016369C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainFix32Enumeration@@",
+        "demangled": "CNkTwainFix32Enumeration",
+        "offset": "0x00163B60",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkTwainFix32Array@@",
+        "demangled": "CNkTwainFix32Array",
+        "offset": "0x001641B4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkUSMList@@",
+        "demangled": "CNkUSMList",
+        "offset": "0x0016439C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTab@@",
+        "demangled": "CPrefTab",
+        "offset": "0x001643B8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPen@@",
+        "demangled": "CPen",
+        "offset": "0x001643D0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCRectCtrl@@",
+        "demangled": "CRectCtrl",
+        "offset": "0x001643E4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabAdColor@@",
+        "demangled": "CPrefTabAdColor",
+        "offset": "0x001643FC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabAdColorCMYK@@",
+        "demangled": "CPrefTabAdColorCMYK",
+        "offset": "0x0016441C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabAdColorGray@@",
+        "demangled": "CPrefTabAdColorGray",
+        "offset": "0x00164440",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabAdColorRGB@@",
+        "demangled": "CPrefTabAdColorRGB",
+        "offset": "0x00164464",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabAutoAction@@",
+        "demangled": "CPrefTabAutoAction",
+        "offset": "0x00164488",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabBatchScan@@",
+        "demangled": "CPrefTabBatchScan",
+        "offset": "0x001644AC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabCMS@@",
+        "demangled": "CPrefTabCMS",
+        "offset": "0x001644CC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabCMSCMYK@@",
+        "demangled": "CPrefTabCMSCMYK",
+        "offset": "0x001644E8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabCMSPreview@@",
+        "demangled": "CPrefTabCMSPreview",
+        "offset": "0x00164508",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabCMSRGB@@",
+        "demangled": "CPrefTabCMSRGB",
+        "offset": "0x0016452C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefMonitorGamma@@",
+        "demangled": "CPrefMonitorGamma",
+        "offset": "0x0016454C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabCalibration@@",
+        "demangled": "CPrefTabCalibration",
+        "offset": "0x0016456C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabDevice@@",
+        "demangled": "CPrefTabDevice",
+        "offset": "0x00164590",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabFileSave@@",
+        "demangled": "CPrefTabFileSave",
+        "offset": "0x001645B0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabFiles@@",
+        "demangled": "CPrefTabFiles",
+        "offset": "0x001645D0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabGrid@@",
+        "demangled": "CPrefTabGrid",
+        "offset": "0x001645EC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabPreview@@",
+        "demangled": "CPrefTabPreview",
+        "offset": "0x00164608",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPrefTabSingleScan@@",
+        "demangled": "CPrefTabSingleScan",
+        "offset": "0x00164628",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPreviewContainer@@",
+        "demangled": "CPreviewContainer",
+        "offset": "0x0016464C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCPreviewCtrlTab@@",
+        "demangled": "CPreviewCtrlTab",
+        "offset": "0x0016466C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCProcessCommandManager@@",
+        "demangled": "CProcessCommandManager",
+        "offset": "0x0016468C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCQueueAcquireDRAGImage@@",
+        "demangled": "CQueueAcquireDRAGImage",
+        "offset": "0x001646B4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCQueueNotifier@@",
+        "demangled": "CQueueNotifier",
+        "offset": "0x001646DC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCRevProcessCommand@@",
+        "demangled": "CRevProcessCommand",
+        "offset": "0x001646FC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCTabClose@@",
+        "demangled": "CTabClose",
+        "offset": "0x00164720",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkListItem@@",
+        "demangled": "CNkListItem",
+        "offset": "0x00164738",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCDRAGProcess@@",
+        "demangled": "CDRAGProcess",
+        "offset": "0x00164754",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCREVProcess@@",
+        "demangled": "CREVProcess",
+        "offset": "0x00164770",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkScroller@@",
+        "demangled": "INkScroller",
+        "offset": "0x0016478C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCScrollBar@@",
+        "demangled": "CScrollBar",
+        "offset": "0x001647A8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkScrollerBar@@",
+        "demangled": "CNkScrollerBar",
+        "offset": "0x001647C4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkThumbnailScroll@@",
+        "demangled": "CNkThumbnailScroll",
+        "offset": "0x001647E4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkScrollable@@",
+        "demangled": "INkScrollable",
+        "offset": "0x00164808",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkListBox@@",
+        "demangled": "CNkListBox",
+        "offset": "0x00164824",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkThumbnailListBox@@",
+        "demangled": "CNkThumbnailListBox",
+        "offset": "0x00164840",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkThumbnailListItem@@",
+        "demangled": "CNkThumbnailListItem",
+        "offset": "0x00164864",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCThumbnailTab@@",
+        "demangled": "CThumbnailTab",
+        "offset": "0x00164888",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCThumbnailWnd@@",
+        "demangled": "CThumbnailWnd",
+        "offset": "0x001648B4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlg@@",
+        "demangled": "CToolDlg",
+        "offset": "0x001648D4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgScanner@@",
+        "demangled": "CToolDlgScanner",
+        "offset": "0x001648EC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgScannerExtras@@",
+        "demangled": "CToolDlgScannerExtras",
+        "offset": "0x0016490C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgAnalogGain@@",
+        "demangled": "CToolDlgAnalogGain",
+        "offset": "0x00164930",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgColorBalance@@",
+        "demangled": "CToolDlgColorBalance",
+        "offset": "0x00164954",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkLutChannelBase@@",
+        "demangled": "CNkLutChannelBase",
+        "offset": "0x00164998",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkLutChannel@@",
+        "demangled": "CNkLutChannel",
+        "offset": "0x001649B8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgCrop@@",
+        "demangled": "CToolDlgCrop",
+        "offset": "0x001649F8",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgLutEditor@@",
+        "demangled": "CToolDlgLutEditor",
+        "offset": "0x00164A14",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgCurves@@",
+        "demangled": "CToolDlgCurves",
+        "offset": "0x00164A34",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVINkLutContainer@@",
+        "demangled": "INkLutContainer",
+        "offset": "0x00164A54",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgCurvesGeneric@@",
+        "demangled": "CToolDlgCurvesGeneric",
+        "offset": "0x00164A74",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgCurvesCMYK@@",
+        "demangled": "CToolDlgCurvesCMYK",
+        "offset": "0x00164A98",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCShortCutComboBox@@",
+        "demangled": "CShortCutComboBox",
+        "offset": "0x00164ABC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgCurvesGray@@",
+        "demangled": "CToolDlgCurvesGray",
+        "offset": "0x00164AE0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgCurvesLCH@@",
+        "demangled": "CToolDlgCurvesLCH",
+        "offset": "0x00164B04",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgCurvesRGB@@",
+        "demangled": "CToolDlgCurvesRGB",
+        "offset": "0x00164B24",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgImageEnhancement@@",
+        "demangled": "CToolDlgImageEnhancement",
+        "offset": "0x00164B44",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgInformation@@",
+        "demangled": "CToolDlgInformation",
+        "offset": "0x00164B6C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgLCHEditor@@",
+        "demangled": "CToolDlgLCHEditor",
+        "offset": "0x00164B90",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgLayout@@",
+        "demangled": "CToolDlgLayout",
+        "offset": "0x00164BB0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgNkEnhancement@@",
+        "demangled": "CToolDlgNkEnhancement",
+        "offset": "0x00164BD0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCGroupCtrlWrapper@@",
+        "demangled": "CGroupCtrlWrapper",
+        "offset": "0x00164BF4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCToolDlgUSM@@",
+        "demangled": "CToolDlgUSM",
+        "offset": "0x00164C14",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFrescoSettings@@",
+        "demangled": "CFrescoSettings",
+        "offset": "0x00164C34",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCWinSettings@@",
+        "demangled": "CWinSettings",
+        "offset": "0x00164C54",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCException@@",
+        "demangled": "CException",
+        "offset": "0x00164C70",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCFileException@@",
+        "demangled": "CFileException",
+        "offset": "0x00164C8C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCRecentFileList@@",
+        "demangled": "CRecentFileList",
+        "offset": "0x00164CAC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCRecentFileListReg@@",
+        "demangled": "CRecentFileListReg",
+        "offset": "0x00164CCC",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkPoint@@",
+        "demangled": "CNkPoint",
+        "offset": "0x00164D1C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkRect@@",
+        "demangled": "CNkRect",
+        "offset": "0x00164D4C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkCoordCtrl@@",
+        "demangled": "CNkCoordCtrl",
+        "offset": "0x00164D64",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCZoomList@@",
+        "demangled": "CZoomList",
+        "offset": "0x00164D80",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCHDevSetup@@",
+        "demangled": "CHDevSetup",
+        "offset": "0x00164D98",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCHLockCrop@@",
+        "demangled": "CHLockCrop",
+        "offset": "0x00164DB4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCHLockSize@@",
+        "demangled": "CHLockSize",
+        "offset": "0x00164DD0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkLutViewer@@",
+        "demangled": "CNkLutViewer",
+        "offset": "0x00164E20",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkLutEdit@@",
+        "demangled": "CNkLutEdit",
+        "offset": "0x00164E3C",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkHueChannel@@",
+        "demangled": "CNkHueChannel",
+        "offset": "0x00164EB4",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNkLutGroup@@",
+        "demangled": "CNkLutGroup",
+        "offset": "0x00164ED0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCProfileFileDialog@@",
+        "demangled": "CProfileFileDialog",
+        "offset": "0x001650F0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVCNoTrackObject@@",
+        "demangled": "CNoTrackObject",
+        "offset": "0x00165280",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVAFX_MODULE_STATE@@",
+        "demangled": "AFX_MODULE_STATE",
+        "offset": "0x001652A0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AV_AFX_DLL_MODULE_STATE@@",
+        "demangled": "_AFX_DLL_MODULE_STATE",
+        "offset": "0x001652C0",
+        "type": "class"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AVtype_info@@",
+        "demangled": "type_info",
+        "offset": "0x001652E4",
+        "type": "class"
+      }
+    ],
+    "structs": [
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AUtagNkMAIDCapInfo@@",
+        "demangled": "tagNkMAIDCapInfo",
+        "offset": "0x0016305C",
+        "type": "struct"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AUTW_FRAME@@",
+        "demangled": "TW_FRAME",
+        "offset": "0x00163594",
+        "type": "struct"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AUNkBigPoint@@",
+        "demangled": "NkBigPoint",
+        "offset": "0x00164D00",
+        "type": "struct"
+      },
+      {
+        "binary": "NikonScan4.ds",
+        "raw_name": ".?AUNkBigRect@@",
+        "demangled": "NkBigRect",
+        "offset": "0x00164D34",
+        "type": "struct"
+      }
+    ]
+  },
+  "DRAGNKL1.dll": {
+    "class_count": 0,
+    "struct_count": 0,
+    "classes": [],
+    "structs": []
+  },
+  "DRAGNKX2.dll": {
+    "class_count": 0,
+    "struct_count": 0,
+    "classes": [],
+    "structs": []
+  }
+}

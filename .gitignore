@@ -1,0 +1,34 @@
+# Binary originals (too large for git)
+*.iso
+*.bin
+
+# Ghidra project files (regenerated)
+*.lock
+*.lock~
+*.rep/
+*.gdt.bak
+*.gdt.bak.*
+
+# radare2 project databases
+*.r2db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Keep directory structure (don't ignore .gitkeep)
+!.gitkeep

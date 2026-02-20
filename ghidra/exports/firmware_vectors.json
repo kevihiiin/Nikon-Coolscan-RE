@@ -1,0 +1,563 @@
+{
+  "firmware": "Nikon LS-50 MBM29F400B TSOP48.bin",
+  "total_vectors": 64,
+  "active_count": 15,
+  "default_handler": "0x000186",
+  "vectors": [
+    {
+      "index": 0,
+      "table_offset": "0x000",
+      "target": "0x000100",
+      "target_raw": "0x00000100",
+      "name": "Reset (power-on)"
+    },
+    {
+      "index": 1,
+      "table_offset": "0x004",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 2,
+      "table_offset": "0x008",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 3,
+      "table_offset": "0x00C",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 4,
+      "table_offset": "0x010",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 5,
+      "table_offset": "0x014",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 6,
+      "table_offset": "0x018",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 7,
+      "table_offset": "0x01C",
+      "target": "0x000182",
+      "target_raw": "0x00000182",
+      "name": "NMI (non-maskable interrupt)"
+    },
+    {
+      "index": 8,
+      "table_offset": "0x020",
+      "target": "0xFFFD10",
+      "target_raw": "0x00FFFD10",
+      "name": "TRAP #0"
+    },
+    {
+      "index": 9,
+      "table_offset": "0x024",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "TRAP #1"
+    },
+    {
+      "index": 10,
+      "table_offset": "0x028",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "TRAP #2"
+    },
+    {
+      "index": 11,
+      "table_offset": "0x02C",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "TRAP #3"
+    },
+    {
+      "index": 12,
+      "table_offset": "0x030",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IRQ0 (external)"
+    },
+    {
+      "index": 13,
+      "table_offset": "0x034",
+      "target": "0xFFFD3C",
+      "target_raw": "0x00FFFD3C",
+      "name": "IRQ1 (external)"
+    },
+    {
+      "index": 14,
+      "table_offset": "0x038",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IRQ2 (external)"
+    },
+    {
+      "index": 15,
+      "table_offset": "0x03C",
+      "target": "0xFFFD14",
+      "target_raw": "0x00FFFD14",
+      "name": "IRQ3 (external)"
+    },
+    {
+      "index": 16,
+      "table_offset": "0x040",
+      "target": "0xFFFD18",
+      "target_raw": "0x00FFFD18",
+      "name": "IRQ4 (external)"
+    },
+    {
+      "index": 17,
+      "table_offset": "0x044",
+      "target": "0xFFFD18",
+      "target_raw": "0x00FFFD18",
+      "name": "IRQ5 (external)"
+    },
+    {
+      "index": 18,
+      "table_offset": "0x048",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 19,
+      "table_offset": "0x04C",
+      "target": "0xFFFD38",
+      "target_raw": "0x00FFFD38",
+      "name": "Reserved"
+    },
+    {
+      "index": 20,
+      "table_offset": "0x050",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "WOVI (watchdog overflow)"
+    },
+    {
+      "index": 21,
+      "table_offset": "0x054",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "CMI (compare match)"
+    },
+    {
+      "index": 22,
+      "table_offset": "0x058",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 23,
+      "table_offset": "0x05C",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 24,
+      "table_offset": "0x060",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IMIA0 (ITU ch0 compare A)"
+    },
+    {
+      "index": 25,
+      "table_offset": "0x064",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IMIB0 (ITU ch0 compare B)"
+    },
+    {
+      "index": 26,
+      "table_offset": "0x068",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "OVI0 (ITU ch0 overflow)"
+    },
+    {
+      "index": 27,
+      "table_offset": "0x06C",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 28,
+      "table_offset": "0x070",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IMIA1 (ITU ch1 compare A)"
+    },
+    {
+      "index": 29,
+      "table_offset": "0x074",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IMIB1 (ITU ch1 compare B)"
+    },
+    {
+      "index": 30,
+      "table_offset": "0x078",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "OVI1 (ITU ch1 overflow)"
+    },
+    {
+      "index": 31,
+      "table_offset": "0x07C",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 32,
+      "table_offset": "0x080",
+      "target": "0xFFFD1C",
+      "target_raw": "0x00FFFD1C",
+      "name": "IMIA2 (ITU ch2 compare A)"
+    },
+    {
+      "index": 33,
+      "table_offset": "0x084",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IMIB2 (ITU ch2 compare B)"
+    },
+    {
+      "index": 34,
+      "table_offset": "0x088",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "OVI2 (ITU ch2 overflow)"
+    },
+    {
+      "index": 35,
+      "table_offset": "0x08C",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 36,
+      "table_offset": "0x090",
+      "target": "0xFFFD20",
+      "target_raw": "0x00FFFD20",
+      "name": "IMIA3 (ITU ch3 compare A)"
+    },
+    {
+      "index": 37,
+      "table_offset": "0x094",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IMIB3 (ITU ch3 compare B)"
+    },
+    {
+      "index": 38,
+      "table_offset": "0x098",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "OVI3 (ITU ch3 overflow)"
+    },
+    {
+      "index": 39,
+      "table_offset": "0x09C",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 40,
+      "table_offset": "0x0A0",
+      "target": "0xFFFD24",
+      "target_raw": "0x00FFFD24",
+      "name": "IMIA4 (ITU ch4 compare A)"
+    },
+    {
+      "index": 41,
+      "table_offset": "0x0A4",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "IMIB4 (ITU ch4 compare B)"
+    },
+    {
+      "index": 42,
+      "table_offset": "0x0A8",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "OVI4 (ITU ch4 overflow)"
+    },
+    {
+      "index": 43,
+      "table_offset": "0x0AC",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 44,
+      "table_offset": "0x0B0",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "DEND0A (DMAC ch0A end)"
+    },
+    {
+      "index": 45,
+      "table_offset": "0x0B4",
+      "target": "0xFFFD28",
+      "target_raw": "0x00FFFD28",
+      "name": "DEND0B (DMAC ch0B end)"
+    },
+    {
+      "index": 46,
+      "table_offset": "0x0B8",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "DEND1A (DMAC ch1A end)"
+    },
+    {
+      "index": 47,
+      "table_offset": "0x0BC",
+      "target": "0xFFFD2C",
+      "target_raw": "0x00FFFD2C",
+      "name": "DEND1B (DMAC ch1B end)"
+    },
+    {
+      "index": 48,
+      "table_offset": "0x0C0",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 49,
+      "table_offset": "0x0C4",
+      "target": "0xFFFD30",
+      "target_raw": "0x00FFFD30",
+      "name": "Reserved"
+    },
+    {
+      "index": 50,
+      "table_offset": "0x0C8",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 51,
+      "table_offset": "0x0CC",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 52,
+      "table_offset": "0x0D0",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "ERI0 (SCI ch0 receive error)"
+    },
+    {
+      "index": 53,
+      "table_offset": "0x0D4",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "RXI0 (SCI ch0 receive)"
+    },
+    {
+      "index": 54,
+      "table_offset": "0x0D8",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "TXI0 (SCI ch0 transmit)"
+    },
+    {
+      "index": 55,
+      "table_offset": "0x0DC",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "TEI0 (SCI ch0 transmit end)"
+    },
+    {
+      "index": 56,
+      "table_offset": "0x0E0",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "ERI1 (SCI ch1 receive error)"
+    },
+    {
+      "index": 57,
+      "table_offset": "0x0E4",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "RXI1 (SCI ch1 receive)"
+    },
+    {
+      "index": 58,
+      "table_offset": "0x0E8",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "TXI1 (SCI ch1 transmit)"
+    },
+    {
+      "index": 59,
+      "table_offset": "0x0EC",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "TEI1 (SCI ch1 transmit end)"
+    },
+    {
+      "index": 60,
+      "table_offset": "0x0F0",
+      "target": "0xFFFD34",
+      "target_raw": "0x00FFFD34",
+      "name": "ADI (A/D conversion end)"
+    },
+    {
+      "index": 61,
+      "table_offset": "0x0F4",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 62,
+      "table_offset": "0x0F8",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    },
+    {
+      "index": 63,
+      "table_offset": "0x0FC",
+      "target": "0x000186",
+      "target_raw": "0x00000186",
+      "name": "Reserved"
+    }
+  ],
+  "active_vectors": [
+    {
+      "index": 0,
+      "table_offset": "0x000",
+      "target": "0x000100",
+      "target_raw": "0x00000100",
+      "name": "Reset (power-on)"
+    },
+    {
+      "index": 7,
+      "table_offset": "0x01C",
+      "target": "0x000182",
+      "target_raw": "0x00000182",
+      "name": "NMI (non-maskable interrupt)"
+    },
+    {
+      "index": 8,
+      "table_offset": "0x020",
+      "target": "0xFFFD10",
+      "target_raw": "0x00FFFD10",
+      "name": "TRAP #0"
+    },
+    {
+      "index": 13,
+      "table_offset": "0x034",
+      "target": "0xFFFD3C",
+      "target_raw": "0x00FFFD3C",
+      "name": "IRQ1 (external)"
+    },
+    {
+      "index": 15,
+      "table_offset": "0x03C",
+      "target": "0xFFFD14",
+      "target_raw": "0x00FFFD14",
+      "name": "IRQ3 (external)"
+    },
+    {
+      "index": 16,
+      "table_offset": "0x040",
+      "target": "0xFFFD18",
+      "target_raw": "0x00FFFD18",
+      "name": "IRQ4 (external)"
+    },
+    {
+      "index": 17,
+      "table_offset": "0x044",
+      "target": "0xFFFD18",
+      "target_raw": "0x00FFFD18",
+      "name": "IRQ5 (external)"
+    },
+    {
+      "index": 19,
+      "table_offset": "0x04C",
+      "target": "0xFFFD38",
+      "target_raw": "0x00FFFD38",
+      "name": "Reserved"
+    },
+    {
+      "index": 32,
+      "table_offset": "0x080",
+      "target": "0xFFFD1C",
+      "target_raw": "0x00FFFD1C",
+      "name": "IMIA2 (ITU ch2 compare A)"
+    },
+    {
+      "index": 36,
+      "table_offset": "0x090",
+      "target": "0xFFFD20",
+      "target_raw": "0x00FFFD20",
+      "name": "IMIA3 (ITU ch3 compare A)"
+    },
+    {
+      "index": 40,
+      "table_offset": "0x0A0",
+      "target": "0xFFFD24",
+      "target_raw": "0x00FFFD24",
+      "name": "IMIA4 (ITU ch4 compare A)"
+    },
+    {
+      "index": 45,
+      "table_offset": "0x0B4",
+      "target": "0xFFFD28",
+      "target_raw": "0x00FFFD28",
+      "name": "DEND0B (DMAC ch0B end)"
+    },
+    {
+      "index": 47,
+      "table_offset": "0x0BC",
+      "target": "0xFFFD2C",
+      "target_raw": "0x00FFFD2C",
+      "name": "DEND1B (DMAC ch1B end)"
+    },
+    {
+      "index": 49,
+      "table_offset": "0x0C4",
+      "target": "0xFFFD30",
+      "target_raw": "0x00FFFD30",
+      "name": "Reserved"
+    },
+    {
+      "index": 60,
+      "table_offset": "0x0F0",
+      "target": "0xFFFD34",
+      "target_raw": "0x00FFFD34",
+      "name": "ADI (A/D conversion end)"
+    }
+  ]
+}
