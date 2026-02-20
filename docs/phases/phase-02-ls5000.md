@@ -9,9 +9,9 @@ All must be met to mark phase complete:
 - [ ] Complete list of SCSI opcodes used, with CDB byte layout for each (standard + vendor-specific)
 - [ ] Each `NkDriverEntry` callsite annotated with: opcode, CDB bytes, data direction, data format, purpose
 - [ ] MAID capability ID -> SCSI command mapping table produced
-- [ ] At least 80% of SCSI commands have individual docs in `kb/scsi-commands/`
+- [ ] At least 80% of SCSI commands have individual docs in `docs/kb/scsi-commands/`
 - [ ] Quick comparison table of LS4000/LS5000/LS8000/LS9000.md3 differences (export count, size, unique strings)
-- [ ] `kb/components/ls5000-md3/scsi-command-build.md` contains the definitive SCSI command catalog
+- [ ] `docs/kb/components/ls5000-md3/scsi-command-build.md` contains the definitive SCSI command catalog
 
 ## Targets
 
@@ -32,7 +32,7 @@ All must be met to mark phase complete:
 - `NkMDCtrlEntry` -- module device control entry
 - Import of `NkDriverEntry` from NKDUSCAN.dll -- every call to this is a SCSI command send
 **Where to look**: Start at each export address in Ghidra
-**Output**: Documented function signatures in `kb/components/ls5000-md3/maid-entrypoint.md`
+**Output**: Documented function signatures in `docs/kb/components/ls5000-md3/maid-entrypoint.md`
 
 ### Step 2: Find All NkDriverEntry Callsites
 **What to do**: Find every location where LS5000.md3 calls `NkDriverEntry` (imported from NKDUSCAN.dll).
@@ -52,7 +52,7 @@ All must be met to mark phase complete:
 - CDB structure: opcode byte, LUN bits, parameter bytes, control byte
 - Data phase: direction (in/out/none), buffer format, length calculation
 **Where to look**: Code immediately before NkDriverEntry calls -- look for buffer fill patterns
-**Output**: Per-opcode CDB layout documentation in `kb/scsi-commands/`
+**Output**: Per-opcode CDB layout documentation in `docs/kb/scsi-commands/`
 
 ### Step 4: MAID Capability Mapping
 **What to do**: Map MAID capability IDs to the SCSI commands they trigger.
@@ -62,7 +62,7 @@ All must be met to mark phase complete:
 - Some capabilities may trigger multiple SCSI commands in sequence
 - Group: read-only capabilities (GET queries) vs write capabilities (SET commands)
 **Where to look**: `MAIDEntryPoint` dispatch logic, handler functions
-**Output**: Capability mapping table in `kb/components/ls5000-md3/maid-entrypoint.md`
+**Output**: Capability mapping table in `docs/kb/components/ls5000-md3/maid-entrypoint.md`
 
 ### Step 5: Document Individual SCSI Commands
 **What to do**: For each SCSI opcode found, create a detailed per-command KB document.
@@ -72,7 +72,7 @@ All must be met to mark phase complete:
 - Parameter meaning: what each CDB byte controls
 - Context: when is this command used (init, preview, scan, calibrate, etc.)
 - Response: what the scanner returns (for data-in commands)
-**Output**: Individual docs in `kb/scsi-commands/` (e.g., `inquiry.md`, `set-window.md`, `vendor-specific/nikon-e1.md`)
+**Output**: Individual docs in `docs/kb/scsi-commands/` (e.g., `inquiry.md`, `set-window.md`, `vendor-specific/nikon-e1.md`)
 
 ### Step 6: Cross-Model Comparison (Quick)
 **What to do**: Quick comparison of all 4 .md3 modules.
@@ -82,7 +82,7 @@ All must be met to mark phase complete:
 - Unique strings per module (model names, firmware versions, etc.)
 - Any unique SCSI opcodes not in LS5000
 **Where to look**: Compare string dumps and export lists
-**Output**: Comparison table in `kb/components/ls5000-md3/scsi-command-build.md`
+**Output**: Comparison table in `docs/kb/components/ls5000-md3/scsi-command-build.md`
 
 ## Key Addresses / Patterns
 
@@ -113,16 +113,16 @@ cdb_buffer[4] = length;     // or cdb_buffer[7..8] for 10-byte CDBs
 ```
 
 ## Prerequisite Knowledge
-- Phase 1 `NkDriverEntry` API: `kb/components/nkduscan/api.md`
-- Phase 1 USB protocol: `kb/architecture/usb-protocol.md`
+- Phase 1 `NkDriverEntry` API: `docs/kb/components/nkduscan/api.md`
+- Phase 1 USB protocol: `docs/kb/architecture/usb-protocol.md`
 - SCSI-2 Scanner device specification (SPC-2, SSC)
 
 ## KB Deliverables
-- `kb/components/ls5000-md3/maid-entrypoint.md`
-- `kb/components/ls5000-md3/scsi-command-build.md`
-- `kb/scsi-commands/*.md` (one per opcode)
-- Update `kb/architecture/software-layers.md` with MAID details
+- `docs/kb/components/ls5000-md3/maid-entrypoint.md`
+- `docs/kb/components/ls5000-md3/scsi-command-build.md`
+- `docs/kb/scsi-commands/*.md` (one per opcode)
+- Update `docs/kb/architecture/software-layers.md` with MAID details
 
 ## Log Files
-- Phase log: `logs/phases/phase-02-ls5000.md`
-- Component logs: `logs/components/ls5000-attempts.md`
+- Phase log: `docs/log/phases/phase-02-ls5000.md`
+- Component logs: `docs/log/components/ls5000-attempts.md`

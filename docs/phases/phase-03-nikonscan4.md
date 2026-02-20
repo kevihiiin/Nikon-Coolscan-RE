@@ -10,7 +10,7 @@ All must be met to mark phase complete:
 - [ ] At least these scan workflows fully traced (MAID calls in order): initialization, preview scan, final scan, autofocus, film advance/eject
 - [ ] Each workflow documented as a sequence of SCSI commands (referencing Phase 2 command catalog)
 - [ ] UI parameter -> SCSI parameter mapping for: resolution, bit depth, color mode, scan area, film type, gain/offset
-- [ ] `kb/components/nikonscan4-ds/scan-workflow.md` is the definitive scan workflow reference
+- [ ] `docs/kb/components/nikonscan4-ds/scan-workflow.md` is the definitive scan workflow reference
 
 ## Targets
 
@@ -28,7 +28,7 @@ All must be met to mark phase complete:
 - Handler function for each supported triplet
 - How TWAIN operations map to internal scan operations
 **Where to look**: `DS_Entry` export, dispatch table/switch
-**Output**: TWAIN triplet mapping table in `kb/components/nikonscan4-ds/twain-dispatch.md`
+**Output**: TWAIN triplet mapping table in `docs/kb/components/nikonscan4-ds/twain-dispatch.md`
 
 ### Step 2: Command Queue Architecture
 **What to do**: Reverse the command queue classes.
@@ -39,7 +39,7 @@ All must be met to mark phase complete:
 - Sequencing model: synchronous vs async, threading, command dependencies
 - Error propagation: how a failed command affects the queue
 **Where to look**: RTTI class names, constructor/destructor chains, virtual methods
-**Output**: Class hierarchy and sequencing docs in `kb/components/nikonscan4-ds/command-queue.md`
+**Output**: Class hierarchy and sequencing docs in `docs/kb/components/nikonscan4-ds/command-queue.md`
 
 ### Step 3: Scan Workflow Tracing
 **What to do**: Trace complete workflows from TWAIN entry to MAID calls.
@@ -70,7 +70,7 @@ All must be met to mark phase complete:
 - Vendor-specific motor control commands
 
 **Where to look**: Trace from TWAIN handlers -> internal methods -> MAIDEntryPoint calls
-**Output**: Per-workflow sequence diagrams in `kb/components/nikonscan4-ds/scan-workflow.md`
+**Output**: Per-workflow sequence diagrams in `docs/kb/components/nikonscan4-ds/scan-workflow.md`
 
 ### Step 4: UI Parameter -> SCSI Mapping
 **What to do**: Map user-facing settings to SCSI command parameters.
@@ -83,7 +83,7 @@ All must be met to mark phase complete:
 - **Gain/offset** (analog gain, exposure) -> vendor-specific calibration commands
 - **Multi-sample** (1x, 2x, 4x, 8x, 16x) -> scan count or averaging parameter
 **Where to look**: TWAIN capability handlers (MSG_SET), trace to MAID capability set calls
-**Output**: Parameter mapping table in `kb/components/nikonscan4-ds/scan-workflow.md`
+**Output**: Parameter mapping table in `docs/kb/components/nikonscan4-ds/scan-workflow.md`
 
 ## Key Addresses / Patterns
 
@@ -103,16 +103,16 @@ All must be met to mark phase complete:
 - "MAID" -- MAID interface references
 
 ## Prerequisite Knowledge
-- Phase 1: `kb/components/nkduscan/api.md` (NkDriverEntry)
-- Phase 2: `kb/scsi-commands/` (SCSI command catalog), `kb/components/ls5000-md3/maid-entrypoint.md`
+- Phase 1: `docs/kb/components/nkduscan/api.md` (NkDriverEntry)
+- Phase 2: `docs/kb/scsi-commands/` (SCSI command catalog), `docs/kb/components/ls5000-md3/maid-entrypoint.md`
 - TWAIN specification basics (DG/DAT/MSG triplet model)
 
 ## KB Deliverables
-- `kb/components/nikonscan4-ds/twain-dispatch.md`
-- `kb/components/nikonscan4-ds/command-queue.md`
-- `kb/components/nikonscan4-ds/scan-workflow.md`
-- Update `kb/architecture/software-layers.md` with TWAIN layer details
+- `docs/kb/components/nikonscan4-ds/twain-dispatch.md`
+- `docs/kb/components/nikonscan4-ds/command-queue.md`
+- `docs/kb/components/nikonscan4-ds/scan-workflow.md`
+- Update `docs/kb/architecture/software-layers.md` with TWAIN layer details
 
 ## Log Files
-- Phase log: `logs/phases/phase-03-nikonscan4.md`
-- Component log: `logs/components/nikonscan4-attempts.md`
+- Phase log: `docs/log/phases/phase-03-nikonscan4.md`
+- Component log: `docs/log/components/nikonscan4-attempts.md`

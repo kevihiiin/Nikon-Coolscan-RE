@@ -12,8 +12,8 @@ All must be met to mark phase complete:
 - [ ] r2 `firmware_init.r2` script runs without error and labels vector table + known strings
 - [ ] PE export extraction script produces CSV for all DLLs
 - [ ] RTTI extraction script recovers class names from at least NKDUSCAN.dll
-- [ ] `kb/architecture/system-overview.md` and `kb/architecture/software-layers.md` written
-- [ ] `logs/general.md` and `logs/phases/phase-00-setup.md` initialized
+- [ ] `docs/kb/architecture/system-overview.md` and `docs/kb/architecture/software-layers.md` written
+- [ ] `docs/log/general.md` and `docs/log/phases/phase-00-setup.md` initialized
 
 ## Targets
 
@@ -81,15 +81,15 @@ All PE32 binary paths are relative to `binaries/software/NikonScan403_installed/
 
 ### Step 7: Write Initial KB Docs
 **What to do**: Create:
-- `kb/architecture/system-overview.md` -- Hardware + software architecture
-- `kb/architecture/software-layers.md` -- Call chain from TWAIN to firmware
+- `docs/kb/architecture/system-overview.md` -- Hardware + software architecture
+- `docs/kb/architecture/software-layers.md` -- Call chain from TWAIN to firmware
 **Output**: Populated KB architecture docs with Status: Draft.
 
 ### Step 8: Initialize Log Files
 **What to do**: Create all log files with proper headers:
-- `logs/general.md` -- with current phase, session template
-- `logs/strategy.md` -- with active strategies section
-- `logs/phases/phase-00-setup.md` -- with phase 0 attempt log
+- `docs/log/general.md` -- with current phase, session template
+- `docs/log/strategy.md` -- with active strategies section
+- `docs/log/phases/phase-00-setup.md` -- with phase 0 attempt log
 **Output**: All log files ready for append.
 
 ## Key Addresses / Patterns
@@ -113,10 +113,10 @@ All PE32 binary paths are relative to `binaries/software/NikonScan403_installed/
 None -- this is the first phase.
 
 ## KB Deliverables
-- `kb/architecture/system-overview.md`
-- `kb/architecture/software-layers.md`
+- `docs/kb/architecture/system-overview.md`
+- `docs/kb/architecture/software-layers.md`
 
 ## Log Files
-- Phase log: `logs/phases/phase-00-setup.md`
-- General log: `logs/general.md`
-- Strategy log: `logs/strategy.md`
+- Phase log: `docs/log/phases/phase-00-setup.md`
+- General log: `docs/log/general.md`
+- Strategy log: `docs/log/strategy.md`

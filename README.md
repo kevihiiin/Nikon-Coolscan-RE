@@ -28,13 +28,13 @@ NikonScan4.ds (TWAIN) -> LS5000.md3 (MAID) -> NKDUSCAN.dll (USB) -> usbscan.sys 
 - `ghidra/` -- Ghidra projects, scripts, exports
 - `r2/` -- radare2 scripts and projects
 - `scripts/` -- Python and shell analysis scripts
-- `kb/` -- Knowledge base (the main output)
-- `logs/` -- Progress and attempt logs
+- `docs/kb/` -- Knowledge base (the main output)
+- `docs/log/` -- Progress and attempt logs
 - `tools/` -- Third-party tools (H8/300H SLEIGH module)
 
 ## Status
 
-See `logs/general.md` for current progress.
+See `docs/log/general.md` for current progress.
 
 ## References
 

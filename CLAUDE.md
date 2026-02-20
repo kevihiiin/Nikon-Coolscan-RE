@@ -12,15 +12,15 @@ the complete SCSI communication protocol. End goal: build modern cross-platform 
 Every new session, follow this chain:
 
 1. **You are here** -- `CLAUDE.md` (this file) gives you project context
-2. **Read `logs/general.md` header** -- tells you current phase and what to work on next
+2. **Read `docs/log/general.md` header** -- tells you current phase and what to work on next
 3. **Read `docs/phases/phase-NN-<name>.md`** for the current phase -- contains:
    - Completion criteria (checklist of what "done" means)
    - Detailed methodology (what to analyze, in what order)
    - Key files and addresses to examine
    - What to look for and where
-4. **Read `logs/phases/phase-NN-<name>.md`** -- the phase attempt log, tells you what was already tried
-5. **Read relevant `logs/components/NAME-attempts.md`** -- what was already found for the binary you're working on
-6. **Read relevant `kb/` docs** -- existing findings to build upon
+4. **Read `docs/log/phases/phase-NN-<name>.md`** -- the phase attempt log, tells you what was already tried
+5. **Read relevant `docs/log/components/NAME-attempts.md`** -- what was already found for the binary you're working on
+6. **Read relevant `docs/kb/` docs** -- existing findings to build upon
 
 Only then begin work.
 
@@ -32,17 +32,17 @@ For EVERY unit of work (analyzing a function, tracing a code path, identifying a
 Do the actual RE work: decompile, trace, pattern match, cross-reference.
 
 ### 2. LOG -- Record what you did and found (even failures!)
-- **Append** to the relevant component log (`logs/components/NAME-attempts.md`)
+- **Append** to the relevant component log (`docs/log/components/NAME-attempts.md`)
 - Include: date, tool used, target (function/address), what you tried, what you found, confidence level
 - **Failed attempts are equally important** -- log what didn't work and why, so we don't repeat it
-- Update the phase log (`logs/phases/`) with progress
+- Update the phase log (`docs/log/phases/`) with progress
 
 ### 3. VERIFY -- Cross-check the finding
 - Can this be confirmed from another source? (host-side vs device-side, string xref, etc.)
 - Set confidence level: Verified (2+ sources), High (clear evidence), Medium (reasonable), Low (speculative)
 
 ### 4. KB -- Write it up
-- **ALL new knowledge MUST go to `kb/`** -- the KB is our final deliverable
+- **ALL new knowledge MUST go to `docs/kb/`** -- the KB is our final deliverable
 - KB docs must be comprehensive enough that a **junior developer** could understand them
 - Explain the "why" not just the "what" -- why does this SCSI command exist? What problem does it solve?
 - Include hex dumps, decompiled code snippets, diagrams where they help understanding
@@ -53,7 +53,11 @@ If a finding is too uncertain (Low confidence), still add it to KB but mark it c
 ## Project Layout
 
 - `CLAUDE.md` -- THIS FILE. Bootstrap for every Claude session
-- `docs/phases/` -- **Phase instruction docs** (one per phase, contains completion criteria + methodology)
+- `ARCHITECTURE.md` -- Call-chain overview, links to detailed KB docs
+- `docs/` -- **All model-written documentation**
+  - `docs/phases/` -- Phase instruction docs (completion criteria + methodology)
+  - `docs/kb/` -- **Knowledge base (ALL findings go here)** -- this is our final output
+  - `docs/log/` -- Progress and attempt logs (**APPEND ONLY** - see rules below)
 - `binaries/` -- Original firmware + NikonScan 4.03 files (**READ ONLY, never modify**)
 - `ghidra/projects/` -- Ghidra project dirs (NikonScan_Drivers, _Modules, _TWAIN, _ICE, CoolscanFirmware)
 - `ghidra/scripts/` -- Ghidra Python/Java analysis scripts
@@ -61,8 +65,7 @@ If a finding is too uncertain (Low confidence), still add it to KB but mark it c
 - `r2/scripts/` -- radare2 analysis scripts (firmware_init.r2 etc.)
 - `scripts/python/` -- PE analysis, RTTI extraction, SCSI pattern matching scripts
 - `scripts/shell/` -- bootstrap_ghidra.sh and other shell scripts
-- `kb/` -- **Knowledge base (ALL findings go here)** -- this is our final output
-- `logs/` -- Progress and attempt logs (**APPEND ONLY** - see rules below)
+- `.claude/skills/` -- RE-specific slash command skills
 - `tools/` -- Third-party tools (Ghidra H8/300H SLEIGH module etc.)
 
 ## Key Binaries (by RE priority)
@@ -162,18 +165,18 @@ Everything below the separator is an immutable chronological record.
 repeating the same dead end and may provide clues for a different approach.
 
 Log locations:
-- `logs/general.md` -- Session journal (date, goals, accomplished, blockers, next steps)
-- `logs/strategy.md` -- Evolving RE tactics (what works, tool tips, reusable patterns)
-- `logs/phases/phase-NN-name.md` -- Per-phase attempt log
-- `logs/components/NAME-attempts.md` -- Per-binary analysis history
+- `docs/log/general.md` -- Session journal (date, goals, accomplished, blockers, next steps)
+- `docs/log/strategy.md` -- Evolving RE tactics (what works, tool tips, reusable patterns)
+- `docs/log/phases/phase-NN-name.md` -- Per-phase attempt log
+- `docs/log/components/NAME-attempts.md` -- Per-binary analysis history
 
 ## KB Rules (THIS IS OUR FINAL OUTPUT)
 
-The `kb/` directory is the entire point of this project. It must be **comprehensive enough
+The `docs/kb/` directory is the entire point of this project. It must be **comprehensive enough
 that a junior developer can understand the Coolscan SCSI protocol** and write a driver from it.
 
 Rules:
-- **ALL new knowledge MUST go to `kb/`** -- findings that only exist in logs or conversation are lost
+- **ALL new knowledge MUST go to `docs/kb/`** -- findings that only exist in logs or conversation are lost
 - Every KB doc has: Status, Last Updated, Phase, Confidence level
 - Explain the "why" not just the "what" -- context matters for driver writers
 - Include hex dumps, decompiled snippets, diagrams where they help understanding
@@ -182,23 +185,37 @@ Rules:
 - When in doubt, write MORE detail, not less
 
 KB structure:
-- `kb/architecture/` -- System overview, software layers, USB protocol, MAID interface
-- `kb/scsi-commands/` -- Per-command docs (the crown jewel for driver writers)
-- `kb/components/` -- Deep analysis per binary (nkduscan/, ls5000-md3/, firmware/, etc.)
-- `kb/scanners/` -- Per-model notes (coolscan-v-ls50, super-coolscan-5000, etc.)
-- `kb/reference/` -- CPU reference, chip datasheets, spec summaries
+- `docs/kb/architecture/` -- System overview, software layers, USB protocol, MAID interface
+- `docs/kb/scsi-commands/` -- Per-command docs (the crown jewel for driver writers)
+- `docs/kb/components/` -- Deep analysis per binary (nkduscan/, ls5000-md3/, firmware/, etc.)
+- `docs/kb/scanners/` -- Per-model notes (coolscan-v-ls50, super-coolscan-5000, etc.)
+- `docs/kb/reference/` -- CPU reference, chip datasheets, spec summaries
 
-## Subagent Usage
+## Skills & Subagents
 
-Use subagents to parallelize:
-- `general-purpose` -- Multi-binary search, web research, correlation
-- `Bash` -- Ghidra headless, r2 batch, Python scripts (use run_in_background for long jobs)
-- `feature-dev:code-explorer` -- Trace decompiled code paths, map class hierarchies
+RE-specific commands in `.claude/skills/`. **Skills** run in main context (quick writes). **Subagents** run in a forked context to keep the main conversation lean -- all heavy reading stays in the fork.
 
-Rules:
-- Always give subagents specific file paths and targets
-- Subagent results MUST be written to KB files (not just reported in conversation)
-- Subagent work MUST be logged in the appropriate component/phase log
+### Skills (main context -- need current findings)
+| Command | Purpose |
+|---------|---------|
+| `/log-finding [component]` | Append structured finding to component + phase log |
+| `/update-kb [path]` | Create/update KB doc with proper format |
+
+### Subagents (forked context -- heavy reading stays in fork)
+| Command | Purpose |
+|---------|---------|
+| `/unstuck` | Read all logs + KB open questions, suggest what to try next |
+| `/xref [pattern]` | Search pattern across all binaries |
+| `/phase-check [N]` | Check phase completion status |
+| `/verify [kb-doc]` | Cross-validate finding host vs device side |
+| `/ghidra-run [project] [script]` | Run Ghidra headless (background) |
+| `/prefetch-refs [N]` | Gather reference material (background) |
+
+### When Claude Should Auto-Launch Subagents
+In addition to user-invoked commands, Claude should proactively launch subagents for:
+- **Multi-binary search**: When analyzing a SCSI opcode in one DLL, launch a subagent to search all other DLLs + firmware for the same opcode
+- **Host-device cross-ref**: When documenting a CDB format, launch a subagent to find the matching firmware handler
+- **Background Ghidra**: When a script needs to run, launch it in background and continue other work
 
 ## Hardware Quick Reference
 

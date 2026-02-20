@@ -13,8 +13,8 @@
 - [x] r2 `firmware_init.r2` script runs without error and labels vector table + known strings
 - [x] PE export extraction script produces CSV for all DLLs
 - [x] RTTI extraction script recovers class names from at least NKDUSCAN.dll
-- [x] `kb/architecture/system-overview.md` and `kb/architecture/software-layers.md` written
-- [x] `logs/general.md` and `logs/phases/phase-00-setup.md` initialized
+- [x] `docs/kb/architecture/system-overview.md` and `docs/kb/architecture/software-layers.md` written
+- [x] `docs/log/general.md` and `docs/log/phases/phase-00-setup.md` initialized
 
 ---
 <!-- ENTRIES BELOW - APPEND ONLY -->

@@ -56,12 +56,12 @@ All must be met to mark phase complete:
 ## Evidence
 [Host-side: DLL:offset, Device-side: firmware:offset]
 ```
-**Output**: Updated `kb/scsi-commands/` docs to spec quality
+**Output**: Updated `docs/kb/scsi-commands/` docs to spec quality
 
 ### Step 3: Vendor-Specific Command Deep Dive
 **What to do**: Ensure all Nikon vendor-specific commands (0xC0-0xFF) are fully documented.
 **What to look for**: These are the most valuable part of the spec -- they're undocumented by any standard.
-**Output**: Complete `kb/scsi-commands/vendor-specific/` directory
+**Output**: Complete `docs/kb/scsi-commands/vendor-specific/` directory
 
 ### Step 4: Sense Code Catalog
 **What to do**: Document all sense data / error responses.
@@ -70,7 +70,7 @@ All must be met to mark phase complete:
 - Additional Sense Code (ASC) / Additional Sense Code Qualifier (ASCQ) pairs
 - When each error occurs (from firmware analysis)
 - How the host driver handles each error
-**Output**: `kb/scsi-commands/sense-codes.md`
+**Output**: `docs/kb/scsi-commands/sense-codes.md`
 
 ### Step 5: USB Protocol Finalization
 **What to do**: Finalize the USB wrapping protocol spec from Phase 1.
@@ -79,7 +79,7 @@ All must be met to mark phase complete:
 - Timing requirements or timeouts
 - Error recovery procedures
 - Endpoint configuration
-**Output**: Final `kb/architecture/usb-protocol.md` -- implementation-ready
+**Output**: Final `docs/kb/architecture/usb-protocol.md` -- implementation-ready
 
 ### Step 6: Workflow Sequences with Hex Bytes
 **What to do**: Document complete scan workflows as exact byte sequences.
@@ -87,7 +87,7 @@ All must be met to mark phase complete:
 - Ordered list of SCSI commands with exact CDB hex bytes
 - Expected responses (hex bytes)
 - Timing between commands (if critical)
-**Output**: `kb/components/nikonscan4-ds/scan-workflow.md` updated with hex-level detail
+**Output**: `docs/kb/components/nikonscan4-ds/scan-workflow.md` updated with hex-level detail
 
 ### Step 7: Internal Consistency Review
 **What to do**: Review the complete protocol spec for contradictions.
@@ -102,10 +102,10 @@ All must be met to mark phase complete:
 - All Phase 1-4 KB docs
 
 ## KB Deliverables
-- All `kb/scsi-commands/` docs at spec quality
-- `kb/scsi-commands/sense-codes.md`
-- Finalized `kb/architecture/usb-protocol.md`
-- Updated `kb/components/nikonscan4-ds/scan-workflow.md` with hex-level detail
+- All `docs/kb/scsi-commands/` docs at spec quality
+- `docs/kb/scsi-commands/sense-codes.md`
+- Finalized `docs/kb/architecture/usb-protocol.md`
+- Updated `docs/kb/components/nikonscan4-ds/scan-workflow.md` with hex-level detail
 
 ## Log Files
-- Phase log: `logs/phases/phase-05-protocol-spec.md`
+- Phase log: `docs/log/phases/phase-05-protocol-spec.md`
