@@ -1,6 +1,6 @@
 # Software Layers -- NikonScan to Scanner Communication
-**Status**: Draft
-**Last Updated**: 2026-02-20  |  **Phase**: 0  |  **Confidence**: High
+**Status**: Complete
+**Last Updated**: 2026-02-21  |  **Phase**: 2  |  **Confidence**: High
 
 ## Summary
 
@@ -89,6 +89,10 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 - Module constructs SCSI CDBs and calls NkDriverEntry to send them
 - LS5000.md3 is MD3 version 3.50; all others are MD3 version 3.01
 - `NkCtrlEntry` mangled: `?NkCtrlEntry@@YGFFFFPAX@Z` = `short __stdcall NkCtrlEntry(short, short, short, short, void*)`
+- MAIDEntryPoint has 16-case switch (10 active): Open, Close, Enumerate, Get, Set, Start, GetDefault, Changed, Abort, QueryStatus
+- Uses 17 SCSI opcodes via 22 CDB builders — standard (0x00-0x3C) + vendor (0xC0/C1/E0/E1)
+- Vendor command protocol: 0xE0 (data-out) → 0xC1 (trigger) → 0xE1 (data-in) for focus/exposure control
+- Full SCSI catalog and MAID→SCSI mapping: [SCSI Command Catalog](../components/ls5000-md3/scsi-command-build.md), [MAID Entrypoint](../components/ls5000-md3/maid-entrypoint.md)
 
 ### Layer 3: NKDUSCAN.dll (USB Transport)
 **Path**: `Drivers/NKDUSCAN.dll` (90KB PE32 DLL)
@@ -145,8 +149,8 @@ Full protocol documentation: [USB Protocol](usb-protocol.md) (Phase 1)
 
 ## Open Questions
 
-- [ ] What are all the NkDriverEntry function codes? (Phase 1) -- dispatch table found: 9 codes (1-9), at 0x10003c40
-- [ ] What MAID capability IDs exist? (Phase 2)
+- [x] What are all the NkDriverEntry function codes? (Phase 1) — 9 FCs (1-9), fully documented in [NkDriverEntry API](../components/nkduscan/api.md)
+- [x] What MAID capability IDs exist? (Phase 2) — Operational sequence mapping complete in [MAID Entrypoint](../components/ls5000-md3/maid-entrypoint.md). Numeric ID mapping deferred to Phase 3.
 - [ ] How does the command queue handle async scan operations? (Phase 3)
 - [ ] What is "Revelation" processing? Related to scanner revelation mask?
 
