@@ -1,0 +1,32 @@
+=== Tracing CMaidBase (TypeDescriptor @ 0x10162718) ===
+
+=== Tracing CTwainMaidImage (TypeDescriptor @ 0x10162730) ===
+
+
+=== CFrescoMaidModule::CallMAID (FUN_1007a1f0) ===
+
+// === FUN_1007a1f0 @ 0x1007A1F0 (74 bytes) ===
+
+undefined4 __thiscall
+FUN_1007a1f0(int param_1,int *param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+            undefined4 param_6,undefined4 param_7,undefined4 param_8)
+
+{
+  undefined4 uVar1;
+  
+  if (*(int *)(param_1 + 100) != 0) {
+    if (param_2 == (int *)0x0) {
+      uVar1 = 0;
+    }
+    else {
+      uVar1 = (**(code **)(*param_2 + 0x68))();
+    }
+    uVar1 = (**(code **)(param_1 + 0x74))(uVar1,param_3,param_4,param_5,param_6,param_7,param_8);
+    return uVar1;
+  }
+  return 0xffffff08;
+}
+
+
+
+=== DONE ===

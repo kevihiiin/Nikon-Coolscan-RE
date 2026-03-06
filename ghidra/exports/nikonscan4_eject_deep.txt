@@ -1,0 +1,292 @@
+=== EJECT WORKFLOW (DEEP) ===
+
+// --- FUN_1002e030 - actual eject execution ---
+// === FUN_1002e030 @ 0x1002E030 (577 bytes) ===
+
+void __fastcall FUN_1002e030(int param_1)
+
+{
+  int *piVar1;
+  SHORT SVar2;
+  int iVar3;
+  int *piVar4;
+  undefined4 *puVar5;
+  int iStack_14;
+  int *piStack_10;
+  void *pvStack_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_101212bb;
+  pvStack_c = ExceptionList;
+  ExceptionList = &pvStack_c;
+  iVar3 = FUN_10069760();
+  if (iVar3 != 0) {
+    piVar4 = (int *)Ordinal_982();
+    iStack_14 = (**(code **)(*piVar4 + 0xc))();
+    iStack_14 = iStack_14 + 0x10;
+    uStack_4 = 0;
+    puVar5 = (undefined4 *)LoadExtString(&iStack_14,0x401a);
+    iVar3 = Ordinal_1014(*puVar5,1,0);
+    if (iVar3 == 2) {
+      uStack_4 = 0xffffffff;
+      piVar4 = (int *)(iStack_14 + -4);
+      LOCK();
+      iVar3 = *piVar4;
+      *piVar4 = *piVar4 + -1;
+      UNLOCK();
+      if (iVar3 != 1 && -1 < iVar3 + -1) {
+        ExceptionList = pvStack_c;
+        return;
+      }
+      (**(code **)(**(int **)(iStack_14 + -0x10) + 4))((undefined4 *)(iStack_14 + -0x10));
+      ExceptionList = piStack_10;
+      return;
+    }
+    thunk_FUN_1006a3e0();
+    uStack_4 = 0xffffffff;
+    piVar4 = (int *)(iStack_14 + -4);
+    LOCK();
+    iVar3 = *piVar4;
+    *piVar4 = *piVar4 + -1;
+    UNLOCK();
+    if (iVar3 == 1 || iVar3 + -1 < 0) {
+      (**(code **)(**(int **)(iStack_14 + -0x10) + 4))((undefined4 *)(iStack_14 + -0x10));
+    }
+  }
+  Ordinal_977();
+  Ordinal_1180();
+  uStack_4 = 1;
+  piVar4 = (int *)Ordinal_703(0x34);
+  uStack_4._0_1_ = 2;
+  piStack_10 = piVar4;
+  if (piVar4 == (int *)0x0) {
+    piVar4 = (int *)0x0;
+  }
+  else {
+    FUN_10014320(0);
+    *piVar4 = (int)&PTR_FUN_10132d3c;
+  }
+  uStack_4 = CONCAT31(uStack_4._1_3_,1);
+  iVar3 = (**(code **)(**(int **)(param_1 + 0x60) + 0x11c))();
+  if (iVar3 == 0) {
+    iVar3 = (**(code **)(**(int **)(param_1 + 0x60) + 0x118))();
+    if (iVar3 == 0) goto LAB_1002e1ea;
+    iVar3 = *(int *)(param_1 + 100);
+    if (((iVar3 == 0) && (piVar1 = *(int **)(param_1 + 0xba8), iVar3 = 0, piVar1 != (int *)0x0)) &&
+       (0 < *(int *)(param_1 + 0xbac) - (int)piVar1 >> 2)) {
+      iVar3 = *piVar1;
+    }
+    FUN_1002db40(iVar3);
+    (**(code **)(**(int **)(param_1 + 0x60) + 0x148))(piVar4);
+    *(uint *)(param_1 + 0x678) = *(uint *)(param_1 + 0x678) & 0xfffffffb;
+  }
+  else {
+    SVar2 = GetKeyState(0x11);
+    if (-1 < SVar2) {
+      (**(code **)(**(int **)(param_1 + 0x60) + 0x14c))(piVar4);
+      goto LAB_1002e1ea;
+    }
+    iVar3 = (**(code **)(**(int **)(param_1 + 0x60) + 0x118))();
+    if (iVar3 == 0) goto LAB_1002e1ea;
+    (**(code **)(**(int **)(param_1 + 0x60) + 0x148))(piVar4);
+  }
+  *(undefined4 *)(param_1 + 0x71c) = 1;
+LAB_1002e1ea:
+  FUN_1006a830(0,0xbff00000);
+  Ordinal_5813(Ordinal_5996_exref,0,0,0,0,0x43);
+  (**(code **)(*piVar4 + 0xc))();
+  iVar3 = (**(code **)(*piVar4 + 0x18))();
+  while (iVar3 == 0) {
+    FUN_100148b0();
+    iVar3 = (**(code **)(*piVar4 + 0x18))();
+  }
+  (**(code **)*piVar4)(1);
+  FUN_1006a830(0,0);
+  *(undefined4 *)(param_1 + 0x6d4) = 1;
+  Ordinal_977();
+  Ordinal_2024();
+  ExceptionList = pvStack_c;
+  return;
+}
+
+
+
+// --- CanEject export ---
+// === FUN_10008f70 @ 0x10008F70 (33 bytes) ===
+
+int __fastcall FUN_10008f70(int param_1)
+
+{
+  if (*(int *)(param_1 + 4) == 0) {
+    return 0;
+  }
+  return (*(int *)(param_1 + 8) - *(int *)(param_1 + 4)) / 0x2c;
+}
+
+
+
+// --- FUN_10031910 - after execute eject ---
+// === FUN_10031910 @ 0x10031910 (730 bytes) ===
+
+bool __thiscall FUN_10031910(int param_1,int param_2,int *param_3)
+
+{
+  int *piVar1;
+  bool bVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *piVar5;
+  HWND pHVar6;
+  int iVar7;
+  
+  bVar2 = false;
+  if (param_2 == 4) {
+    iVar4 = *(int *)(param_1 + 0xc);
+    if ((iVar4 != 0) && (*(int *)(iVar4 + 0x1c) != 0)) {
+      if (*(int *)(iVar4 + 0x1c) == 0) {
+        FUN_100c19c0();
+      }
+      if (param_3 == *(int **)(iVar4 + 0x1c)) {
+        FUN_10030a50();
+        FUN_1002db40(*(undefined4 *)(param_1 + 0xc));
+        *(undefined4 *)(param_1 + 0x680) = 0xffffffff;
+        *(uint *)(param_1 + 0x620) = *(uint *)(param_1 + 0x620) & 0xfffffffb;
+      }
+    }
+    if (param_3 != (int *)0x0) {
+      uVar3 = (**(code **)(*param_3 + 100))();
+      iVar4 = FUN_100c5730(uVar3);
+      if (iVar4 != -1) {
+        FUN_100c1ac0(param_3);
+      }
+    }
+  }
+  else if (param_2 == 3) {
+    if ((*(int *)(param_1 + 0xc) == 0) || (param_3 == *(int **)(*(int *)(param_1 + 0xc) + 0x18))) {
+      FUN_100be560(0);
+      *(undefined4 *)(param_1 + 0xc) = 0;
+      FUN_100beb30();
+    }
+    iVar4 = FUN_100c5730(param_3);
+    if (iVar4 != -1) {
+      iVar7 = *(int *)(param_1 + 0xb50);
+      piVar1 = *(int **)(iVar7 + iVar4 * 4);
+      bVar2 = false;
+      if ((((*(byte *)(piVar1 + 1) & 1) != 0) && (iVar7 != 0)) &&
+         (1 < *(int *)(param_1 + 0xb54) - iVar7 >> 2)) {
+        bVar2 = true;
+      }
+      if (piVar1[7] != 0) {
+        piVar5 = (int *)FUN_100101c0();
+        if (piVar1[7] == 0) {
+          FUN_100c19c0();
+        }
+        (**(code **)(*piVar5 + 0xc))(piVar1[7]);
+      }
+      if (piVar1[8] != 0) {
+        piVar5 = (int *)FUN_100101c0();
+        if (piVar1[8] == 0) {
+          FUN_100c1a20();
+        }
+        (**(code **)(*piVar5 + 0xc))(piVar1[8]);
+      }
+      FUN_10106b60(iVar4,1);
+      FUN_100c1ac0(0);
+      (**(code **)(*piVar1 + 0x18))();
+      if ((bVar2) && (*(int *)(param_1 + 0x6c4) == 0)) {
+        iVar4 = *(int *)(param_1 + 0xaf0);
+        iVar7 = FUN_10023c70(1);
+        (**(code **)(iVar4 + 0x138))(iVar7 + -1);
+      }
+    }
+    if ((*(int *)(param_1 + 0xb50) == 0) ||
+       (*(int *)(param_1 + 0xb54) - *(int *)(param_1 + 0xb50) >> 2 == 0)) {
+      FUN_10021d80(0);
+      uVar3 = (**(code **)(**(int **)(param_1 + 8) + 0x11c))();
+      Ordinal_2012(uVar3);
+      if ((*(byte *)(param_1 + 0x182c) & 4) != 0) {
+        FUN_1004b2d0(0);
+        Ordinal_2012(0);
+        FUN_10026d90();
+      }
+      iVar4 = FUN_100c9040();
+      if (iVar4 != 0) {
+        FUN_10021870(0,0);
+      }
+    }
+    *(undefined4 *)(param_1 + 0x680) = 0xffffffff;
+    bVar2 = true;
+  }
+  else if (param_2 == 2) {
+    SendMessageA(*(HWND *)(param_1 + -0x38),0x10,0,0);
+    *(undefined4 *)(param_1 + 8) = 0;
+    return false;
+  }
+  FUN_100696c0(param_3);
+  pHVar6 = GetFocus();
+  iVar4 = Ordinal_2201(pHVar6);
+  if (iVar4 != 0) {
+    pHVar6 = GetParent(*(HWND *)(iVar4 + 0x20));
+    iVar4 = Ordinal_2201(pHVar6);
+    if (iVar4 == 0) {
+      iVar4 = 0;
+    }
+    else {
+      iVar4 = *(int *)(iVar4 + 0x20);
+    }
+    if (param_1 == 0x58) {
+      iVar7 = 0;
+    }
+    else {
+      iVar7 = *(int *)(param_1 + -0x38);
+    }
+    if (iVar4 == iVar7) {
+      FUN_100220b0(0);
+    }
+  }
+  return !bVar2;
+}
+
+
+
+// --- FUN_10031800 - before execute eject ---
+// === FUN_100317f0 @ 0x100317F0 (43 bytes) ===
+
+void __fastcall FUN_100317f0(int param_1)
+
+{
+  FUN_1002cab0(*(undefined4 *)(*(int *)(param_1 + 4) + 4));
+  *(int *)(*(int *)(param_1 + 4) + 4) = *(int *)(param_1 + 4);
+  *(undefined4 *)(param_1 + 8) = 0;
+  *(undefined4 *)*(undefined4 *)(param_1 + 4) = *(undefined4 *)(param_1 + 4);
+  *(int *)(*(int *)(param_1 + 4) + 8) = *(int *)(param_1 + 4);
+  return;
+}
+
+
+
+// --- FUN_10031850 - possible eject setup ---
+// === FUN_10031850 @ 0x10031850 (90 bytes) ===
+
+int FUN_10031850(int param_1,int param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  
+  iVar2 = param_2 - param_1;
+  iVar1 = -(iVar2 >> 0x1f);
+  while (1 < iVar2 / 0x18) {
+    FUN_1002bf20(param_1,param_2,0);
+    iVar2 = iVar2 + -0x18;
+    iVar1 = iVar2 * 0x2aaaaaab;
+    param_2 = param_2 + -0x18;
+  }
+  return iVar1;
+}
+
+
+
+=== DONE ===

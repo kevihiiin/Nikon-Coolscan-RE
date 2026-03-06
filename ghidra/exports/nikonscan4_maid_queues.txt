@@ -1,0 +1,104 @@
+=== FUNCTIONS CALLING THROUGH OFFSET 0x74 (MAID) ===
+  0x10014704: call [reg+0x74] in FUN_10014510 @ 10014510
+  0x10020C14: call [reg+0x74] in FUN_10020a20 @ 10020a20
+  0x100214C9: call [reg+0x74] in FUN_10021470 @ 10021470
+  0x1002439C: call [reg+0x74] in FUN_10024170 @ 10024170
+  0x1003305B: call [reg+0x74] in FUN_10032790 @ 10032790
+  0x10033B2C: call [reg+0x74] in FUN_10033af0 @ 10033af0
+  0x10033B50: call [reg+0x74] in FUN_10033af0 @ 10033af0
+  0x10037317: call [reg+0x74] in unknown
+  0x1004FAC0: call [reg+0x74] in FUN_1004fa30 @ 1004fa30
+  0x1004FB3F: call [reg+0x74] in FUN_1004fa30 @ 1004fa30
+  0x10064EC3: call [reg+0x74] in FUN_10064e70 @ 10064e70
+  0x1006D10B: call [reg+0x74] in FUN_1006d0f0 @ 1006d0f0
+  0x1006EAFB: call [reg+0x74] in FUN_1006eae0 @ 1006eae0
+  0x1007A22A: call [reg+0x74] in FUN_1007a1f0 @ 1007a1f0
+  0x1009520F: call [reg+0x74] in FUN_100951f0 @ 100951f0
+  0x100B2700: call [reg+0x74] in unknown
+  0x100B278D: call [reg+0x74] in unknown
+  0x100B28FE: call [reg+0x74] in unknown
+  0x100B2987: call [reg+0x74] in unknown
+  0x100B2AE7: call [reg+0x74] in unknown
+  0x100B335E: call [reg+0x74] in unknown
+  0x100B33F9: call [reg+0x74] in unknown
+  0x100B355E: call [reg+0x74] in unknown
+  0x100B35F3: call [reg+0x74] in unknown
+  0x100B368B: call [reg+0x74] in unknown
+  0x100B37F2: call [reg+0x74] in unknown
+  0x100B388A: call [reg+0x74] in unknown
+  0x100B39F1: call [reg+0x74] in unknown
+  0x100B4225: call [reg+0x74] in unknown
+  0x100BCCC6: call [reg+0x74] in unknown
+  0x100BD754: call [reg+0x74] in unknown
+  0x100BD7E5: call [reg+0x74] in unknown
+  0x100BD876: call [reg+0x74] in unknown
+  0x100BD911: call [reg+0x74] in unknown
+  0x100BD99A: call [reg+0x74] in unknown
+  0x100BDA42: call [reg+0x74] in unknown
+  0x100BE02B: call [reg+0x74] in unknown
+  0x100BE0C2: call [reg+0x74] in unknown
+  0x100BE15D: call [reg+0x74] in unknown
+  0x100BE2D8: call [reg+0x74] in unknown
+  0x100BE36C: call [reg+0x74] in unknown
+  0x100CEA2C: call [reg+0x74] in FUN_100ce280 @ 100ce280
+  0x100D5EA5: call [reg+0x74] in FUN_100d5a60 @ 100d5a60
+  0x100DFFCA: call [reg+0x74] in unknown
+  0x100E0074: call [reg+0x74] in unknown
+  0x100E0299: call [reg+0x74] in unknown
+  0x100E6FC0: call [reg+0x74] in unknown
+  0x100E966B: call [reg+0x74] in FUN_100e8e70 @ 100e8e70
+  0x100FFC82: call [reg+0x74] in FUN_100ffc70 @ 100ffc70
+  0x10100EFB: call [reg+0x74] in FUN_10100ee0 @ 10100ee0
+
+=== COMMAND QUEUE RELATED FUNCTIONS ===
+
+--- RTTI Classes with 'Command' or 'Queue' ---
+  RTTI: .?AVCCommandQueuePtrWrapper@@ at 0x10162318
+  RTTI: .?AVCCommandQueueManager@@ at 0x10162340
+  RTTI: .?AVCCommandQueue@@ at 0x10162364
+  RTTI: .?AVCQueueAcquireImage@@ at 0x101628B0
+  RTTI: .?AVCQueueAcquireDRAGImage@@ at 0x101646B4
+  RTTI: .?AVCQueueNotifier@@ at 0x101646DC
+  RTTI: .?AVCProcessCommand@@ at 0x101623F0
+  RTTI: .?AVCProcessCommandManager@@ at 0x1016468C
+  RTTI: .?AVCMaidBase@@ at 0x10162718
+  RTTI: .?AVCMaidBaseData@@ at 0x10162A48
+  RTTI: .?AVCMaidImageData@@ at 0x10162A64
+  RTTI: .?AVCMaidItem@@ at 0x10162ACC
+  RTTI: .?AVCMaidModule@@ at 0x10162B04
+  RTTI: .?AVCMaidSource@@ at 0x10162B40
+  RTTI: .?AVCMaidBasePtrWrapper@@ at 0x10163038
+  RTTI: .?AVCMaidThumbnailData@@ at 0x101630C0
+
+=== MAID MODULE/SOURCE VTABLE FUNCTIONS ===
+CFrescoMaidModule RTTI at: 0x10162b20
+TypeDescriptor at: 0x10162b18
+Primary COL at: 0x101479ac
+Vtable starts at: 0x10135b54
+  vtable[0] = 0x10075190 (FUN_10075190)
+  vtable[1] = 0x10054190 (FUN_10054190)
+  vtable[2] = 0x10073720 (FUN_10073720)
+  vtable[3] = 0x10053F70 (FUN_10053f70)
+  vtable[4] = 0x10070730 (FUN_10070730)
+  vtable[5] = 0x100706C0 (FUN_100706c0)
+  vtable[6] = 0x10070650 (FUN_10070650)
+  vtable[7] = 0x100541B0 (FUN_100541b0)
+  vtable[8] = 0x10074F30 (???)
+  vtable[9] = 0x100540C0 (???)
+  vtable[10] = 0x10054070 (FUN_10054070)
+  vtable[11] = 0x100707F0 (FUN_100707f0)
+  vtable[12] = 0x10070810 (???)
+  vtable[13] = 0x10070820 (???)
+  vtable[14] = 0x10054020 (???)
+  vtable[15] = 0x100742D0 (???)
+  vtable[16] = 0x10074050 (???)
+  vtable[17] = 0x10070510 (???)
+  vtable[18] = 0x10073A40 (???)
+  vtable[19] = 0x1007A2E0 (FUN_1007a2e0)
+
+=== POTENTIAL MAID ENTRYPOINT CALL SITES ===
+  0x1007A22A: call [esi+0x74] in FUN_1007a1f0
+
+=== KEY QUEUE FUNCTION DECOMPILATIONS ===
+
+=== DONE ===

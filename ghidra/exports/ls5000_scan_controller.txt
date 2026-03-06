@@ -1,0 +1,824 @@
+// --- Function containing 0x100B3B10 ---
+// === FUN_100b3b10 @ 0x100B3B10 (44 bytes) ===
+
+void __fastcall FUN_100b3b10(undefined4 *param_1)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  undefined4 *puVar3;
+  
+  *param_1 = &PTR_FUN_100c5290;
+  puVar2 = (undefined4 *)param_1[0x121];
+  puVar3 = (undefined4 *)(param_1[0x10b] + 0x88);
+  for (iVar1 = 0x76; iVar1 != 0; iVar1 = iVar1 + -1) {
+    *puVar3 = *puVar2;
+    puVar2 = puVar2 + 1;
+    puVar3 = puVar3 + 1;
+  }
+  FUN_100b3a20(param_1);
+  return;
+}
+
+
+// --- Function containing 0x100B4A40 ---
+// === FUN_100b4a40 @ 0x100B4A40 (81 bytes) ===
+
+void __fastcall FUN_100b4a40(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_100c538c;
+  if ((void *)param_1[0x113] != (void *)0x0) {
+                    /* WARNING: Subroutine does not return */
+    _free((void *)param_1[0x113]);
+  }
+  if ((void *)param_1[0x114] != (void *)0x0) {
+                    /* WARNING: Subroutine does not return */
+    _free((void *)param_1[0x114]);
+  }
+  if ((void *)param_1[0x115] != (void *)0x0) {
+                    /* WARNING: Subroutine does not return */
+    _free((void *)param_1[0x115]);
+  }
+  if ((void *)param_1[0x116] != (void *)0x0) {
+                    /* WARNING: Subroutine does not return */
+    _free((void *)param_1[0x116]);
+  }
+  FUN_100b3a20(param_1);
+  return;
+}
+
+
+// --- Function containing 0x100B29B0 ---
+// === FUN_100b29b0 @ 0x100B29B0 (120 bytes) ===
+
+undefined4 * __thiscall FUN_100b29b0(void *this,int param_1,int param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  FUN_100b4fa0(this);
+  *(undefined ***)this = &PTR_FUN_100c526c;
+  FUN_100aebf0((void *)((int)this + 0x438),10);
+  *(undefined4 *)((int)this + 0x40c) = *(undefined4 *)(param_1 + 4);
+  *(undefined4 *)((int)this + 0x410) = *(undefined4 *)(param_2 + 0x70);
+  *(undefined4 *)((int)this + 0x414) = *(undefined4 *)(param_2 + 0x74);
+  *(undefined4 *)((int)this + 0x418) = *(undefined4 *)(param_1 + 0x14);
+  *(undefined4 *)((int)this + 0x424) = *(undefined4 *)(param_1 + 0x18);
+  *(undefined4 *)((int)this + 0x41c) = *(undefined4 *)(param_1 + 0x1c);
+  uVar1 = *(undefined4 *)(param_1 + 0x24);
+  *(int *)((int)this + 0x42c) = param_2;
+  *(undefined4 *)((int)this + 0x420) = uVar1;
+  *(undefined4 *)((int)this + 0x430) = param_3;
+  return this;
+}
+
+
+// --- Function containing 0x100B0400 ---
+// === FUN_100b0380 @ 0x100B0380 (617 bytes) ===
+
+uint __thiscall FUN_100b0380(void *this,undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  bool bVar3;
+  undefined3 extraout_var;
+  uint uVar4;
+  undefined3 extraout_var_00;
+  undefined3 extraout_var_01;
+  undefined4 *puVar5;
+  void *pvVar6;
+  undefined3 extraout_var_02;
+  undefined4 *puVar7;
+  undefined3 extraout_var_03;
+  bool bVar8;
+  uint local_18;
+  void *local_14;
+  void *local_10;
+  void *local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_100b9b67;
+  local_c = ExceptionList;
+  local_18 = 0;
+  local_18._0_2_ = 0;
+  ExceptionList = &local_c;
+  FUN_100aec50(this,0,&local_14);
+  switch(local_14) {
+  case (void *)0x0:
+    FUN_100ae540(100);
+    pvVar6 = operator_new(100);
+    local_4 = 0;
+    if (pvVar6 == (void *)0x0) {
+LAB_100b040a:
+      puVar7 = (undefined4 *)0x0;
+    }
+    else {
+      uVar2 = *(undefined4 *)((int)this + 0x414);
+      uVar1 = *(undefined4 *)((int)this + 0x40c);
+      local_10 = pvVar6;
+      bVar8 = FUN_100ae940((int)this);
+      puVar7 = FUN_100aa2a0(pvVar6,uVar1,uVar2,CONCAT31(extraout_var,bVar8));
+    }
+    break;
+  default:
+    *param_1 = 0;
+    ExceptionList = local_c;
+    return 5;
+  case (void *)0x1d:
+    pvVar6 = operator_new(100);
+    local_4 = 4;
+    if (pvVar6 == (void *)0x0) goto LAB_100b040a;
+    uVar2 = *(undefined4 *)((int)this + 0x414);
+    uVar1 = *(undefined4 *)((int)this + 0x40c);
+    local_10 = pvVar6;
+    bVar8 = FUN_100ae940((int)this);
+    puVar7 = FUN_100aa370(pvVar6,uVar1,uVar2,CONCAT31(extraout_var_03,bVar8));
+    break;
+  case (void *)0x28:
+    local_18 = 1000;
+LAB_100b05ae:
+    *param_1 = param_1;
+    ExceptionList = local_c;
+    return local_18;
+  case (void *)0xc1:
+    pvVar6 = operator_new(100);
+    local_4 = 2;
+    local_10 = pvVar6;
+    if (pvVar6 == (void *)0x0) {
+      puVar7 = (undefined4 *)0x0;
+    }
+    else {
+      uVar2 = *(undefined4 *)((int)this + 0x414);
+      uVar1 = *(undefined4 *)((int)this + 0x40c);
+      bVar8 = FUN_100ae940((int)this);
+      puVar7 = FUN_100aa580(pvVar6,uVar1,uVar2,CONCAT31(extraout_var_01,bVar8));
+    }
+    puVar5 = puVar7;
+    if (*(short *)((int)this + 0x450) == 0x80) {
+      puVar5 = (undefined4 *)timeGetTime();
+      *(undefined4 **)((int)this + 0x454) = puVar5;
+    }
+    goto LAB_100b040e;
+  case (void *)0xe0:
+    local_18 = FUN_100ae960(this,(undefined1 *)((int)this + 8),(int *)&local_14);
+    if ((short)local_18 != 0) goto LAB_100b05ae;
+    local_10 = operator_new(0x68);
+    local_4 = 1;
+    if (local_10 == (void *)0x0) goto LAB_100b040a;
+    uVar2 = *(undefined4 *)((int)this + 0x414);
+    uVar1 = *(undefined4 *)((int)this + 0x40c);
+    bVar8 = FUN_100ae940((int)this);
+    puVar7 = FUN_100aa4c0(local_10,uVar1,uVar2,*(undefined2 *)((int)this + 0x450),
+                          (undefined1 *)((int)this + 8),local_14,CONCAT31(extraout_var_00,bVar8));
+    break;
+  case (void *)0xe1:
+    FUN_100aec80(this,0,&local_10);
+    bVar8 = local_10 < (void *)0x80;
+    pvVar6 = operator_new(0x68);
+    local_4 = 3;
+    if (pvVar6 == (void *)0x0) goto LAB_100b040a;
+    local_10 = *(void **)((int)this + 0x40c);
+    uVar2 = *(undefined4 *)((int)this + 0x414);
+    local_14 = pvVar6;
+    bVar3 = FUN_100ae940((int)this);
+    puVar7 = FUN_100aa500(pvVar6,local_10,uVar2,*(undefined2 *)((int)this + 0x450),(int)this + 8,
+                          (-(uint)bVar8 & 4) + 9,CONCAT31(extraout_var_02,bVar3));
+  }
+  puVar5 = puVar7;
+LAB_100b040e:
+  if (puVar7 == (undefined4 *)0x0) {
+    uVar4 = 5;
+    *param_1 = 0;
+  }
+  else {
+    uVar4 = CONCAT22((short)((uint)puVar5 >> 0x10),(undefined2)local_18);
+    *param_1 = puVar7;
+  }
+  ExceptionList = local_c;
+  return uVar4;
+}
+
+
+// --- Function containing 0x100B0E00 ---
+// === FUN_100b0c20 @ 0x100B0C20 (1021 bytes) ===
+
+uint __thiscall FUN_100b0c20(void *this,undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  bool bVar3;
+  undefined3 extraout_var;
+  uint uVar4;
+  undefined3 extraout_var_00;
+  undefined3 extraout_var_01;
+  undefined3 extraout_var_02;
+  undefined3 extraout_var_03;
+  void *pvVar5;
+  undefined3 extraout_var_04;
+  undefined4 *puVar6;
+  undefined3 extraout_var_05;
+  undefined4 local_1c;
+  uint local_18;
+  uint local_14;
+  void *local_10;
+  void *local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_100b9bcd;
+  local_c = ExceptionList;
+  local_14 = 0;
+  ExceptionList = &local_c;
+  FUN_100aec50(this,0,&local_18);
+  switch(local_18) {
+  case 0:
+    FUN_100ae540(100);
+    pvVar5 = operator_new(100);
+    local_4 = 2;
+    if (pvVar5 != (void *)0x0) {
+      uVar1 = *(undefined4 *)((int)this + 0x414);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      local_10 = pvVar5;
+      bVar3 = FUN_100ae940((int)this);
+      puVar6 = FUN_100aa2a0(pvVar5,uVar2,uVar1,CONCAT31(extraout_var_01,bVar3));
+      goto LAB_100b0d3d;
+    }
+    break;
+  default:
+    *param_1 = 0;
+    ExceptionList = local_c;
+    return 5;
+  case 0x1d:
+    pvVar5 = operator_new(100);
+    local_4 = 6;
+    if (pvVar5 != (void *)0x0) {
+      uVar1 = *(undefined4 *)((int)this + 0x414);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      local_10 = pvVar5;
+      bVar3 = FUN_100ae940((int)this);
+      puVar6 = FUN_100aa370(pvVar5,uVar2,uVar1,CONCAT31(extraout_var_05,bVar3));
+      goto LAB_100b0d3d;
+    }
+    break;
+  case 0x28:
+    FUN_100aecb0(this,0,&local_18);
+    if (local_18 == 2) {
+      local_18 = 6;
+      pvVar5 = (void *)((int)this + 8);
+    }
+    else {
+      local_18 = *(int *)((int)this + 0x408) + 6;
+      pvVar5 = _malloc(local_18);
+      if (pvVar5 != (void *)0x0) {
+        FUN_100aec80(this,0,&local_1c);
+        switch(local_1c) {
+        case 1:
+          *(void **)((int)this + 0x44c) = pvVar5;
+          break;
+        case 2:
+          *(void **)((int)this + 0x450) = pvVar5;
+          break;
+        case 3:
+          *(void **)((int)this + 0x454) = pvVar5;
+          break;
+        case 9:
+          *(void **)((int)this + 0x458) = pvVar5;
+        }
+      }
+    }
+    FUN_100aec80(this,0,&local_1c);
+    local_10 = operator_new(0x74);
+    local_4 = 0;
+    if (local_10 != (void *)0x0) {
+      uVar1 = *(undefined4 *)((int)this + 0x414);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      bVar3 = FUN_100ae940((int)this);
+      puVar6 = FUN_100b5000(local_10,uVar2,uVar1,0x84,(undefined2)local_1c,1,pvVar5,local_18,
+                            CONCAT31(extraout_var,bVar3));
+      goto LAB_100b0d3d;
+    }
+    break;
+  case 0x2a:
+    local_18 = *(uint *)((int)this + 0x408);
+    FUN_100aec80(this,0,&local_1c);
+    switch(local_1c) {
+    case 1:
+      puVar6 = (undefined4 *)(*(int *)((int)this + 0x44c) + 6);
+      break;
+    case 2:
+      puVar6 = (undefined4 *)(*(int *)((int)this + 0x450) + 6);
+      break;
+    case 3:
+      puVar6 = (undefined4 *)(*(int *)((int)this + 0x454) + 6);
+      break;
+    default:
+      puVar6 = param_1;
+      break;
+    case 9:
+      puVar6 = (undefined4 *)(*(int *)((int)this + 0x458) + 6);
+    }
+    FUN_100aec80(this,0,&local_1c);
+    local_10 = operator_new(0x6c);
+    local_4 = 1;
+    if (local_10 != (void *)0x0) {
+      uVar1 = *(undefined4 *)((int)this + 0x414);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      bVar3 = FUN_100ae940((int)this);
+      puVar6 = FUN_100b50c0(local_10,uVar2,uVar1,0x84,(undefined2)local_1c,1,puVar6,local_18,
+                            CONCAT31(extraout_var_00,bVar3));
+      goto LAB_100b0d3d;
+    }
+    break;
+  case 0xc1:
+    pvVar5 = operator_new(100);
+    local_4 = 4;
+    if (pvVar5 != (void *)0x0) {
+      uVar1 = *(undefined4 *)((int)this + 0x414);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      local_10 = pvVar5;
+      bVar3 = FUN_100ae940((int)this);
+      puVar6 = FUN_100aa580(pvVar5,uVar2,uVar1,CONCAT31(extraout_var_03,bVar3));
+      goto LAB_100b0d3d;
+    }
+    break;
+  case 0xe0:
+    FUN_100aec80(this,0,&local_1c);
+    *(ushort *)((int)this + 0x488) = (ushort)local_1c;
+    FUN_100aecb0(this,0,&local_18);
+    local_14 = FUN_100aead0(this,(undefined4 *)((int)this + 8),&local_18,(ushort)local_1c,local_18);
+    if ((short)local_14 != 0) {
+      *param_1 = param_1;
+      ExceptionList = local_c;
+      return local_14;
+    }
+    local_10 = operator_new(0x68);
+    local_4 = 3;
+    if (local_10 != (void *)0x0) {
+      uVar1 = *(undefined4 *)((int)this + 0x414);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      bVar3 = FUN_100ae940((int)this);
+      puVar6 = FUN_100aa4c0(local_10,uVar2,uVar1,*(undefined2 *)((int)this + 0x488),
+                            (undefined4 *)((int)this + 8),local_18,CONCAT31(extraout_var_02,bVar3));
+      goto LAB_100b0d3d;
+    }
+    break;
+  case 0xe1:
+    FUN_100aec80(this,0,&local_1c);
+    *(undefined2 *)((int)this + 0x488) = (undefined2)local_1c;
+    pvVar5 = operator_new(0x68);
+    local_4 = 5;
+    if (pvVar5 != (void *)0x0) {
+      uVar1 = *(undefined4 *)((int)this + 0x414);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      local_10 = pvVar5;
+      bVar3 = FUN_100ae940((int)this);
+      puVar6 = FUN_100aa500(pvVar5,uVar2,uVar1,*(undefined2 *)((int)this + 0x488),(int)this + 8,9,
+                            CONCAT31(extraout_var_04,bVar3));
+      goto LAB_100b0d3d;
+    }
+  }
+  puVar6 = (undefined4 *)0x0;
+LAB_100b0d3d:
+  if (puVar6 == (undefined4 *)0x0) {
+    uVar4 = 5;
+    *param_1 = 0;
+  }
+  else {
+    *param_1 = puVar6;
+    uVar4 = CONCAT22((short)((uint)param_1 >> 0x10),(undefined2)local_14);
+  }
+  ExceptionList = local_c;
+  return uVar4;
+}
+
+
+// --- Function containing 0x100AF200 ---
+// === FUN_100af1f0 @ 0x100AF1F0 (958 bytes) ===
+
+uint __thiscall FUN_100af1f0(void *this,undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  bool bVar4;
+  undefined3 extraout_var;
+  undefined3 extraout_var_00;
+  undefined3 extraout_var_01;
+  int iVar5;
+  undefined3 extraout_var_02;
+  int iVar6;
+  undefined3 extraout_var_03;
+  undefined3 extraout_var_04;
+  void *pvVar7;
+  undefined3 extraout_var_05;
+  undefined3 extraout_var_06;
+  undefined4 *puVar8;
+  short sVar9;
+  int local_20;
+  undefined4 local_1c;
+  void *local_18;
+  void *local_14;
+  void *local_10;
+  void *local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_100b9b1d;
+  local_c = ExceptionList;
+  ExceptionList = &local_c;
+  local_1c = FUN_100aec50(this,0,&local_14);
+  if ((short)local_1c == 0) {
+    switch(local_14) {
+    case (void *)0x0:
+      FUN_100ae540(100);
+      pvVar7 = operator_new(100);
+      local_4 = 0;
+      local_10 = pvVar7;
+      if (pvVar7 == (void *)0x0) {
+LAB_100af55f:
+        puVar8 = (undefined4 *)0x0;
+      }
+      else {
+        uVar2 = *(undefined4 *)((int)this + 0x414);
+        uVar3 = *(undefined4 *)((int)this + 0x40c);
+        bVar4 = FUN_100ae940((int)this);
+        puVar8 = FUN_100aa2a0(pvVar7,uVar3,uVar2,CONCAT31(extraout_var,bVar4));
+      }
+      break;
+    default:
+      goto switchD_100af23c_caseD_1;
+    case (void *)0x12:
+      FUN_100aec80(this,0,&local_20);
+      iVar5 = local_20;
+      bVar4 = FUN_100a03d0(*(int *)((int)this + 0x42c));
+      if ((!bVar4) && (iVar5 != 0)) {
+LAB_100af4b5:
+        local_1c = 1000;
+        puVar8 = (undefined4 *)(**(code **)(*(int *)this + 0xc))(0);
+        goto LAB_100af57c;
+      }
+      FUN_100aecb0(this,0,&local_14);
+      if (local_14 == (void *)0x2) {
+        local_18 = (void *)0x4;
+      }
+      else {
+        local_18 = (void *)(*(int *)((int)this + 0x408) + 4);
+      }
+      pvVar7 = operator_new(0x6c);
+      local_4 = 1;
+      local_10 = pvVar7;
+      if (pvVar7 == (void *)0x0) goto LAB_100af55f;
+      uVar2 = *(undefined4 *)((int)this + 0x414);
+      uVar3 = *(undefined4 *)((int)this + 0x40c);
+      bVar4 = FUN_100ae940((int)this);
+      puVar8 = FUN_100aa2e0(pvVar7,uVar3,uVar2,1,(short)local_20,(int)this + 8,local_18,
+                            CONCAT31(extraout_var_00,bVar4));
+      break;
+    case (void *)0x15:
+      local_14 = operator_new(0x7c);
+      local_4 = 4;
+      if (local_14 == (void *)0x0) goto LAB_100af55f;
+      uVar2 = *(undefined4 *)(*(int *)((int)this + 0x42c) + 0x78);
+      uVar3 = *(undefined4 *)((int)this + 0x414);
+      uVar1 = *(undefined4 *)((int)this + 0x40c);
+      bVar4 = FUN_100ae940((int)this);
+      puVar8 = FUN_100aa440(local_14,uVar1,uVar3,uVar2,CONCAT31(extraout_var_04,bVar4));
+      break;
+    case (void *)0x16:
+      pvVar7 = operator_new(100);
+      local_4 = 2;
+      local_10 = pvVar7;
+      if (pvVar7 == (void *)0x0) goto LAB_100af55f;
+      uVar2 = *(undefined4 *)((int)this + 0x414);
+      uVar3 = *(undefined4 *)((int)this + 0x40c);
+      bVar4 = FUN_100ae940((int)this);
+      puVar8 = FUN_100aa330(pvVar7,uVar3,uVar2,CONCAT31(extraout_var_01,bVar4));
+      break;
+    case (void *)0x1d:
+      pvVar7 = operator_new(100);
+      local_4 = 5;
+      local_10 = pvVar7;
+      if (pvVar7 == (void *)0x0) goto LAB_100af55f;
+      uVar2 = *(undefined4 *)((int)this + 0x414);
+      uVar3 = *(undefined4 *)((int)this + 0x40c);
+      bVar4 = FUN_100ae940((int)this);
+      puVar8 = FUN_100aa370(pvVar7,uVar3,uVar2,CONCAT31(extraout_var_05,bVar4));
+      break;
+    case (void *)0x25:
+      iVar5 = FUN_100a0360(*(int *)((int)this + 0x42c));
+      iVar5 = iVar5 + 0x36;
+      bVar4 = FUN_1009d730(*(int *)((int)this + 0x42c));
+      bVar4 = CONCAT31(extraout_var_02,bVar4) != 0;
+      if (bVar4) {
+        iVar6 = FUN_1009fc20(*(int *)((int)this + 0x42c));
+        iVar5 = iVar5 + iVar6;
+      }
+      local_14 = (void *)(uint)bVar4;
+      FUN_100aec80(this,0,&local_20);
+      local_18 = operator_new(0x68);
+      local_4 = 3;
+      if (local_18 == (void *)0x0) goto LAB_100af55f;
+      uVar2 = *(undefined4 *)((int)this + 0x414);
+      uVar3 = *(undefined4 *)((int)this + 0x40c);
+      bVar4 = FUN_100ae940((int)this);
+      puVar8 = FUN_100aa3b0(local_18,uVar3,uVar2,(short)local_20,(short)local_14,(int)this + 8,iVar5
+                            ,CONCAT31(extraout_var_03,bVar4));
+      break;
+    case (void *)0x28:
+      FUN_100aec80(this,0,&local_20);
+      sVar9 = (short)local_20;
+      if ((sVar9 != 0x88) && (sVar9 != 0x91)) goto LAB_100af4b5;
+      local_18 = (void *)0x6;
+      local_20 = (uint)(sVar9 == 0x88) * 2 + 1;
+      FUN_100aecb0(this,0,&local_14);
+      if (local_14 == (void *)0x1) {
+        local_18 = (void *)(*(int *)((int)this + 0x408) + 6);
+      }
+      FUN_100aece0(this,0,&local_14);
+      local_10 = operator_new(0x74);
+      local_4 = 6;
+      if (local_10 == (void *)0x0) goto LAB_100af55f;
+      uVar2 = *(undefined4 *)((int)this + 0x414);
+      uVar3 = *(undefined4 *)((int)this + 0x40c);
+      bVar4 = FUN_100ae940((int)this);
+      puVar8 = FUN_100b5000(local_10,uVar3,uVar2,sVar9,(short)local_14,(short)local_20,(int)this + 8
+                            ,local_18,CONCAT31(extraout_var_06,bVar4));
+    }
+    local_4 = 0xffffffff;
+    if (puVar8 != (undefined4 *)0x0) {
+      *param_1 = puVar8;
+      goto LAB_100af57c;
+    }
+switchD_100af23c_caseD_1:
+    local_1c = 5;
+  }
+  else if ((short)local_1c == 1000) {
+    puVar8 = (undefined4 *)(**(code **)(*(int *)this + 0xc))(0);
+    goto LAB_100af57c;
+  }
+  puVar8 = (undefined4 *)(**(code **)(*(int *)this + 0x14))();
+LAB_100af57c:
+  ExceptionList = local_c;
+  return CONCAT22((short)((uint)puVar8 >> 0x10),(undefined2)local_1c);
+}
+
+
+// --- No function at/containing 0x100AFF00, trying to create ---
+// === FUN_100aff00 @ 0x100AFF00 (100 bytes) ===
+
+undefined4 __thiscall FUN_100aff00(int param_1)
+
+{
+  bool bVar1;
+  undefined3 extraout_var;
+  undefined4 *puVar2;
+  undefined4 unaff_EBX;
+  undefined4 unaff_EBP;
+  int unaff_ESI;
+  undefined4 unaff_EDI;
+  undefined2 in_stack_00000010;
+  undefined2 in_stack_00000014;
+  void *in_stack_00000018;
+  void *in_stack_0000001c;
+  undefined4 *in_stack_0000002c;
+  
+  bVar1 = FUN_100ae940(param_1);
+  puVar2 = FUN_100aa3b0(in_stack_00000018,unaff_EBP,unaff_EBX,in_stack_00000014,in_stack_00000010,
+                        unaff_ESI + 8,unaff_EDI,CONCAT31(extraout_var,bVar1));
+  if (puVar2 == (undefined4 *)0x0) {
+    *in_stack_0000002c = 0;
+    ExceptionList = in_stack_0000001c;
+    return 5;
+  }
+  *in_stack_0000002c = puVar2;
+  ExceptionList = in_stack_0000001c;
+  return 0;
+}
+
+
+// --- No function at/containing 0x100B1900, trying to create ---
+// === FUN_100b1900 @ 0x100B1900 (70 bytes) ===
+
+undefined4 __fastcall FUN_100b1900(undefined4 param_1,undefined2 param_2)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  undefined4 unaff_EBX;
+  void *unaff_EBP;
+  int unaff_ESI;
+  undefined4 unaff_EDI;
+  undefined4 unaff_retaddr;
+  void *in_stack_00000020;
+  undefined4 *in_stack_00000030;
+  
+  puVar1 = FUN_100aa2e0(unaff_EBP,unaff_EBX,unaff_EDI,1,param_2,unaff_ESI + 8,param_1,unaff_retaddr)
+  ;
+  if (puVar1 == (undefined4 *)0x0) {
+    uVar2 = 5;
+    *in_stack_00000030 = 0;
+  }
+  else {
+    *in_stack_00000030 = puVar1;
+    uVar2 = 0;
+  }
+  ExceptionList = in_stack_00000020;
+  return uVar2;
+}
+
+
+// --- Function containing 0x100B2000 ---
+// === FUN_100b2000 @ 0x100B2000 (290 bytes) ===
+
+uint __thiscall FUN_100b2000(void *this,undefined4 *param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  bool bVar3;
+  undefined3 extraout_var;
+  undefined4 *puVar4;
+  int iVar5;
+  undefined4 *puVar6;
+  int local_18;
+  undefined4 local_14;
+  void *local_10;
+  void *local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_100b9d3b;
+  local_c = ExceptionList;
+  local_14 = 0;
+  ExceptionList = &local_c;
+  bVar3 = FUN_100a03d0(*(int *)((int)this + 0x42c));
+  if ((bVar3) || (puVar4 = *(undefined4 **)((int)this + 0x44c), puVar4[10] == 0)) {
+    FUN_100aecb0(this,0,&local_18);
+    if (local_18 == 2) {
+      local_18 = (int)this + 8;
+      iVar5 = 4;
+    }
+    else {
+      iVar1 = *(int *)((int)this + 0x44c);
+      iVar5 = *(int *)(iVar1 + 0x2c);
+      if (*(int *)(iVar1 + 0x28) != 0) {
+        iVar5 = iVar5 + 4;
+      }
+      local_18 = *(int *)(iVar1 + 0x30);
+    }
+    local_10 = operator_new(0x6c);
+    local_4 = 0;
+    if (local_10 == (void *)0x0) {
+      puVar4 = (undefined4 *)0x0;
+    }
+    else {
+      iVar1 = *(int *)((int)this + 0x44c);
+      uVar2 = *(undefined4 *)((int)this + 0x40c);
+      bVar3 = FUN_100ae940((int)this);
+      puVar4 = FUN_100aa2e0(local_10,uVar2,*(undefined4 *)(iVar1 + 0xc),
+                            (uint)(*(int *)(iVar1 + 0x28) != 0),*(undefined2 *)(iVar1 + 0x28),
+                            local_18,iVar5,CONCAT31(extraout_var,bVar3));
+    }
+    puVar6 = puVar4;
+    if (puVar4 == (undefined4 *)0x0) {
+      ExceptionList = local_c;
+      return 5;
+    }
+  }
+  else {
+    local_14._0_2_ = 4;
+    puVar6 = (undefined4 *)0x0;
+  }
+  *param_1 = puVar6;
+  ExceptionList = local_c;
+  return CONCAT22((short)((uint)puVar4 >> 0x10),(undefined2)local_14);
+}
+
+
+// --- No function at/containing 0x100B2200, trying to create ---
+// === FUN_100b2200 @ 0x100B2200 (45 bytes) ===
+
+undefined2 FUN_100b2200(void)
+
+{
+  int *unaff_ESI;
+  undefined2 unaff_DI;
+  bool in_ZF;
+  
+  if (in_ZF) {
+    (**(code **)(*unaff_ESI + 0x14))();
+    return 5;
+  }
+  (**(code **)(*unaff_ESI + 0xc))(0);
+  return unaff_DI;
+}
+
+
+// --- No function at/containing 0x100B2700, trying to create ---
+// === FUN_100b2700 @ 0x100B2700 (8 bytes) ===
+
+void FUN_100b2700(void)
+
+{
+  return;
+}
+
+
+// --- Function containing 0x100ADF00 ---
+// === FUN_100adec0 @ 0x100ADEC0 (383 bytes) ===
+
+undefined4 __fastcall FUN_100adec0(void *param_1)
+
+{
+  undefined4 uVar1;
+  bool bVar2;
+  undefined3 extraout_var;
+  undefined4 *puVar3;
+  undefined3 extraout_var_00;
+  undefined3 extraout_var_01;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  void *local_10;
+  void *local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_100b9a81;
+  local_c = ExceptionList;
+  if (*(short *)((int)param_1 + 0x58) == 0x26) {
+    if (*(short *)((int)param_1 + 0x5a) == 0) {
+      ExceptionList = &local_c;
+      local_10 = operator_new(0x74);
+      local_4 = 0;
+      if (local_10 == (void *)0x0) {
+LAB_100adff9:
+        puVar3 = (undefined4 *)0x0;
+      }
+      else {
+        uVar4 = *(undefined4 *)((int)param_1 + 0x70);
+        uVar5 = *(undefined4 *)((int)param_1 + 0x6c);
+        uVar1 = *(undefined4 *)((int)param_1 + 8);
+        bVar2 = FUN_100adbe0((int)param_1);
+        puVar3 = FUN_100b5060(local_10,*(undefined4 *)((int)param_1 + 0x54),uVar1,
+                              *(undefined2 *)((int)param_1 + 0x5a),
+                              *(undefined2 *)((int)param_1 + 0x5c),
+                              *(undefined2 *)((int)param_1 + 0x5e),
+                              *(undefined4 *)((int)param_1 + 100),
+                              *(undefined4 *)((int)param_1 + 0x60),CONCAT31(extraout_var_00,bVar2),
+                              uVar5,uVar4);
+      }
+    }
+    else {
+      ExceptionList = &local_c;
+      local_10 = operator_new(0x74);
+      local_4 = 1;
+      if (local_10 == (void *)0x0) goto LAB_100adff9;
+      uVar4 = *(undefined4 *)((int)param_1 + 8);
+      bVar2 = FUN_100adbe0((int)param_1);
+      puVar3 = FUN_100b5000(local_10,*(undefined4 *)((int)param_1 + 0x54),uVar4,
+                            *(undefined2 *)((int)param_1 + 0x5a),
+                            *(undefined2 *)((int)param_1 + 0x5c),
+                            *(undefined2 *)((int)param_1 + 0x5e),*(undefined4 *)((int)param_1 + 100)
+                            ,*(undefined4 *)((int)param_1 + 0x60),CONCAT31(extraout_var_01,bVar2));
+    }
+  }
+  else {
+    ExceptionList = &local_c;
+    local_10 = param_1;
+    if (*(short *)((int)param_1 + 0x58) != 0x27) goto LAB_100ae006;
+    ExceptionList = &local_c;
+    local_10 = operator_new(0x6c);
+    local_4 = 2;
+    if (local_10 == (void *)0x0) goto LAB_100adff9;
+    uVar4 = *(undefined4 *)((int)param_1 + 8);
+    bVar2 = FUN_100adbe0((int)param_1);
+    puVar3 = FUN_100b50c0(local_10,*(undefined4 *)((int)param_1 + 0x54),uVar4,
+                          *(undefined2 *)((int)param_1 + 0x5a),*(undefined2 *)((int)param_1 + 0x5c),
+                          *(undefined2 *)((int)param_1 + 0x5e),*(undefined4 *)((int)param_1 + 100),
+                          *(undefined4 *)((int)param_1 + 0x60),CONCAT31(extraout_var,bVar2));
+  }
+  *(undefined4 **)((int)param_1 + 0x68) = puVar3;
+LAB_100ae006:
+  local_4 = 0xffffffff;
+  if (*(int **)((int)param_1 + 0x68) == (int *)0x0) {
+    ExceptionList = local_c;
+    return 5;
+  }
+  uVar4 = (**(code **)(**(int **)((int)param_1 + 0x68) + 4))((int)param_1 + 0x30);
+  ExceptionList = local_10;
+  return uVar4;
+}
+
+
+
+=== DONE ===

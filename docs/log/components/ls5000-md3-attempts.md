@@ -115,3 +115,21 @@
 - TUR called from 10 sites, SEND DIAGNOSTIC from 9 sites — most frequent commands
 **Confidence**: High (operational sequences), Medium (capability ID mapping)
 **KB Updated**: docs/kb/components/ls5000-md3/maid-entrypoint.md (MAID → SCSI mapping added)
+
+## Attempt 8 — 2026-02-28 — READ/WRITE factory DTC callsite analysis
+**Tool**: r2 disassembly (PE-aware loading) + manual stack tracing
+**Target**: READ factory at 0x100b5000, WRITE factory at 0x100b50c0, callsites pushing DTC values
+**What I tried**: Traced READ/WRITE factory calling convention to identify which stack argument maps to Data Type Code. Analyzed base constructor at 0x100ae770 (ret 0x18) to determine stack cleanup. Scanned all factory callsites for immediate DTC values.
+**What I found**:
+- Factory signature: `push 1` (READ, direction=data-in) or `push 2` (WRITE, direction=data-out), `ret 0x20` (8 DWORD params)
+- Base constructor at 0x100ae770: `ret 0x18` (6 params), stores arg3→[esi+0x64]=DTC, arg4→[esi+0x66], arg5→[esi+0x68]
+- arg3 = Data Type Code confirmed via ESP tracing through push/call/ret sequence
+- Vtable READ builder at 0x100b51b0 reads DTC from [ecx+0x64] into CDB[2]
+- Vtable WRITE builder at 0x100b51f0 mirrors READ structure, opcode 0x2A, control byte 0x00 (not 0x80)
+- Factory callsite DTC values found:
+  - READ: 0x84 (0x100B0D34), 0x88 (0x100B19E3), 0x8D (0x100B1E46, 0x100B1E9D), 0x87 (0x100B451B)
+  - WRITE: 0x84 (0x100B0E06) — other WRITE DTCs passed dynamically from scan operation objects
+- Inline READ builders (0x100866d9, 0x10086dfa, 0x1008781a) all hardcode DTC=0x00 (image data)
+- Type B Phase B factory (0x100B41A0) dispatches on sub_code == 0x87 for READ
+**Confidence**: Verified (cross-validated with firmware DTC tables at 0x49AD8/0x49B98)
+**KB Updated**: docs/kb/scsi-commands/read.md, docs/kb/scsi-commands/write.md (both updated with source references)

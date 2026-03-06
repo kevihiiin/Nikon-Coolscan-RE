@@ -1,0 +1,2213 @@
+=== CAPABILITY OBJECT FACTORY ===
+
+// --- FUN_10053bc0 - capability object factory (creates cap objects with vtables) ---
+// === FUN_10053bc0 @ 0x10053BC0 (94 bytes) ===
+
+undefined4 * __cdecl FUN_10053bc0(uint param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 *puVar1;
+  int *piVar2;
+  undefined4 *local_14;
+  undefined4 auStack_10 [4];
+  
+  puVar1 = (undefined4 *)FUN_1001b490(param_1,0,&local_14);
+  if (puVar1 == (undefined4 *)0x0) {
+    puVar1 = (undefined4 *)(**(code **)*local_14)(param_2);
+    if (puVar1 == (undefined4 *)0x0) {
+      local_14 = puVar1;
+      piVar2 = (int *)FUN_100539b0(&DAT_100f17a8,auStack_10,(uint *)&stack0xffffffe8);
+      *(undefined4 *)(*piVar2 + 0x10) = param_3;
+      puVar1 = (undefined4 *)0x0;
+    }
+  }
+  return puVar1;
+}
+
+
+
+// --- FUN_10053c90 - capability object deregistration ---
+// === FUN_10053c90 @ 0x10053C90 (98 bytes) ===
+
+void __cdecl FUN_10053c90(uint param_1)
+
+{
+  int *piVar1;
+  uint local_10 [4];
+  
+  piVar1 = (int *)FUN_10014130(&DAT_100f17a8,(int *)local_10,&param_1);
+  if (*piVar1 != DAT_100f17ac) {
+    local_10[0] = param_1;
+    local_10[1] = 0;
+    piVar1 = (int *)FUN_100539b0(&DAT_100f17a8,local_10 + 2,local_10);
+    (**(code **)(**(int **)(*piVar1 + 0x10) + 8))();
+    FUN_10053b30(&DAT_100f17a8,&param_1);
+  }
+  return;
+}
+
+
+
+=== SCAN OPERATION CONTROLLER ===
+
+// --- FUN_10054580 - called from opcode 10 handler (scan start completion) ---
+// === FUN_10054580 @ 0x10054580 (436 bytes) ===
+
+undefined4 * __cdecl FUN_10054580(int *param_1)
+
+{
+  int **ppiVar1;
+  uint local_c;
+  undefined1 local_8 [4];
+  undefined1 local_4 [4];
+  
+  ppiVar1 = &param_1;
+  (**(code **)(*param_1 + 0x14))(ppiVar1,local_4,local_8,&local_c);
+  if (local_c == 0x8740) {
+    return ppiVar1;
+  }
+  if (0x8003 < local_c) {
+    if (0x8203 < local_c) {
+      switch(local_c) {
+      case 0x8501:
+        return (undefined4 *)0x181;
+      case 0x8502:
+      case 0x8503:
+      case 0x8504:
+      case 0x8507:
+      case 0x8508:
+      case 0x8509:
+      case 0x850a:
+      case 0x850e:
+      case 0x850f:
+      case 0x8510:
+        return (undefined4 *)0xffffff8c;
+      default:
+        return (undefined4 *)0xffffff8b;
+      case 0x850b:
+        return (undefined4 *)0x182;
+      case 0x850c:
+        goto switchD_1005461c_caseD_2004;
+      }
+    }
+    if (local_c == 0x8203) {
+      return (undefined4 *)0xffffff8b;
+    }
+    if (local_c < 0x8102) {
+      if (local_c != 0x8101) {
+        switch(local_c) {
+        default:
+          return (undefined4 *)0xffffff8b;
+        case 0x8006:
+          return (undefined4 *)0xffffff84;
+        case 0x8007:
+          return (undefined4 *)0xffffff8d;
+        }
+      }
+      return (undefined4 *)0xffffff82;
+    }
+    if (local_c < 0x8104) {
+      if (local_c == 0x8103) {
+        return (undefined4 *)0xffffff83;
+      }
+      if (local_c != 0x8102) {
+        return (undefined4 *)0xffffff8b;
+      }
+      return (undefined4 *)0xffffff87;
+    }
+    if (local_c < 0x8201) {
+      return (undefined4 *)0xffffff8b;
+    }
+    if (0x8202 < local_c) {
+      return (undefined4 *)0xffffff8b;
+    }
+    return (undefined4 *)0xffffff8c;
+  }
+  if (local_c == 0x8003) {
+    return (undefined4 *)0xffffff8a;
+  }
+  if (0x2006 < local_c) {
+    if (local_c < 0x2766) {
+      if (local_c < 0x2760) {
+        if (local_c == 0x2007) {
+          return (undefined4 *)0xffffff86;
+        }
+        if (local_c != 0x2009) {
+          if (local_c == 0x200a) {
+            return (undefined4 *)0xffffff86;
+          }
+          return (undefined4 *)0xffffff8b;
+        }
+        return (undefined4 *)0x0;
+      }
+    }
+    else if (local_c != 0x2767) {
+      if (local_c == 0x8001) {
+        return (undefined4 *)0xffffff81;
+      }
+      if (local_c != 0x8002) {
+        return (undefined4 *)0xffffff8b;
+      }
+      return (undefined4 *)0xffffff83;
+    }
+switchD_1005461c_caseD_2004:
+    return (undefined4 *)0x0;
+  }
+  if (local_c == 0x2006) {
+switchD_1005461c_caseD_2001:
+    return (undefined4 *)0xffffff86;
+  }
+  if (local_c < 0x1005) {
+    if (local_c != 0x1004) {
+      if (local_c < 0x1003) {
+        if (0x1000 < local_c) {
+          return (undefined4 *)0x0;
+        }
+        if (local_c == 0) {
+          return (undefined4 *)0x0;
+        }
+        if (local_c == 0x10) {
+          return (undefined4 *)0x27f;
+        }
+      }
+      else if (local_c == 0x1003) {
+        return (undefined4 *)0xffffff85;
+      }
+    }
+  }
+  else {
+    switch(local_c) {
+    case 0x2001:
+    case 0x2002:
+    case 0x2003:
+      goto switchD_1005461c_caseD_2001;
+    case 0x2004:
+    case 0x2005:
+      goto switchD_1005461c_caseD_2004;
+    }
+  }
+  return (undefined4 *)0xffffff8b;
+}
+
+
+
+// --- FUN_1001b490 - creates capability 0x8005 (scan params) - called in multiple handlers ---
+// === FUN_1001b490 @ 0x1001B490 (7295 bytes) ===
+
+undefined4 __cdecl FUN_1001b490(uint param_1,undefined4 param_2,undefined4 *param_3)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  void *unaff_EDI;
+  void *local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_100b65a2;
+  local_c = ExceptionList;
+  if (param_1 < 0x50e7) {
+    if (param_1 == 0x50e6) {
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x68);
+      local_4 = 0x51;
+      if (puVar1 == (undefined4 *)0x0) {
+LAB_1001c448:
+        puVar1 = (undefined4 *)0x0;
+      }
+      else {
+        FUN_100353f0(puVar1);
+        *puVar1 = &PTR_LAB_100bd65c;
+        puVar1[1] = &PTR_LAB_100bd644;
+        puVar1[2] = &PTR_LAB_100bd630;
+        puVar1[3] = &PTR_LAB_100bd620;
+      }
+    }
+    else if (param_1 < 0x5036) {
+      if (param_1 == 0x5035) {
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x49;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100015e0(puVar1);
+      }
+      else if (param_1 < 0x5007) {
+        if (param_1 == 0x5006) {
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x30);
+          local_4 = 5;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_100300e0(puVar1);
+        }
+        else if (param_1 < 0x4005) {
+          if (param_1 == 0x4004) {
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0xa8);
+            local_4 = 0x66;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_10052d30(puVar1);
+          }
+          else {
+            if (param_1 < 0x1501) {
+              if (param_1 == 0x1500) {
+                ExceptionList = &local_c;
+                puVar1 = operator_new(0xe4);
+                local_4 = 0x61;
+                if (puVar1 == (undefined4 *)0x0) goto LAB_1001cf57;
+                puVar1 = FUN_1006f0a0(puVar1);
+              }
+              else if (param_1 < 0x1301) {
+                if (param_1 == 0x1300) {
+                  ExceptionList = &local_c;
+                  puVar1 = operator_new(0x120);
+                  local_4 = 0x5f;
+                  if (puVar1 == (undefined4 *)0x0) {
+LAB_1001cf57:
+                    puVar1 = (undefined4 *)0x0;
+                  }
+                  else {
+                    puVar1 = FUN_10066910(puVar1);
+                  }
+                }
+                else {
+                  if (param_1 != 0x1100) {
+                    if (param_1 != 0x1200) goto switchD_1001b62c_default;
+                    ExceptionList = &local_c;
+                    puVar1 = operator_new(0x13c);
+                    local_4 = 0x5e;
+                    if (puVar1 == (undefined4 *)0x0) {
+                      puVar1 = (undefined4 *)0x0;
+                    }
+                    else {
+                      puVar1 = FUN_1006def0(puVar1);
+                    }
+                    local_4 = 0xffffffff;
+                    if (puVar1 == (undefined4 *)0x0) goto LAB_1001d0a0;
+                    puVar1 = puVar1 + 2;
+                    goto LAB_1001d09c;
+                  }
+                  ExceptionList = &local_c;
+                  puVar1 = operator_new(0xd4);
+                  local_4 = 0x5d;
+                  if (puVar1 == (undefined4 *)0x0) goto LAB_1001cf57;
+                  puVar1 = FUN_10067ca0(puVar1);
+                }
+              }
+              else {
+                if (param_1 != 0x1400) goto switchD_1001b62c_default;
+                ExceptionList = &local_c;
+                puVar1 = operator_new(0xe4);
+                local_4 = 0x60;
+                if (puVar1 == (undefined4 *)0x0) goto LAB_1001cf57;
+                puVar1 = FUN_10065fd0(puVar1);
+              }
+LAB_1001cf59:
+              local_4 = 0xffffffff;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d0a0;
+              puVar1 = puVar1 + 1;
+              goto LAB_1001d09c;
+            }
+            switch(param_1) {
+            case 0x4000:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(0xe8);
+              local_4 = 0x62;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_10052a10(puVar1);
+              break;
+            case 0x4001:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(0xb8);
+              local_4 = 99;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_10052890(puVar1);
+              break;
+            case 0x4002:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(200);
+              local_4 = 100;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_10019570(puVar1);
+              break;
+            case 0x4003:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(0xa8);
+              local_4 = 0x65;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_10052c00(puVar1);
+              break;
+            default:
+              goto switchD_1001b62c_default;
+            }
+          }
+        }
+        else if (param_1 < 0x400e) {
+          if (param_1 == 0x400d) {
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x80108);
+            local_4 = 0x69;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_10052f70(puVar1);
+          }
+          else {
+            switch(param_1) {
+            case 0x4005:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(200);
+              local_4 = 0x67;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_10019410(puVar1);
+              break;
+            case 0x4006:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(200);
+              local_4 = 0x68;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_10019590(puVar1);
+              break;
+            case 0x4007:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(0x70);
+              local_4 = 0x6a;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_1004b420(puVar1);
+              break;
+            case 0x4008:
+              ExceptionList = &local_c;
+              puVar1 = operator_new(0xa8);
+              local_4 = 0x6b;
+              if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+              puVar1 = FUN_10052e50(puVar1);
+              break;
+            default:
+              goto switchD_1001b62c_default;
+            }
+          }
+        }
+        else {
+          switch(param_1) {
+          case 0x5002:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x2c);
+            local_4 = 1;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1002cb40(puVar1);
+            break;
+          case 0x5003:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x3c);
+            local_4 = 2;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1002fa70(puVar1);
+            break;
+          case 0x5004:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x3c);
+            local_4 = 3;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1002fde0(puVar1);
+            break;
+          case 0x5005:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x30);
+            local_4 = 4;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1002cbc0(puVar1);
+            break;
+          default:
+            goto switchD_1001b62c_default;
+          }
+        }
+      }
+      else {
+        switch(param_1) {
+        case 0x5007:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x2c);
+          local_4 = 6;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_100304a0(puVar1);
+          break;
+        default:
+          goto switchD_1001b62c_default;
+        case 0x5009:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x60);
+          local_4 = 10;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10019a60(puVar1);
+          break;
+        case 0x500c:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x30);
+          local_4 = 0xd;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10030ea0(puVar1);
+          break;
+        case 0x500f:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x50);
+          local_4 = 0xe;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_100316c0(puVar1);
+          break;
+        case 0x5010:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x50);
+          local_4 = 0xf;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10031ef0(puVar1);
+          break;
+        case 0x5021:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x1b;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001acd0(puVar1);
+          break;
+        case 0x5022:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x4a;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001af10(puVar1);
+          break;
+        case 0x5024:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x22;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001ad00(puVar1);
+          break;
+        case 0x5025:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x48);
+          local_4 = 0x23;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10034140(puVar1);
+          break;
+        case 0x5028:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x58);
+          local_4 = 0x24;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10034680(puVar1);
+          break;
+        case 0x5029:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x25;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001ad30(puVar1);
+          break;
+        case 0x502a:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x26;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001ad60(puVar1);
+          break;
+        case 0x502b:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x27;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001ad90(puVar1);
+          break;
+        case 0x502c:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x6c);
+          local_4 = 0x28;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001a700(puVar1);
+          break;
+        case 0x502d:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x60);
+          local_4 = 0x29;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10019ac0(puVar1);
+          break;
+        case 0x502e:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x4c;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001af70(puVar1);
+          break;
+        case 0x5030:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x4b;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001af40(puVar1);
+          break;
+        case 0x5031:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x4d;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001afa0(puVar1);
+        }
+      }
+    }
+    else {
+      switch(param_1) {
+      case 0x503a:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x6c);
+        local_4 = 0x5b;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a9a0(puVar1);
+        break;
+      case 0x503b:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x6c);
+        local_4 = 0x43;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a870(puVar1);
+        break;
+      case 0x503c:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x74);
+        local_4 = 0x44;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a8a0(puVar1);
+        break;
+      default:
+        goto switchD_1001b62c_default;
+      case 0x5070:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x98);
+        local_4 = 0x58;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a960(puVar1);
+        break;
+      case 0x5071:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x40);
+        local_4 = 0x5a;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019550(puVar1);
+        break;
+      case 0x5072:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x59;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019880(puVar1);
+        break;
+      case 0x5080:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x2b;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100197a0(puVar1);
+        break;
+      case 0x5082:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x74);
+        local_4 = 0x2c;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a760(puVar1);
+        break;
+      case 0x5086:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x3c);
+        local_4 = 0x2e;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10070190(puVar1);
+        break;
+      case 0x5087:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x40);
+        local_4 = 0x2d;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100194b0(puVar1);
+        break;
+      case 0x508a:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x2f;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10001d60(puVar1);
+        break;
+      case 0x508b:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x98);
+        local_4 = 0x30;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a790(puVar1);
+        break;
+      case 0x508c:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x98);
+        local_4 = 0x31;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a7c0(puVar1);
+        break;
+      case 0x508d:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x32;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10001d30(puVar1);
+        break;
+      case 0x5092:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xb0);
+        local_4 = 0x33;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019ae0(puVar1);
+        break;
+      case 0x50a0:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xa0);
+        local_4 = 0x35;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a7f0(puVar1);
+        break;
+      case 0x50a1:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xb8);
+        local_4 = 0x36;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001adc0(puVar1);
+        break;
+      case 0x50a2:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xb8);
+        local_4 = 0x37;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001adf0(puVar1);
+        break;
+      case 0x50a3:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xb8);
+        local_4 = 0x38;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001ae20(puVar1);
+        break;
+      case 0x50a4:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xb8);
+        local_4 = 0x39;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001ae50(puVar1);
+        break;
+      case 0x50a5:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x40);
+        local_4 = 0x3a;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100194d0(puVar1);
+        break;
+      case 0x50a6:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x34;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100197c0(puVar1);
+        break;
+      case 0x50c0:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x74);
+        local_4 = 0x3b;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a840(puVar1);
+        break;
+      case 0x50c1:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x40);
+        local_4 = 0x3c;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100194f0(puVar1);
+        break;
+      case 0x50c2:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x3d;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100197e0(puVar1);
+        break;
+      case 0x50c3:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x3e;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001ae80(puVar1);
+        break;
+      case 0x50c4:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x3f;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001aeb0(puVar1);
+        break;
+      case 0x50c5:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x40;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001aee0(puVar1);
+        break;
+      case 0x50c6:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x40);
+        local_4 = 0x41;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019510(puVar1);
+        break;
+      case 0x50c7:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x42;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019800(puVar1);
+        break;
+      case 0x50d0:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x45;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019820(puVar1);
+        break;
+      case 0x50d1:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x46;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10062a80(puVar1);
+        break;
+      case 0x50d2:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x40);
+        local_4 = 0x47;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019530(puVar1);
+        break;
+      case 0x50d5:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x70);
+        local_4 = 0x48;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10001500(puVar1);
+        break;
+      case 0x50e3:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x4e;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019840(puVar1);
+        break;
+      case 0x50e4:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xb8);
+        local_4 = 0x4f;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a8d0(puVar1);
+        break;
+      case 0x50e5:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x4c);
+        local_4 = 0x50;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10038740(puVar1);
+      }
+    }
+    goto LAB_1001d094;
+  }
+  if (param_1 < 0x5102) {
+    if (param_1 == 0x5101) {
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x24);
+      local_4 = 0;
+      if (puVar1 == (undefined4 *)0x0) goto LAB_1001c448;
+      FUN_1002cb20(puVar1);
+      *puVar1 = &PTR_LAB_100bbab4;
+    }
+    else {
+      switch(param_1) {
+      case 0x50e7:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x6c);
+        local_4 = 0x52;
+        if (puVar1 == (undefined4 *)0x0) {
+LAB_1001d090:
+          puVar1 = (undefined4 *)0x0;
+        }
+        else {
+          puVar1 = FUN_1001a930(puVar1);
+        }
+        break;
+      default:
+        goto switchD_1001b62c_default;
+      case 0x50e9:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x4c);
+        local_4 = 0x53;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10061fd0(puVar1);
+        break;
+      case 0x50ea:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x50);
+        local_4 = 0x54;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10019860(puVar1);
+        break;
+      case 0x50ed:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x2c);
+        local_4 = 0x55;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1006a180(puVar1);
+        break;
+      case 0x50ef:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x50);
+        local_4 = 0x56;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1006a660(puVar1);
+        break;
+      case 0x50f0:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x30);
+        local_4 = 0x5c;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100571d0(puVar1);
+        break;
+      case 0x50f1:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x57;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001afd0(puVar1);
+      }
+    }
+    goto LAB_1001d094;
+  }
+  if (param_1 < 0x6014) {
+    if (param_1 == 0x6013) {
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x50);
+      local_4 = 0x78;
+      if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+      puVar1 = FUN_10043020(puVar1);
+    }
+    else if (param_1 < 0x5423) {
+      if (param_1 == 0x5422) {
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x78);
+        local_4 = 0x1d;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a610(puVar1);
+      }
+      else if (param_1 < 0x5409) {
+        if (param_1 == 0x5408) {
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x38);
+          local_4 = 8;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10019760(puVar1);
+        }
+        else {
+          switch(param_1) {
+          case 21000:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x38);
+            local_4 = 7;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_10019740(puVar1);
+            break;
+          case 0x5209:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x60);
+            local_4 = 0xb;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_10019a80(puVar1);
+            break;
+          default:
+            goto switchD_1001b62c_default;
+          case 0x520b:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x60);
+            local_4 = 0xc;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_10019aa0(puVar1);
+            break;
+          case 0x521e:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x98);
+            local_4 = 0x14;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1001a530(puVar1);
+            break;
+          case 0x521f:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x48);
+            local_4 = 0x17;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1006a0f0(puVar1);
+            break;
+          case 0x5222:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x74);
+            local_4 = 0x1c;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1001a5e0(puVar1);
+            break;
+          case 0x5223:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x74);
+            local_4 = 0x1f;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1001a650(puVar1);
+            break;
+          case 0x5284:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x6c);
+            local_4 = 0x2a;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1001a730(puVar1);
+          }
+        }
+      }
+      else {
+        switch(param_1) {
+        case 0x5413:
+switchD_1001c630_caseD_5413:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x800e8);
+          local_4 = 0x10;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10062e00(puVar1);
+          break;
+        default:
+          goto switchD_1001b62c_default;
+        case 0x541a:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x800f8);
+          local_4 = 0x11;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10064bb0(puVar1);
+          break;
+        case 0x541b:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x80110);
+          local_4 = 0x12;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_100648b0(puVar1);
+          break;
+        case 0x541c:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x5c);
+          local_4 = 0x13;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10061100(puVar1);
+          break;
+        case 0x541e:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x98);
+          local_4 = 0x15;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001a560(puVar1);
+          break;
+        case 0x541f:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x78);
+          local_4 = 0x18;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_10064b10(puVar1);
+          break;
+        case 0x5420:
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x68);
+          local_4 = 0x1a;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001aca0(puVar1);
+        }
+      }
+    }
+    else if (param_1 < 0x6004) {
+      if (param_1 == 0x6003) {
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x7c);
+        local_4 = 0x6d;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10042bc0(puVar1);
+      }
+      else if (param_1 < 0x5520) {
+        if (param_1 == 0x551f) {
+          ExceptionList = &local_c;
+          puVar1 = operator_new(0x78);
+          local_4 = 0x19;
+          if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+          puVar1 = FUN_1001a5c0(puVar1);
+        }
+        else {
+          switch(param_1) {
+          case 0x5423:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x90);
+            local_4 = 0x20;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1001a680(puVar1);
+            break;
+          default:
+            goto switchD_1001b62c_default;
+          case 0x5508:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x38);
+            local_4 = 9;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_10019780(puVar1);
+            break;
+          case 0x5513:
+            goto switchD_1001c630_caseD_5413;
+          case 0x551e:
+            ExceptionList = &local_c;
+            puVar1 = operator_new(0x98);
+            local_4 = 0x16;
+            if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+            puVar1 = FUN_1001a590(puVar1);
+          }
+        }
+      }
+      else if (param_1 == 0x5522) {
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x78);
+        local_4 = 0x1e;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a630(puVar1);
+      }
+      else if (param_1 == 0x5523) {
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x94);
+        local_4 = 0x21;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001a6b0(puVar1);
+      }
+      else {
+        if (param_1 != 0x6002) goto switchD_1001b62c_default;
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x70);
+        local_4 = 0x6c;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1006f600(puVar1);
+      }
+    }
+    else {
+      switch(param_1) {
+      case 0x6004:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x80178);
+        local_4 = 0x77;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10043880(puVar1);
+        break;
+      case 0x6005:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xb8);
+        local_4 = 0x6e;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041d40(puVar1);
+        break;
+      case 0x6006:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x180);
+        local_4 = 0x6f;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1000cee0(puVar1);
+        break;
+      default:
+        goto switchD_1001b62c_default;
+      case 0x6009:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(100);
+        local_4 = 0x72;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1002a0d0(puVar1);
+        break;
+      case 0x600b:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x50);
+        local_4 = 0x73;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100544e0(puVar1);
+        break;
+      case 0x600c:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x70);
+        local_4 = 0x74;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041e80(puVar1);
+        break;
+      case 0x600e:
+      case 0x600f:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0xe0);
+        local_4 = 0x70;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10070e60(puVar1);
+      }
+    }
+    goto LAB_1001d094;
+  }
+  if (param_1 < 0x8001) {
+    if (param_1 == 0x8000) {
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x90);
+      local_4 = 0x8a;
+      if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+      puVar1 = FUN_10026820(puVar1);
+    }
+    else {
+      switch(param_1) {
+      case 0x6016:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x60);
+        local_4 = 0x76;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041f40(puVar1);
+        break;
+      case 0x6017:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x3c);
+        local_4 = 0x7e;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041dd0(puVar1);
+        break;
+      default:
+        goto switchD_1001b62c_default;
+      case 0x6019:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x38);
+        local_4 = 0x7a;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100420c0(puVar1);
+        break;
+      case 0x601a:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x801a8);
+        local_4 = 0x79;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1001b000(puVar1);
+        break;
+      case 0x601b:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x1b0);
+        local_4 = 0x7b;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10040060(puVar1);
+        break;
+      case 0x601d:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x4c);
+        local_4 = 0x7f;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1000b460(puVar1);
+        break;
+      case 0x601e:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x78);
+        local_4 = 0x7c;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041b40(puVar1);
+        break;
+      case 0x601f:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x90);
+        local_4 = 0x7d;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041b80(puVar1);
+        break;
+      case 0x6020:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x8c);
+        local_4 = 0x80;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041d90(puVar1);
+        break;
+      case 0x6021:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x2c);
+        local_4 = 0x75;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10041fb0(puVar1);
+        break;
+      case 0x6022:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x68);
+        local_4 = 0x71;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10070d80(puVar1);
+        break;
+      case 0x6023:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x40);
+        local_4 = 0x82;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_1003e8b0(puVar1);
+        break;
+      case 0x6026:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x60);
+        local_4 = 0x81;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100421b0(puVar1);
+        break;
+      case 0x602b:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x100);
+        local_4 = 0x83;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100421e0(puVar1);
+        break;
+      case 0x602c:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x88);
+        local_4 = 0x84;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100423c0(puVar1);
+        break;
+      case 0x602d:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x60);
+        local_4 = 0x85;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100424e0(puVar1);
+        break;
+      case 0x602e:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x78);
+        local_4 = 0x86;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100428c0(puVar1);
+        break;
+      case 0x602f:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x80);
+        local_4 = 0x87;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_100429a0(puVar1);
+        break;
+      case 0x6030:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x48);
+        local_4 = 0x88;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10042ac0(puVar1);
+        break;
+      case 0x6031:
+        ExceptionList = &local_c;
+        puVar1 = operator_new(0x84);
+        local_4 = 0x89;
+        if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+        puVar1 = FUN_10042b80(puVar1);
+      }
+    }
+    goto LAB_1001d094;
+  }
+  if (0x8100 < param_1) {
+    switch(param_1) {
+    case 0x8101:
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x20);
+      local_4 = 0x91;
+      if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+      puVar1 = FUN_10071c00(puVar1);
+      break;
+    case 0x8102:
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x20);
+      local_4 = 0x92;
+      if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+      puVar1 = FUN_10071be0(puVar1);
+      break;
+    case 0x8103:
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x30);
+      local_4 = 0x8e;
+      if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+      puVar1 = FUN_10006950(puVar1);
+      break;
+    default:
+switchD_1001b62c_default:
+      *param_3 = 0;
+      return 0x80040154;
+    case 0x8105:
+      ExceptionList = &local_c;
+      puVar1 = operator_new(0x4c);
+      local_4 = 0x95;
+      if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+      puVar1 = FUN_1000ad90(puVar1);
+    }
+    goto LAB_1001d094;
+  }
+  if (param_1 == 0x8100) {
+    ExceptionList = &local_c;
+    puVar1 = operator_new(0x24);
+    local_4 = 0x90;
+    if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+    puVar1 = FUN_10071a80(puVar1);
+    goto LAB_1001d094;
+  }
+  switch(param_1) {
+  case 0x8003:
+    ExceptionList = &local_c;
+    puVar1 = operator_new(0x20);
+    local_4 = 0x8b;
+    if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+    puVar1 = FUN_1006fca0(puVar1);
+    break;
+  default:
+    goto switchD_1001b62c_default;
+  case 0x8005:
+    ExceptionList = &local_c;
+    puVar1 = operator_new(0x20);
+    local_4 = 0x8d;
+    if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+    puVar1 = FUN_10056c40(puVar1);
+    break;
+  case 0x8007:
+    ExceptionList = &local_c;
+    puVar1 = operator_new(8);
+    if (puVar1 == (undefined4 *)0x0) {
+      puVar1 = (undefined4 *)0x0;
+    }
+    else {
+      *puVar1 = &PTR_LAB_100bbed0;
+      puVar1[1] = 0;
+    }
+    goto LAB_1001d09c;
+  case 0x800a:
+    ExceptionList = &local_c;
+    puVar1 = operator_new(0x40);
+    local_4 = 0x8f;
+    if (puVar1 == (undefined4 *)0x0) goto LAB_1001cf57;
+    puVar1 = FUN_100526a0(puVar1);
+    goto LAB_1001cf59;
+  case 0x800b:
+    ExceptionList = &local_c;
+    puVar1 = operator_new(0x20);
+    local_4 = 0x8c;
+    if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+    puVar1 = FUN_10002890(puVar1);
+    break;
+  case 0x800c:
+    ExceptionList = &local_c;
+    puVar1 = operator_new(0x2c);
+    local_4 = 0x93;
+    if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+    puVar1 = FUN_10017f30(puVar1);
+    break;
+  case 0x800e:
+    ExceptionList = &local_c;
+    puVar1 = operator_new(0x30);
+    local_4 = 0x94;
+    if (puVar1 == (undefined4 *)0x0) goto LAB_1001d090;
+    puVar1 = FUN_10012b60(puVar1);
+  }
+LAB_1001d094:
+  local_4 = 0xffffffff;
+LAB_1001d09c:
+  if (puVar1 != (undefined4 *)0x0) {
+    iVar2 = (**(code **)*puVar1)(param_2,param_3);
+    if (iVar2 != 0) {
+                    /* WARNING: Subroutine does not return */
+      _free(puVar1);
+    }
+    ExceptionList = unaff_EDI;
+    return 0;
+  }
+LAB_1001d0a0:
+  *param_3 = 0;
+  ExceptionList = local_c;
+  return 0x8007000e;
+}
+
+
+
+=== SET WINDOW PARAMETER BUILDING ===
+
+// --- Scan ops area - check if SET WINDOW sequence start ---
+// No function at 0x100B3C00, creating...
+// Could not create function
+
+// --- Scan ops area ---
+// No function at 0x100B3D00, creating...
+// === FUN_100b3d00 @ 0x100B3D00 (6 bytes) ===
+
+void FUN_100b3d00(void)
+
+{
+  return;
+}
+
+
+
+// --- Scan ops area ---
+// No function at 0x100B3E00, creating...
+// Could not create function
+
+// --- Scan ops area ---
+// No function at 0x100B3F00, creating...
+// Could not create function
+
+// --- Scan ops area ---
+// === FUN_100b3ff0 @ 0x100B3FF0 (49 bytes) ===
+
+undefined4 * __thiscall
+FUN_100b3ff0(void *this,int param_1,int param_2,undefined4 param_3,undefined2 param_4)
+
+{
+  FUN_100b29b0(this,param_1,param_2,param_3);
+  *(undefined2 *)((int)this + 0x44c) = param_4;
+  *(undefined ***)this = &PTR_FUN_100c5320;
+  return this;
+}
+
+
+
+// --- Scan ops area ---
+// No function at 0x100B4100, creating...
+// === thunk_FUN_100b4104 @ 0x100B4100 (2 bytes) ===
+
+undefined4 thunk_FUN_100b4104(void)
+
+{
+  int in_EAX;
+  void *in_stack_00000010;
+  int *in_stack_00000020;
+  
+  if (in_EAX == 0) {
+    *in_stack_00000020 = 0;
+    ExceptionList = in_stack_00000010;
+    return 5;
+  }
+  *in_stack_00000020 = in_EAX;
+  ExceptionList = in_stack_00000010;
+  return 0;
+}
+
+
+
+// --- Scan ops area ---
+// No function at 0x100B4200, creating...
+// Could not create function
+
+// --- Scan ops area ---
+// No function at 0x100B4300, creating...
+// Could not create function
+
+// --- Scan ops area ---
+// No function at 0x100B4400, creating...
+// Could not create function
+
+// --- Scan ops area ---
+// No function at 0x100B4500, creating...
+// Could not create function
+
+// --- Scan ops area ---
+// === FUN_100b45c0 @ 0x100B45C0 (840 bytes) ===
+
+undefined4 * __thiscall
+FUN_100b45c0(void *this,int param_1,int param_2,undefined4 param_3,short param_4)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  undefined4 *puVar3;
+  undefined4 local_1e0 [11];
+  short local_1b4;
+  
+  FUN_100b29b0(this,param_1,param_2,param_3);
+  *(undefined4 *)((int)this + 0x454) = 0;
+  *(undefined1 *)((int)this + 0x44f) = 0;
+  *(undefined1 *)((int)this + 0x44e) = 0;
+  *(undefined1 *)((int)this + 0x44d) = 0;
+  *(undefined1 *)((int)this + 0x44c) = 0;
+  *(undefined ***)this = &PTR_FUN_100c5368;
+  *(int *)((int)this + 0x458) = param_1;
+  puVar2 = (undefined4 *)((int)this + 0x45c);
+  for (iVar1 = 7; iVar1 != 0; iVar1 = iVar1 + -1) {
+    *puVar2 = 0;
+    puVar2 = puVar2 + 1;
+  }
+  iVar1 = (int)param_4;
+  if (iVar1 < 0x81) {
+    if (iVar1 == 0x80) {
+      *(undefined2 *)((int)this + 0x450) = 0x80;
+      *(undefined1 *)((int)this + 0x44e) = 1;
+      return this;
+    }
+    switch(iVar1) {
+    case 0x40:
+      *(undefined2 *)((int)this + 0x450) = 0x40;
+      return this;
+    case 0x41:
+      *(undefined2 *)((int)this + 0x450) = 0x41;
+      return this;
+    case 0x42:
+      *(undefined2 *)((int)this + 0x450) = 0x42;
+      return this;
+    case 0x43:
+      *(undefined2 *)((int)this + 0x450) = 0x43;
+      return this;
+    case 0x44:
+      *(undefined2 *)((int)this + 0x450) = 0x44;
+      return this;
+    case 0x45:
+      *(undefined2 *)((int)this + 0x450) = 0x45;
+      return this;
+    }
+  }
+  else if (iVar1 < 0xb5) {
+    if (iVar1 == 0xb4) {
+      *(undefined2 *)((int)this + 0x450) = 0xb4;
+      return this;
+    }
+    switch(iVar1) {
+    case 0x81:
+      *(undefined2 *)((int)this + 0x450) = 0x81;
+      return this;
+    case 0x90:
+      *(undefined2 *)((int)this + 0x450) = 0x90;
+      return this;
+    case 0x91:
+      *(undefined2 *)((int)this + 0x450) = 0x91;
+      return this;
+    case 0xa0:
+      *(undefined2 *)((int)this + 0x450) = 0xa0;
+      return this;
+    case 0xa1:
+      *(undefined2 *)((int)this + 0x450) = 0xa1;
+      return this;
+    case 0xb0:
+      *(undefined2 *)((int)this + 0x450) = 0xb0;
+      return this;
+    case 0xb1:
+      *(undefined2 *)((int)this + 0x450) = 0xb1;
+      return this;
+    case 0xb2:
+      *(undefined2 *)((int)this + 0x450) = 0xb2;
+      return this;
+    case 0xb3:
+      *(undefined2 *)((int)this + 0x450) = 0xb3;
+      return this;
+    }
+  }
+  else if (iVar1 < 0xd3) {
+    if (iVar1 == 0xd2) {
+      *(undefined2 *)((int)this + 0x450) = 0xd2;
+      return this;
+    }
+    switch(iVar1) {
+    case 0xc0:
+      *(undefined2 *)((int)this + 0x450) = 0xc0;
+      return this;
+    case 0xc1:
+      *(undefined2 *)((int)this + 0x450) = 0xc1;
+      return this;
+    case 0xd0:
+      *(undefined2 *)((int)this + 0x450) = 0xd0;
+      if (*(int *)(*(int *)((int)this + 0x458) + 4) == 4) {
+        puVar2 = (undefined4 *)(param_2 + 0x88);
+        puVar3 = local_1e0;
+        for (iVar1 = 0x76; iVar1 != 0; iVar1 = iVar1 + -1) {
+          *puVar3 = *puVar2;
+          puVar2 = puVar2 + 1;
+          puVar3 = puVar3 + 1;
+        }
+        if (local_1b4 != 4) {
+          *(undefined1 *)((int)this + 0x44d) = 1;
+          return this;
+        }
+      }
+      break;
+    case 0xd1:
+      *(undefined2 *)((int)this + 0x450) = 0xd1;
+      return this;
+    }
+  }
+  else if (iVar1 < 0xd7) {
+    if (iVar1 == 0xd6) {
+      *(undefined2 *)((int)this + 0x450) = 0xd6;
+      return this;
+    }
+    if (iVar1 == 0xd3) {
+      *(undefined2 *)((int)this + 0x450) = 0xd3;
+      return this;
+    }
+    if (iVar1 == 0xd5) {
+      *(undefined2 *)((int)this + 0x450) = 0xd5;
+      return this;
+    }
+  }
+  else if (iVar1 == 0x800) {
+    *(undefined2 *)((int)this + 0x450) = *(undefined2 *)(param_1 + 0x34);
+  }
+  return this;
+}
+
+
+
+// Already decompiled: FUN_100b45c0 @ 0x100B45C0 [Scan ops area]
+
+=== SET WINDOW AREA ===
+
+// --- SET WINDOW factory ---
+// === FUN_100aa400 @ 0x100AA400 (49 bytes) ===
+
+undefined4 * __thiscall
+FUN_100aa400(void *this,undefined4 param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5)
+
+{
+  FUN_100ae770(this,param_1,param_2,param_3,param_4,2,param_5);
+  *(undefined ***)this = &PTR_FUN_100c4efc;
+  return this;
+}
+
+
+
+// --- SET WINDOW CDB builder ---
+// No function at 0x100AA650, creating...
+// === FUN_100aa650 @ 0x100AA650 (31 bytes) ===
+
+undefined4 __fastcall FUN_100aa650(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = *(undefined4 *)(param_1 + 0x50);
+  *(char *)(param_1 + 0xf) = (char)((uint)uVar1 >> 8);
+  *(char *)(param_1 + 0x10) = (char)uVar1;
+  *(undefined1 *)(param_1 + 8) = 0x24;
+  *(char *)(param_1 + 0xe) = (char)((uint)uVar1 >> 0x10);
+  *(undefined1 *)(param_1 + 0x11) = 0x80;
+  return 10;
+}
+
+
+
+=== SCAN COMMAND AND SEQUENCES ===
+
+// --- SCAN factory ---
+// No function at 0x100AA540, creating...
+// === FUN_100aa540 @ 0x100AA540 (1 bytes) ===
+
+undefined4 * __thiscall
+FUN_100aa540(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  FUN_100ae770(param_1,param_2,param_3,param_4,param_5,2,param_6);
+  *param_1 = &PTR_FUN_100c4f9c;
+  return param_1;
+}
+
+
+
+// --- SCAN CDB builder ---
+// No function at 0x100AA6D0, creating...
+// === FUN_100aa6d0 @ 0x100AA6D0 (16 bytes) ===
+
+undefined4 __fastcall FUN_100aa6d0(int param_1)
+
+{
+  *(undefined1 *)(param_1 + 0xc) = *(undefined1 *)(param_1 + 0x50);
+  *(undefined1 *)(param_1 + 8) = 0x1b;
+  return 6;
+}
+
+
+
+=== CAPABILITY OBJECT INTERNALS ===
+
+// --- Near cap factory - possible cap object constructor ---
+// === FUN_100539b0 @ 0x100539B0 (190 bytes) ===
+
+void __thiscall FUN_100539b0(void *this,undefined4 *param_1,uint *param_2)
+
+{
+  uint *puVar1;
+  uint *puVar2;
+  uint *puVar3;
+  undefined4 *puVar4;
+  uint *puVar5;
+  bool local_4;
+  
+  puVar2 = param_2;
+  puVar1 = *(uint **)((int)this + 4);
+  local_4 = true;
+  puVar5 = puVar1;
+  if (*(char *)((int)puVar1[1] + 0x15) == '\0') {
+    puVar3 = (uint *)puVar1[1];
+    do {
+      puVar5 = puVar3;
+      local_4 = *param_2 < puVar5[3];
+      if (local_4) {
+        puVar3 = (uint *)*puVar5;
+      }
+      else {
+        puVar3 = (uint *)puVar5[2];
+      }
+    } while (*(char *)((int)puVar3 + 0x15) == '\0');
+  }
+  param_2 = puVar5;
+  if (local_4) {
+    if (puVar5 == (uint *)*puVar1) {
+      puVar4 = (undefined4 *)FUN_10053500(this,&param_2,'\x01',puVar5,puVar2);
+      *param_1 = *puVar4;
+      *(undefined1 *)(param_1 + 1) = 1;
+      return;
+    }
+    FUN_1009e720((int *)&param_2);
+  }
+  if (param_2[3] < *puVar2) {
+    puVar4 = (undefined4 *)FUN_10053500(this,&param_2,local_4,puVar5,puVar2);
+    *param_1 = *puVar4;
+    *(undefined1 *)(param_1 + 1) = 1;
+    return;
+  }
+  *param_1 = param_2;
+  *(undefined1 *)(param_1 + 1) = 0;
+  return;
+}
+
+
+
+// --- Near cap factory - possible cap object method ---
+// === FUN_10053a70 @ 0x10053A70 (183 bytes) ===
+
+void __thiscall FUN_10053a70(void *this,undefined4 *param_1,int *param_2,int *param_3)
+
+{
+  char cVar1;
+  int *piVar2;
+  int *piVar3;
+  int *piVar4;
+  int *piVar5;
+  int *piVar6;
+  
+  piVar4 = param_3;
+  piVar6 = *(int **)((int)this + 4);
+  piVar2 = param_2;
+  if ((param_2 == (int *)*piVar6) && (param_3 == piVar6)) {
+    FUN_10053480((void *)piVar6[1]);
+    *(int *)(*(int *)((int)this + 4) + 4) = *(int *)((int)this + 4);
+    *(undefined4 *)((int)this + 8) = 0;
+    *(undefined4 *)*(undefined4 *)((int)this + 4) = *(undefined4 *)((int)this + 4);
+    *(int *)(*(int *)((int)this + 4) + 8) = *(int *)((int)this + 4);
+    *param_1 = **(undefined4 **)((int)this + 4);
+    return;
+  }
+  while (piVar2 != piVar4) {
+    piVar6 = piVar2;
+    if (*(char *)((int)piVar2 + 0x15) == '\0') {
+      piVar6 = (int *)piVar2[2];
+      if (*(char *)((int)piVar6 + 0x15) == '\0') {
+        cVar1 = *(char *)(*piVar6 + 0x15);
+        piVar3 = (int *)*piVar6;
+        while (cVar1 == '\0') {
+          cVar1 = *(char *)(*piVar3 + 0x15);
+          piVar6 = piVar3;
+          piVar3 = (int *)*piVar3;
+        }
+      }
+      else {
+        cVar1 = *(char *)(piVar2[1] + 0x15);
+        piVar5 = (int *)piVar2[1];
+        piVar3 = piVar2;
+        while ((piVar6 = piVar5, cVar1 == '\0' && (piVar3 == (int *)piVar6[2]))) {
+          cVar1 = *(char *)(piVar6[1] + 0x15);
+          piVar5 = (int *)piVar6[1];
+          piVar3 = piVar6;
+        }
+      }
+    }
+    FUN_100536e0(this,&param_2,piVar2);
+    piVar2 = piVar6;
+  }
+  *param_1 = piVar2;
+  return;
+}
+
+
+
+// Already decompiled: FUN_10053a70 @ 0x10053A70 [Near cap factory - possible cap object method]
+
+// --- Near cap factory - possible cap object method ---
+// === FUN_10053b30 @ 0x10053B30 (83 bytes) ===
+
+int __thiscall FUN_10053b30(void *this,uint *param_1)
+
+{
+  int *local_8;
+  int *local_4;
+  
+  FUN_100141a0(this,(int *)&local_8,param_1);
+  param_1 = (uint *)0x0;
+  FUN_100534c0((int)local_8,(int)local_4,(int *)&param_1);
+  FUN_10053a70(this,&local_8,local_8,local_4);
+  return (int)param_1;
+}
+
+
+
+// Already decompiled: FUN_10053b30 @ 0x10053B30 [Near cap factory - possible cap object method]
+
+=== SCAN DATA FLOW ===
+
+// --- Near scan data read path 0x100866d9 ---
+// === FUN_100865c0 @ 0x100865C0 (343 bytes) ===
+
+uint __thiscall FUN_100865c0(void *this,int param_1)
+
+{
+  undefined4 *puVar1;
+  undefined4 *puVar2;
+  undefined4 *puVar3;
+  undefined4 *puVar4;
+  undefined4 *puVar5;
+  undefined4 *puVar6;
+  int iVar7;
+  int local_c;
+  
+  puVar1 = *(undefined4 **)(param_1 + 0xc);
+  puVar6 = puVar1;
+  for (iVar7 = 0xb; iVar7 != 0; iVar7 = iVar7 + -1) {
+    *puVar6 = 0;
+    puVar6 = puVar6 + 1;
+  }
+  local_c = *(int *)((int)this + 0x24);
+  if (*(uint *)((int)this + 0x34) < (uint)(local_c + *(int *)((int)this + 0x38))) {
+    local_c = *(uint *)((int)this + 0x34) - *(int *)((int)this + 0x38);
+  }
+  puVar2 = _malloc(0x2c);
+  *(undefined4 **)(param_1 + 0x10) = puVar2;
+  puVar3 = _malloc(10);
+  *(undefined4 **)(param_1 + 0x14) = puVar3;
+  puVar4 = _malloc(*(int *)((int)this + 0x28) * local_c);
+  *(undefined4 **)(param_1 + 0x18) = puVar4;
+  puVar5 = _malloc(0x20);
+  *(undefined4 **)(param_1 + 0x1c) = puVar5;
+  puVar6 = puVar5;
+  if ((((puVar2 != (undefined4 *)0x0) && (puVar3 != (undefined4 *)0x0)) &&
+      (puVar6 = puVar4, puVar4 != (undefined4 *)0x0)) && (puVar5 != (undefined4 *)0x0)) {
+    puVar6 = puVar2;
+    for (iVar7 = 0xb; iVar7 != 0; iVar7 = iVar7 + -1) {
+      *puVar6 = 0;
+      puVar6 = puVar6 + 1;
+    }
+    *puVar3 = 0;
+    puVar3[1] = 0;
+    *(undefined2 *)(puVar3 + 2) = 0;
+    puVar6 = puVar5;
+    for (iVar7 = 8; iVar7 != 0; iVar7 = iVar7 + -1) {
+      *puVar6 = 0;
+      puVar6 = puVar6 + 1;
+    }
+    *(int *)((int)this + 0x38) = *(int *)((int)this + 0x38) + local_c;
+    *(int *)(param_1 + 0x24) = local_c;
+    *(undefined4 *)(param_1 + 0x28) = 0;
+    *puVar1 = **(undefined4 **)this;
+    puVar1[5] = *(undefined4 *)(*(int *)this + 4);
+    puVar1[10] = puVar2;
+    puVar1[6] = 0;
+    puVar1[7] = 0;
+    puVar2[6] = puVar3;
+    puVar2[5] = 10;
+    local_c = *(int *)((int)this + 0x28) * local_c;
+    puVar2[7] = local_c;
+    puVar2[8] = puVar4;
+    puVar2[10] = puVar5;
+    puVar2[9] = 0x20;
+    *(undefined1 *)puVar3 = 0x28;
+    *(undefined1 *)((int)puVar3 + 2) = 0;
+    *(undefined1 *)((int)puVar3 + 5) = *(undefined1 *)(*(int *)this + 0x1c);
+    *(undefined1 *)((int)puVar3 + 6) = *(undefined1 *)((int)puVar2 + 0x1e);
+    *(undefined1 *)((int)puVar3 + 7) = *(undefined1 *)((int)puVar2 + 0x1d);
+    *(undefined1 *)(puVar3 + 2) = *(undefined1 *)(puVar2 + 7);
+    *(undefined1 *)((int)puVar3 + 9) = 0x80;
+    return CONCAT31((int3)((uint)local_c >> 8),1);
+  }
+  return (uint)puVar6 & 0xffffff00;
+}
+
+
+
+// --- Near scan data read path 0x10086dfa ---
+// No function at 0x10086D00, creating...
+// Could not create function
+
+// --- Near scan data read path 0x1008781a ---
+// No function at 0x10087800, creating...
+// === FUN_10087800 @ 0x10087800 (76 bytes) ===
+
+undefined4 __fastcall FUN_10087800(int param_1,undefined1 *param_2)
+
+{
+  int iVar1;
+  int in_EAX;
+  int unaff_EBP;
+  int unaff_ESI;
+  undefined4 in_stack_00000010;
+  undefined4 in_stack_00000014;
+  
+  *(int *)(unaff_EBP + 0x1c) = in_EAX + param_1;
+  *(undefined4 *)(unaff_EBP + 0x20) = in_stack_00000010;
+  *(undefined4 *)(unaff_EBP + 0x28) = in_stack_00000014;
+  *(undefined4 *)(unaff_EBP + 0x24) = 0x20;
+  *param_2 = 0x28;
+  param_2[2] = 0;
+  iVar1 = *(int *)(unaff_ESI + 4);
+  param_2[5] = *(undefined1 *)(iVar1 + 0x1c);
+  param_2[6] = *(undefined1 *)(unaff_EBP + 0x1e);
+  param_2[7] = *(undefined1 *)(unaff_EBP + 0x1d);
+  param_2[8] = *(undefined1 *)(unaff_EBP + 0x1c);
+  param_2[9] = 0x80;
+  return CONCAT31((int3)((uint)iVar1 >> 8),1);
+}
+
+
+
+=== INIT/OPEN SEQUENCE ===
+
+// --- FUN_10028150 - called from open handler (init sequence) ---
+// === FUN_10028150 @ 0x10028150 (811 bytes) ===
+
+undefined4 * __cdecl FUN_10028150(undefined4 *param_1)
+
+{
+  int *piVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 *puVar4;
+  undefined4 uVar5;
+  int *unaff_EBX;
+  int *unaff_EBP;
+  undefined4 unaff_retaddr;
+  int **ppiStack_2c;
+  int *piStack_24;
+  int *local_20;
+  int iStack_1c;
+  uint uStack_18;
+  void *pvStack_14;
+  int *piStack_10;
+  void *pvStack_c;
+  undefined1 *puStack_8;
+  int *local_4;
+  
+  puStack_8 = &LAB_100b67a8;
+  pvStack_c = ExceptionList;
+  local_20 = (int *)0x0;
+  ppiStack_2c = &local_20;
+  local_4 = (int *)0x0;
+  ExceptionList = &pvStack_c;
+  iVar3 = (**(code **)*param_1)(0x1002);
+  if (iVar3 != 0) {
+    pvStack_c = (void *)0xffffffff;
+    if (unaff_EBX != (int *)0x0) {
+      (**(code **)(*unaff_EBX + 8))();
+    }
+    ExceptionList = pvStack_14;
+    return (undefined4 *)0x0;
+  }
+  iStack_1c = (**(code **)(*unaff_EBX + 0x2c))();
+  do {
+    while( true ) {
+      if (iStack_1c == 0) {
+        pvStack_c = (void *)0xffffffff;
+        if (unaff_EBX != (int *)0x0) {
+          (**(code **)(*unaff_EBX + 8))();
+        }
+        ExceptionList = pvStack_14;
+        return (undefined4 *)0x0;
+      }
+      puVar4 = (undefined4 *)(**(code **)(*unaff_EBX + 0x34))(&iStack_1c);
+      puStack_8 = (undefined1 *)0x0;
+      piStack_10 = (int *)CONCAT31(piStack_10._1_3_,1);
+      iVar3 = (**(code **)*puVar4)(6,&puStack_8);
+      if (iVar3 != 0) {
+        uStack_18 = uStack_18 & 0xffffff00;
+        if (piStack_10 != (int *)0x0) {
+          (**(code **)(*piStack_10 + 8))();
+          piStack_10 = (int *)0x0;
+        }
+        uStack_18 = 0xffffffff;
+        if (unaff_EBP != (int *)0x0) {
+          (**(code **)(*unaff_EBP + 8))();
+        }
+        ExceptionList = local_20;
+        return (undefined4 *)0xffffff8b;
+      }
+      puVar4 = FUN_10028150(puVar4);
+      if (puVar4 != (undefined4 *)0x0) {
+        uStack_18 = uStack_18 & 0xffffff00;
+        if (piStack_10 != (int *)0x0) {
+          (**(code **)(*piStack_10 + 8))();
+          piStack_10 = (int *)0x0;
+        }
+        uStack_18 = 0xffffffff;
+        if (unaff_EBP != (int *)0x0) {
+          (**(code **)(*unaff_EBP + 8))();
+        }
+        ExceptionList = local_20;
+        return puVar4;
+      }
+      cVar2 = (**(code **)(*piStack_10 + 0xc))(unaff_retaddr);
+      if (cVar2 != '\0') break;
+      ppiStack_2c = (int **)0x0;
+      pvStack_c._0_1_ = 2;
+      iVar3 = (**(code **)*local_4)(1,&ppiStack_2c);
+      if (iVar3 != 0) {
+        puVar4 = (undefined4 *)0xffffff8b;
+        goto LAB_10028426;
+      }
+      piStack_24 = (int *)0x0;
+      pvStack_c._0_1_ = 3;
+      iVar3 = FUN_1001b490(0x8005,0x1012,&piStack_24);
+      if (iVar3 != 0) {
+LAB_100283fa:
+        puVar4 = FUN_10054580((int *)ppiStack_2c);
+        pvStack_c._0_1_ = 2;
+        if (piStack_24 != (int *)0x0) {
+          (**(code **)(*piStack_24 + 8))();
+          piStack_24 = (int *)0x0;
+        }
+LAB_10028426:
+        pvStack_c._0_1_ = 1;
+        if (ppiStack_2c != (int **)0x0) {
+          (*(code *)(*ppiStack_2c)[2])();
+          ppiStack_2c = (int **)0x0;
+        }
+        pvStack_c = (void *)((uint)pvStack_c._1_3_ << 8);
+        if (local_4 != (int *)0x0) {
+          (**(code **)(*local_4 + 8))();
+          local_4 = (int *)0x0;
+        }
+        pvStack_c = (void *)0xffffffff;
+        if (unaff_EBX != (int *)0x0) {
+          (**(code **)(*unaff_EBX + 8))();
+        }
+        ExceptionList = pvStack_14;
+        return puVar4;
+      }
+      local_20 = (int *)0x0;
+      pvStack_c._0_1_ = 4;
+      iVar3 = (**(code **)*local_4)(0x1015,&local_20);
+      if (iVar3 != 0) {
+        (*(code *)(*ppiStack_2c)[4])(unaff_EBP,0,0);
+LAB_100283e4:
+        pvStack_c._0_1_ = 3;
+        if (local_20 != (int *)0x0) {
+          (**(code **)(*local_20 + 8))();
+          local_20 = (int *)0x0;
+        }
+        goto LAB_100283fa;
+      }
+      piVar1 = *ppiStack_2c;
+      local_20 = unaff_EBP;
+      uVar5 = (**(code **)(*unaff_EBX + 0x10))();
+      uVar5 = (**(code **)(*unaff_EBX + 0xc))(uVar5);
+      cVar2 = (*(code *)piVar1[4])(local_20,uVar5);
+      if (cVar2 != '\x01') goto LAB_100283e4;
+      pvStack_c._0_1_ = 3;
+      if (local_20 != (int *)0x0) {
+        (**(code **)(*local_20 + 8))();
+        local_20 = (int *)0x0;
+      }
+      pvStack_c._0_1_ = 2;
+      if (piStack_24 != (int *)0x0) {
+        (**(code **)(*piStack_24 + 8))();
+        piStack_24 = (int *)0x0;
+      }
+      pvStack_c._0_1_ = 1;
+      if (ppiStack_2c != (int **)0x0) {
+        (*(code *)(*ppiStack_2c)[2])();
+        ppiStack_2c = (int **)0x0;
+      }
+      pvStack_c = (void *)((uint)pvStack_c._1_3_ << 8);
+      if (local_4 != (int *)0x0) {
+        (**(code **)(*local_4 + 8))();
+LAB_10028323:
+        local_4 = (int *)0x0;
+      }
+    }
+    pvStack_c = (void *)((uint)pvStack_c._1_3_ << 8);
+  } while (local_4 == (int *)0x0);
+  (**(code **)(*local_4 + 8))();
+  goto LAB_10028323;
+}
+
+
+
+=== FOCUS / AUTOFOCUS ===
+
+// --- Vendor 0xE0 factory (focus/exposure write) ---
+// === FUN_100aa4c0 @ 0x100AA4C0 (58 bytes) ===
+
+undefined4 * __thiscall
+FUN_100aa4c0(void *this,undefined4 param_1,undefined4 param_2,undefined2 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  FUN_100ae770(this,param_1,param_2,param_4,param_5,2,param_6);
+  *(undefined ***)this = &PTR_FUN_100c4f4c;
+  *(undefined2 *)((int)this + 100) = param_3;
+  return this;
+}
+
+
+
+// --- Vendor 0xE1 factory (focus/exposure read) ---
+// === FUN_100aa500 @ 0x100AA500 (58 bytes) ===
+
+undefined4 * __thiscall
+FUN_100aa500(void *this,undefined4 param_1,undefined4 param_2,undefined2 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  FUN_100ae770(this,param_1,param_2,param_4,param_5,1,param_6);
+  *(undefined ***)this = &PTR_FUN_100c4f74;
+  *(undefined2 *)((int)this + 100) = param_3;
+  return this;
+}
+
+
+
+// --- Vendor 0xC1 factory (control trigger) ---
+// === FUN_100aa580 @ 0x100AA580 (37 bytes) ===
+
+undefined4 * __thiscall
+FUN_100aa580(void *this,undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_100ae720(this,param_1,param_2,param_3);
+  *(undefined ***)this = &PTR_FUN_100c4fc4;
+  return this;
+}
+
+
+
+=== FILM ADVANCE / MOTOR CONTROL ===
+
+// --- TUR factory ---
+// === FUN_100aa2a0 @ 0x100AA2A0 (37 bytes) ===
+
+undefined4 * __thiscall
+FUN_100aa2a0(void *this,undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_100ae720(this,param_1,param_2,param_3);
+  *(undefined ***)this = &PTR_FUN_100c4e34;
+  return this;
+}
+
+
+
+=== DONE ===
