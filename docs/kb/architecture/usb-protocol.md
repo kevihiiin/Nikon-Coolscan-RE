@@ -1,7 +1,7 @@
 # USB-to-SCSI Wrapping Protocol
 
-**Status**: In Progress
-**Last Updated**: 2026-02-20
+**Status**: Complete
+**Last Updated**: 2026-02-28
 **Phase**: 1 (USB Transport)
 **Confidence**: High (verified from NKDUSCAN.dll disassembly)
 
@@ -27,12 +27,43 @@ Standard USB Mass Storage uses the Bulk-Only Transport (BOT) protocol with 31-by
 - **Interface**: Still Image (usbscan.sys driver)
 - **Device path**: `\\.\UsbscanN` (N = device index, discovered via STI enumeration)
 
+### USB Device Descriptors (from firmware)
+
+The firmware contains two USB device descriptors at flash `0x170FA` (USB 1.1) and `0x1710C` (USB 2.0). The ISP1581 selects the appropriate one based on the negotiated bus speed.
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| bDeviceClass | `0xFF` | Vendor-specific (NOT Mass Storage or Still Image) |
+| bDeviceSubClass | `0xFF` | Vendor-specific |
+| bDeviceProtocol | `0xFF` | Vendor-specific |
+| bMaxPacketSize0 | 64 | Control endpoint max packet size |
+| idVendor | `0x04B0` | Nikon Corporation |
+| idProduct | `0x4001` | Coolscan V (LS-50) |
+| bcdDevice | `0x0102` | Device version 1.02 (matches firmware revision) |
+| bmAttributes | `0xC0` | Self-powered |
+| bNumConfigurations | 1 | Single configuration |
+
+### Endpoint Configuration
+
+Two bulk endpoints, with max packet size dependent on USB speed:
+
+| Endpoint | Address | Type | USB 1.1 MaxPkt | USB 2.0 MaxPkt | Purpose |
+|----------|---------|------|----------------|----------------|---------|
+| EP1 OUT | `0x01` | Bulk | 64 bytes | 512 bytes | Host → Scanner (CDB, data-out, opcodes) |
+| EP2 IN | `0x82` | Bulk | 64 bytes | 512 bytes | Scanner → Host (phase, data-in, sense) |
+
+Descriptor template locations in flash:
+- USB 1.1 endpoints: `FW:0x1711E` (EP1 OUT 64B) and `FW:0x17126` (EP2 IN 64B)
+- USB 2.0 endpoints: `FW:0x1712E` (EP1 OUT 512B) and `FW:0x17136` (EP2 IN 512B)
+- Configuration descriptors: `FW:0x1713E` (USB 1.1) and `FW:0x17148` (USB 2.0)
+- Interface: Class `0xFF/0xFF/0xFF` (vendor-specific), 2 endpoints
+
 ### Pipe Configuration
 
 The driver opens the device with `CreateFileA("\\.\UsbscanN", GENERIC_READ | GENERIC_WRITE, ...)` and uses:
 
-- **Bulk-Out pipe**: `WriteFile()` — sends CDBs, data-out, phase queries, sense requests
-- **Bulk-In pipe**: `ReadFile()` — receives phase responses, data-in, sense data
+- **Bulk-Out pipe** (EP1): `WriteFile()` — sends CDBs, data-out, phase queries, sense requests
+- **Bulk-In pipe** (EP2): `ReadFile()` — receives phase responses, data-in, sense data
 - **Control pipe**: `DeviceIoControl(IOCTL_SEND_USB_REQUEST = 0x80002008)` — used only for 64-byte extended CDBs
 
 Source: `CUSB2Command::virtual_12` at `NKDUSCAN.dll:0x10002b50`

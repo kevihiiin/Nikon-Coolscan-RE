@@ -1,6 +1,6 @@
 # Software Layers -- NikonScan to Scanner Communication
 **Status**: Complete
-**Last Updated**: 2026-02-21  |  **Phase**: 2  |  **Confidence**: High
+**Last Updated**: 2026-02-28  |  **Phase**: 2 + 3  |  **Confidence**: Verified
 
 ## Summary
 
@@ -147,12 +147,12 @@ Full protocol documentation: [USB Protocol](usb-protocol.md) (Phase 1)
 | DRAGNKL1.dll | 484KB | 48 (DRAG API) | 0 | NikonScan_TWAIN |
 | DRAGNKX2.dll | 176KB | 44 (DRAG API) | 0 | NikonScan_TWAIN |
 
-## Open Questions
+## Open Questions (ALL RESOLVED)
 
 - [x] What are all the NkDriverEntry function codes? (Phase 1) — 9 FCs (1-9), fully documented in [NkDriverEntry API](../components/nkduscan/api.md)
 - [x] What MAID capability IDs exist? (Phase 2) — Operational sequence mapping complete in [MAID Entrypoint](../components/ls5000-md3/maid-entrypoint.md). Numeric ID mapping deferred to Phase 3.
-- [ ] How does the command queue handle async scan operations? (Phase 3)
-- [ ] What is "Revelation" processing? Related to scanner revelation mask?
+- [x] How does the command queue handle async scan operations? (Phase 3) — Documented in [Command Queue](../components/nikonscan4-ds/command-queue.md): three-tier system (immediate/queued/async) with CriticalSection-guarded queue, scan commands go via async tier with worker thread.
+- [x] What is "Revelation" processing? (Phase 6) — `CNkRevelation` in NikonScan4.ds wraps DRAG's "Scanner Revelation Mask" — systematic scanner artifact knowledge (consistent CCD defects, optical anomalies) fed to `SetREV_*` functions. See [DRAG API](../components/dragnkl1/api.md).
 
 ## Cross-References
 

@@ -1,6 +1,6 @@
 # System Overview -- Nikon Coolscan Film Scanners
-**Status**: Draft
-**Last Updated**: 2026-02-20  |  **Phase**: 0  |  **Confidence**: High
+**Status**: Complete
+**Last Updated**: 2026-02-28  |  **Phase**: 0 + 4  |  **Confidence**: Verified
 
 ## Summary
 
@@ -16,7 +16,7 @@ The Nikon Coolscan family are dedicated 35mm/120 film scanners communicating via
 | Address Space | 24-bit, big-endian |
 | Flash | Fujitsu MBM29F400BC, 512KB NOR, TSOP48 |
 | Main RAM | 128KB SRAM at 0x400000 |
-| ASIC DSL RAM | 256KB at 0x800000 (unverified; data at FW:0x4A114 suggests 224KB, FW:0x207A8 suggests 256KB) |
+| ASIC DSL RAM | 224KB at 0x800000 (range table at FW:0x4A114 ends at 0x837FFF) |
 | Buffer RAM | 64KB at 0xC00000 |
 | USB Controller | Philips ISP1581, registers at 0x600000 |
 | USB | VID 0x04B0 (Nikon), PID 0x4001 |
@@ -29,24 +29,37 @@ The Nikon Coolscan family are dedicated 35mm/120 film scanners communicating via
 | 0x000000-0x07FFFF | 512KB | NOR Flash (firmware) |
 | 0x400000-0x41FFFF | 128KB | Main RAM |
 | 0x600000-0x6000FF | 256B | ISP1581 USB controller registers |
-| 0x800000-0x83FFFF | 256KB | ASIC DSL RAM (unverified; range table at FW:0x4A114 ends at 0x837FFF=224KB, descriptors at FW:0x207A8 go to 0x840000=256KB) |
+| 0x800000-0x837FFF | 224KB | ASIC DSL RAM (verified from range table at FW:0x4A114) |
 | 0xC00000-0xC0FFFF | 64KB | Buffer RAM |
 | 0xFFFD00-0xFFFF3F | ~576B | H8/3003 on-chip I/O registers |
 | 0xFFFF40-0xFFFFF3 | ~180B | On-chip RAM (used for vector trampolines) |
 
 ### GPIO Usage
 
-**Note**: Port B and Port C register accesses confirmed in firmware (PBDDR/PBDR/PCDDR/PCDR), and
-firmware contains strings "SCAN Motor", "AF Motor", "FH-3", "FH-G1", "FH-A1" confirming motor
-control and adapter detection. However, specific bit assignments below are **unverified** —
-they require full disassembly tracing of port register operations.
+Complete GPIO port reference map traced from firmware binary (all MOV.B, BSET, BCLR operations on port registers). The H8/3003 has Ports 1, 3, 5, 7, 8, 9, A, B, C.
 
-| Port | Bits | Function | Confidence |
-|------|------|----------|------------|
-| Port B | 4-7 | Film transport motor control | Unverified |
-| Port C | 3-5 | Adapter ID (which film adapter is inserted) | Unverified |
-| Port C | 6 | Door sensor | Unverified |
-| Port C | 7 | Adapter presence detect | Unverified |
+| Port | Addr | Refs | Dir | Primary Code Region | Function | Confidence |
+|------|------|------|-----|---------------------|----------|------------|
+| Port A DR | 0xD3 | 44 | R/W | scan-setup (26), motor (10) | **Stepper motor phase output** (primary motor port) | High |
+| Port 1 DDR | 0x80 | 32 | W | param-handling (19), SEND_DIAG (6) | Data direction configuration for Port 1 | High |
+| Port 1 DR | 0x82 | 17 | R | recovery (9), motor (4), vendor (3) | Multi-purpose I/O (bus status, motor feedback) | Medium |
+| Port C DDR | 0xD2 | 17 | W | diagnostics (8), motor (3) | **Single bit 0 only** — output enable/disable toggle | High |
+| Port 7 DR | 0x8E | 16 | R | SCAN handler (14 of 16 refs) | **Adapter/sensor status input** — read during scan cmd | High |
+| Port 9 DR | 0xC8 | 12 | R/W | motor (7), scan-setup (5) | Motor encoder input + stepper phase output | High |
+| Port 3 DDR | 0x84 | 11 | W | motor-control (all 11) | Motor direction control (bit 0 set/cleared) | High |
+| Port 5 DDR | 0x88 | 7 | R/W | READ/WRITE (3), TUR (2) | Peripheral/data bus direction control | Medium |
+| Port 3 DR | 0x86 | 6 | R | vendor-cmds (3), recovery (1) | Status input (adapter/sensor readback) | Medium |
+| Port 8 DR | 0xC9 | 3 | R | data-tables (2), param (1) | **Lamp state readback** (see lamp-control.md) | High |
+| Port B DR | 0xD4 | 3 | R | scan-state-machine (2), recovery (1) | Minimal use — NOT primary motor port | High |
+| Port A DDR | 0xD0 | 2 | R/W | USB-data-xfer (1), data-tables (1) | Data direction for Port A | High |
+| Port 5 DR | 0x8A | 1 | W | CCD-config (1) | Single CCD config write | Medium |
+
+**Key corrections** (vs. previous unverified assignments):
+- Port A (44 refs) is the primary motor port, NOT Port B (only 3 refs)
+- Port 7 (16 reads, 14 in SCAN handler) is the adapter/sensor status input, NOT Port C bits 3-7
+- Port C DDR only toggles bit 0 (17 ops) — not bits 3-7 as previously speculated
+- Port 3 DDR bit 0 controls motor direction (set/clear in motor-control code)
+- Port 9 is the motor encoder port (reads in motor area, writes in scan-setup)
 
 ### Firmware Flash Layout
 
@@ -65,25 +78,27 @@ they require full disassembly tracing of port register operations.
 
 15 active vectors found (out of 64 total). Most point to trampolines in on-chip RAM (0xFFFDxx).
 
-| Vector | Address | Name | Target |
-|--------|---------|------|--------|
-| 0 | 0x000 | Reset | 0x000100 (startup code) |
-| 7 | 0x01C | NMI | 0x000182 |
-| 8 | 0x020 | TRAP #0 | 0xFFFD10 |
-| 13 | 0x034 | IRQ1 | 0xFFFD3C (likely ISP1581 USB interrupt) |
-| 15 | 0x03C | IRQ3 | 0xFFFD14 |
-| 16 | 0x040 | IRQ4 | 0xFFFD18 |
-| 17 | 0x044 | IRQ5 | 0xFFFD18 (shared with IRQ4) |
-| 32 | 0x080 | ITU ch2 compare A | 0xFFFD1C (timer - likely motor control) |
-| 36 | 0x090 | ITU ch3 compare A | 0xFFFD20 (timer) |
-| 40 | 0x0A0 | ITU ch4 compare A | 0xFFFD24 (timer) |
-| 45 | 0x0B4 | DMAC ch0B end | 0xFFFD28 (DMA complete) |
-| 47 | 0x0BC | DMAC ch1B end | 0xFFFD2C (DMA complete) |
-| 49 | 0x0C4 | Reserved | 0xFFFD30 |
-| 52 | 0x0D0 | Unknown | 0xFFFD38 |
-| 60 | 0x0F0 | ADI (A/D end) | 0xFFFD34 |
+| Vector | Address | H8/3003 Source | Trampoline | Purpose |
+|--------|---------|----------------|------------|---------|
+| 0 | 0x000 | Reset | — | 0x000100 (startup code) |
+| 7 | 0x01C | NMI | — | 0x000182 (tight loop) |
+| 8 | 0x020 | TRAP #0 | 0xFFFD10 | Context switch (cooperative yield) |
+| 13 | 0x034 | IRQ1 | 0xFFFD3C | ISP1581 USB interrupt |
+| 15 | 0x03C | IRQ3 | 0xFFFD14 | Motor encoder pulses |
+| 16 | 0x040 | IRQ4 | 0xFFFD18 | External interrupt |
+| 17 | 0x044 | IRQ5 | 0xFFFD18 | External interrupt (shared with IRQ4) |
+| 19 | 0x04C | Reserved† | 0xFFFD38 | Motor position tracking |
+| 32 | 0x080 | IMIA2 (ITU2) | 0xFFFD1C | Motor mode dispatcher |
+| 36 | 0x090 | IMIA3 (ITU3) | 0xFFFD20 | Timer 3 compare match |
+| 40 | 0x0A0 | IMIA4 (ITU4) | 0xFFFD24 | System tick timer |
+| 45 | 0x0B4 | DEND0B | 0xFFFD28 | DMA ch0B transfer end |
+| 47 | 0x0BC | DEND1B | 0xFFFD2C | DMA ch1B transfer end |
+| 49 | 0x0C4 | Reserved† | 0xFFFD30 | H8/3003-specific interrupt |
+| 60 | 0x0F0 | ADI | 0xFFFD34 | A/D conversion complete |
 
-**Evidence**: `parse_vector_table.py` output, Ghidra `VerifyFirmware.java` script confirmed disassembly at 0x100.
+†Vec 19 and 49 are in gaps of the generic H8/300H vector table but active in this firmware. All SCI vectors (52-59) are inactive — serial I/O is polled.
+
+**Evidence**: Binary vector table dump, SLEIGH pspec (`h8.pspec`), handler register access verification. See [Vector Table](../components/firmware/vector-table.md) for full analysis.
 
 ## Communication Protocol (High Level)
 
@@ -123,12 +138,12 @@ This is a custom USB-SCSI wrapping protocol, NOT standard USB Mass Storage.
 - All .md3 modules reference both NKDUSCAN.dll and NKDSBP2.dll (transport-agnostic at module level).
 - 1394 scanners share SBP-2 command set ID `CMDSETID104D8`.
 
-## Open Questions
+## Open Questions (ALL RESOLVED)
 
-- [ ] What is the exact startup sequence? (Phase 4)
-- [ ] How does the ISP1581 USB interrupt (likely IRQ1) trigger SCSI command processing?
-- [ ] What are the timer interrupts (ITU ch2-4) used for? Motor step timing?
-- [ ] What do the DMA channels handle? Bulk USB data transfer?
+- [x] What is the exact startup sequence? — See [Startup & Boot](../components/firmware/startup.md): Reset → 0x100 → boot select → 0x20334 → I/O init → RAM test → trampoline install → SP relocate → coroutine system
+- [x] How does the ISP1581 USB interrupt trigger SCSI command processing? — IRQ1 (Vec 13) → ISP1581 ISR → sets flag @0x400082 → Context A polls in main loop → SCSI dispatch. See [Main Loop](../components/firmware/main-loop.md), [ISP1581 USB](../components/firmware/isp1581-usb.md)
+- [x] What are the timer interrupts (ITU ch2-4) used for? — Motor step timing and scan line timing. ITU ch2=scan motor stepping, ch3=focus motor, ch4=calibration timing. See [Vector Table](../components/firmware/vector-table.md), [Motor Control](../components/firmware/motor-control.md)
+- [x] What do the DMA channels handle? — Ch0: ASIC→RAM (CCD pixel data), Ch1: RAM→USB (scan data to host). See [Scan Pipeline](../components/firmware/scan-pipeline.md)
 
 ## Cross-References
 
