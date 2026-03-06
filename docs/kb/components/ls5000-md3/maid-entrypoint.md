@@ -26,15 +26,15 @@ The primary MAID (Module Architecture for Imaging Devices) callback entry point.
 | 2 | 0x10029961 | |
 | 3 | 0x1002998f | |
 | 4 | 0x100299bd | |
-| 5-9 | 0x100299eb | Default/unimplemented (shared handler) |
+| 5-9 | 0x100299eb | Capability object-level dispatcher → `FUN_100273a0` (555 bytes) |
 | 10 | 0x10029a18 | |
 | 11 | 0x10029a46 | |
 | 12 | 0x10029a74 | |
-| 13 | 0x100299eb | Default/unimplemented |
+| 13 | 0x100299eb | Capability object-level dispatcher (same as 5-9) |
 | 14 | 0x10029aa2 | |
 | 15 | 0x10029ad0 | |
 
-Active cases (10 of 16): 0, 1, 2, 3, 4, 10, 11, 12, 14, 15
+Active cases (16 of 16): ALL — cases 5-9,13 share handler `FUN_100273a0` (capability object-level operations: start, set, get, get-data)
 
 Each handler forwards parameters to a dedicated function:
 

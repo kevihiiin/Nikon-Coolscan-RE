@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-03-06 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -44,17 +44,48 @@ phase may be present, but this is unlikely for the Coolscan.
 - Typical startup sequence may include:
   `TEST UNIT READY` -> `INQUIRY` -> **`RESERVE`** -> `MODE SENSE` -> (begin operations)
 
-## Open Questions
+## Firmware Handler (Phase 4)
 
-- Is there a corresponding RELEASE (0x17) command in LS5000.md3?
-- Does RESERVE affect scanner behavior (e.g., power management, button lockout)?
-- Is this command required, or optional?
+**Handler address**: `FW:0x021E3E` | **Size**: ~100 bytes | **Exec mode**: 0x01 (no data) | **Perm flags**: 0x07CC
+
+The firmware handler is small (~100 bytes), suggesting RESERVE primarily sets an internal state flag to mark the scanner as "reserved" (session active). Permission flags 0x07CC restrict it from being called during active scan/data transfer states.
+
+RELEASE (0x17) handler at `FW:0x021EA0` is similarly small. Both exist in the firmware dispatch table, confirming the RESERVE/RELEASE pair is implemented.
+
+### Open Questions (Resolved)
+
+- **RELEASE exists** in the firmware at 0x021EA0 (handler for opcode 0x17, perm 0x07FC). LS5000.md3 does NOT have a CDB builder for RELEASE — confirmed by binary search. RELEASE may only be used implicitly (e.g., on disconnect) or not at all by NikonScan.
+- RESERVE likely sets an internal "session active" flag, preventing power-save mode.
+- RESERVE appears required — it's in the Init Phase A command sequence.
 
 ## Source References
 
 | Source | Location | Notes |
 |--------|----------|-------|
 | LS5000.md3 | `0x100aa360` | CDB builder — minimal 6-byte CDB |
+
+## RELEASE (0x17) — Companion Command
+
+**Handler address**: `FW:0x021EA0` | **Size**: ~100 bytes | **Exec mode**: 0x01 (no data) | **Perm flags**: 0x07FC
+
+### CDB Layout (6 bytes)
+
+| Byte | Field | Value | Notes |
+|------|-------|-------|-------|
+| 0 | Opcode | `0x17` | RELEASE |
+| 1 | Reserved | `0x00` | |
+| 2 | Reserved | `0x00` | |
+| 3 | Reserved | `0x00` | |
+| 4 | Reserved | `0x00` | |
+| 5 | Control | `0x00` | |
+
+### Description
+
+Standard SCSI RELEASE command. Clears the reservation set by RESERVE, making the scanner available again. The handler is small (~100 bytes), matching RESERVE — it likely clears the same internal state flag.
+
+Permission flags (0x07FC) allow it in all states except initial (pre-init), which is slightly more permissive than RESERVE (0x07CC). This makes sense: you can release a scanner in more states than you can reserve it.
+
+LS5000.md3 does **not** have a CDB builder for RELEASE — confirmed by exhaustive binary search. RELEASE may only be used implicitly (e.g., on USB disconnect) or by the USB transport layer, not by the application-level scan workflow. A driver implementation can safely omit RELEASE if it manages session lifetime via USB connect/disconnect.
 
 ## Cross-References
 

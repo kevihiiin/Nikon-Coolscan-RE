@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -73,18 +73,63 @@ After receiving SCAN, the scanner:
 The host must poll for completion or wait for the scanner to signal data availability
 before issuing READ commands.
 
+## Firmware Handler (Phase 4)
+
+**Handler address**: `FW:0x0220B8` | **Size**: ~1800 bytes | **Exec mode**: 0x00 (direct)
+
+The most complex standard SCSI handler. Supports 6 operation types via a scan descriptor built at er6 (stack-relative):
+
+### Scan Operation Types
+
+| Code (er6[0]) | Operation | Description |
+|----------------|-----------|-------------|
+| 0 | Preview scan | Quick low-resolution preview |
+| 1 | Fine scan (single pass) | Full-resolution single exposure |
+| 2 | Fine scan (multi-pass) | Multi-sample averaging scan |
+| 3 | Calibration scan | CCD/LED calibration |
+| 4 | Move to position | Motor positioning only (no CCD) |
+| 9 | Eject film | Film transport to eject position |
+
+### CDB Validation (Firmware)
+
+- CDB bytes 2-5 must be zero
+- `CDB[0x4007BA]` (exec_mode byte) must be ≤ 4
+- Invalid operation code → sense 0x0053 (Invalid Parameter)
+
+### Scan Execution Flow
+
+1. Calls USB response manager `0x1374A` with exec mode 2
+2. Calls data transfer setup `0x13E20`
+3. Validates operation code against max allowed for current adapter
+4. Sets scan state variables:
+   - `0x400D43`: scan operation active flag
+   - `0x400E7A`: scan operation state
+   - `0x400D3C`: max operations for current adapter
+5. Triggers motor control via internal task dispatch (04xx task codes)
+
+### Motor Integration
+
+The SCAN handler interfaces with the motor subsystem (documented in [Motor Control](../components/firmware/motor-control.md)):
+- Operation 4 (move) dispatches motor task 0x0440 (relative move)
+- Operation 9 (eject) dispatches motor task 0x0430 (home)
+- Scan operations configure motor speed based on resolution (ramp tables at `FW:0x16C38`)
+
 ## Source References
 
 | Source | Location | Notes |
 |--------|----------|-------|
 | LS5000.md3 | `0x100aa6d0` | CDB builder — sets opcode 0x1B, byte4=transfer_length |
 | LS5000.md3 | `0x100aa540` | Factory — full constructor, direction=data-out (push 2) |
+| Firmware | `0x0220B8` | Handler — 6 operation types, ~1800 bytes |
+| Firmware | `0x400D43` | Scan operation active flag (RAM) |
 
 ## Cross-References
 
 - [SET WINDOW](set-window.md) — configures scan parameters before SCAN is issued
 - [READ](read.md) — retrieves scan data after SCAN completes
 - [MODE SELECT](mode-select.md) — sets operating modes before scanning
+- [Motor Control](../components/firmware/motor-control.md) — Motor subsystem triggered by SCAN
+- [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
 - [USB Protocol](../architecture/usb-protocol.md) — transport layer details

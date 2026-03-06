@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -53,6 +53,24 @@ See [SET WINDOW](set-window.md) for the detailed data structure layout.
   resolution to nearest supported value, clipping scan area to physical limits)
 - Comparing GET WINDOW response to SET WINDOW request reveals any parameter adjustments
 - May also be called standalone to read the scanner's default window configuration
+
+## Firmware Handler (Phase 4)
+
+**Handler address**: `FW:0x0272F6` | **Exec mode**: 0x03 (data-in) | **Perm flags**: 0x0254
+
+The firmware handler reads the current window descriptor from internal state (built during SET WINDOW processing) and sends it back to the host. The relatively restrictive permission flags (0x0254) limit this command to specific scanner states.
+
+The response includes both standard SCSI-2 Scanner window fields and Nikon vendor extension fields — the host uses this response during initialization (`LS5000.md3:0x100A2980`) to discover which vendor extensions the scanner supports and their data sizes. This is the key mechanism for the dynamic vendor extension discovery documented in [SET WINDOW Descriptor](set-window-descriptor.md).
+
+### Sense Codes
+
+| Sense Index | ASC/ASCQ | Condition |
+|-------------|----------|-----------|
+| 0x01 | 00/00 | No error (deferred+ILI — returned data may be truncated) |
+| 0x04 | 37/00 | Rounded parameter (scanner adjusted a requested value) |
+| 0x50 | 24/00 | Invalid field in CDB |
+
+See [Sense Code Catalog](sense-codes.md) for full details.
 
 ## Source References
 

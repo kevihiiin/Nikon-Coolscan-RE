@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -84,6 +84,14 @@ Writing to scanner buffers can potentially brick the device if:
 - Flash write operations corrupt the boot sector
 
 This command should be used with extreme care in any custom driver implementation.
+
+## Firmware Handler (Phase 4)
+
+**Handler address**: `FW:0x02837C` | **Exec mode**: 0x02 (data-out) | **Perm flags**: 0x0014
+
+The firmware handler accepts buffer data from the host and writes it to the designated internal buffer. This command is used for firmware updates, not for normal scanning. The handler at 0x02837C is distinct from the SEND(10)/WRITE(10) handler at 0x025506 — WRITE BUFFER provides raw addressed access to internal buffers while WRITE(10) uses abstract data type codes.
+
+Permission flags 0x0014 require the scanner to be initialized. **Caution**: Flash write operations (mode 0x04/0x05) could brick the scanner if interrupted.
 
 ## Source References
 

@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -115,11 +115,21 @@ The Coolscan V (LS-50) has a maximum optical resolution of 4000 dpi. Common reso
 - 1000 dpi — quarter resolution (often used for preview)
 - Lower resolutions may be interpolated
 
+## Firmware Handler (Phase 4)
+
+**Handler address**: `FW:0x026E38` | **Size**: Large | **Exec mode**: 0x02 (data-out)
+
+Receives window descriptor data from host. Parses standard SCSI window fields plus Nikon vendor extensions. The firmware uses the resolution field to calculate motor speed:
+- Multiplier: 0x6C6 (1734) per resolution unit
+- Formula: `(scan_resolution + 2) * 0x6C6`
+- Result stored at `@0x400D8E`, `@0x400D9A`, `@0x400D9E`
+
 ## Source References
 
 | Source | Location | Notes |
 |--------|----------|-------|
 | LS5000.md3 | `0x100aa650` | CDB builder — sets opcode 0x24, bytes 6-8 transfer length, byte9=0x80 |
+| Firmware | `0x026E38` | Handler — window descriptor parser |
 
 ## Cross-References
 
@@ -127,6 +137,8 @@ The Coolscan V (LS-50) has a maximum optical resolution of 4000 dpi. Common reso
 - [SCAN](scan.md) — must follow SET WINDOW to initiate scanning
 - [READ](read.md) — retrieves scan data after scan completes
 - [MODE SELECT](mode-select.md) — sets additional operating parameters
+- [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
+- [Motor Control](../components/firmware/motor-control.md) — Motor speed depends on resolution
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
 - [USB Protocol](../architecture/usb-protocol.md) — transport layer details

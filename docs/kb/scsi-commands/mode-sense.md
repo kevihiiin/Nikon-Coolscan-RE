@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -81,21 +81,69 @@ further analysis.
 - Paired with MODE SELECT for read-modify-write parameter changes
 - Typical sequence: **`MODE SENSE`** (read) -> modify -> `MODE SELECT` (write)
 
-## Open Questions
+## Firmware Handler (Phase 4)
 
-- Which mode page codes does the Coolscan support?
-- What does each mode page control (lamp, motor speed, CCD settings)?
-- Why is byte 1 set to `0x18` rather than standard `0x08` (DBD only)?
+**Handler address**: `FW:0x021F1C` | **Size**: ~420 bytes | **Exec mode**: 0x03 (data-in)
+
+### CDB Parsing (Firmware)
+
+- CDB[1] bit 4: DBD (Disable Block Descriptors)
+- CDB[1] & 0x07: Reserved, must be zero
+- CDB[2] bits 6-7: Page Control (PC) field
+- CDB[2] bits 0-5: Page code
+- CDB[3]: Must be zero
+- CDB[4]: Allocation length (0 defaults to 256)
+- CDB[5]: Must be zero
+
+### Supported Mode Pages (ANSWERED)
+
+| Page Code | Description | Data Source |
+|-----------|-------------|-------------|
+| **0x03** | Format/device-specific (resolution, max scan area) | See below |
+| **0x3F** | All pages (returns all supported pages concatenated) | |
+
+### Page Control Modes
+
+| PC Value | Mode | Data Source |
+|----------|------|-------------|
+| 0 | Current values | RAM `@0x400D2A` (8 bytes per page) |
+| 1 | Changeable values | RAM `@0x400D32` (8 bytes) |
+| 2 | Default values | Flash `FW:0x0168AF` (8 bytes) |
+| 3 | Saved values | **Not supported** → sense 0x0059 |
+
+### Default Page Data (Flash 0x0168AF)
+
+Page 0x03 default values:
+- Page code: 0x03
+- Page length: 6
+- Base resolution: **1200 DPI**
+- Max X: **4000 units**
+- Max Y: **4000 units**
+
+### Mode Page Header (RAM 0x400D26)
+
+3 bytes: mode data length, medium type (0x00 for scanners), device-specific parameter.
+
+## Open Questions (RESOLVED)
+
+- ~~Which mode page codes does the Coolscan support?~~ **Page 0x03** (device-specific) and **0x3F** (all pages)
+- ~~What does each mode page control?~~ **Page 0x03**: resolution and max scan area dimensions
+- ~~Why byte 1 = 0x18 instead of 0x08?~~ Bit 4 is a vendor extension. Firmware checks CDB[1] & 0x07 only (reserved bits), so bit 4 is accepted but no specific action is taken for it.
 
 ## Source References
 
 | Source | Location | Notes |
 |--------|----------|-------|
 | LS5000.md3 | `0x100aa280` | CDB builder — sets opcode 0x1A, byte1=0x18, byte2=page_code, byte4=alloc_len |
+| Firmware | `0x021F1C` | Handler — page control dispatch, 420 bytes |
+| Firmware | `0x0168AF` | Default mode page data (flash, page 0x03) |
+| Firmware | `0x400D26` | Mode page header (RAM, 3 bytes) |
+| Firmware | `0x400D2A` | Current mode page values (RAM) |
 
 ## Cross-References
 
 - [MODE SELECT](mode-select.md) — writes the parameters that MODE SENSE reads
+- [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table and handler details
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
 - [INQUIRY](inquiry.md) — INQUIRY precedes MODE SENSE in startup sequence

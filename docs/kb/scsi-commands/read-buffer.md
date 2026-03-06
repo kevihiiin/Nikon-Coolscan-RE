@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -80,6 +80,12 @@ the data.
 - Less commonly used than READ (0x28) for normal scan operations
 - May be used during firmware update processes to verify written data
 - Complements WRITE BUFFER (0x3B) for bidirectional buffer access
+
+## Firmware Handler (Phase 4)
+
+**Handler address**: `FW:0x028884` | **Exec mode**: 0x03 (data-in) | **Perm flags**: 0x0014
+
+The firmware implements READ BUFFER primarily for firmware read-back and diagnostic buffer access. This command is NOT used in normal NikonScan scanning workflows — it exists alongside WRITE BUFFER (0x3B) for firmware update utilities. Permission flags 0x0014 require the scanner to be initialized.
 
 ## Source References
 

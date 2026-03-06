@@ -153,14 +153,14 @@ Source: Factory functions at `0x100aa2e0` (INQUIRY, push 1), `0x100aa400` (SET W
 
 | Opcode | CDB Len | Direction | Factory | Builder | Purpose |
 |--------|---------|-----------|---------|---------|---------|
-| 0xC0 | 6 | Unknown | — | `0x100b52d0` | Scanner status primitive (minimal CDB) |
+| 0xC0 | 6 | None | — | `0x100b52d0` | Scanner status primitive (minimal CDB) |
 | 0xC1 | 6 | None | `0x100aa580` | `0x100aa5b0` | Scanner control primitive (minimal CDB) |
 | 0xE0 | 10 | Data-out | `0x100aa4c0` | `0x100aa670` | Send control parameters (focus, exposure) |
 | 0xE1 | 10 | Data-in | `0x100aa500` | `0x100aa6a0` | Read sensor data (focus position, exposure) |
 
 **Vendor command notes**:
 - **0xE0/0xE1** use a sub-command byte at CDB[2] to differentiate operations. 0xE0 sends data TO the scanner, 0xE1 reads data FROM the scanner. This is the primary mechanism for focus control, exposure adjustment, and other scanner-specific operations.
-- **0xC0/0xC1** are minimal (opcode-only) commands. 0xC1 confirmed as no-data-phase. 0xC0's factory was not found in the standard command object architecture — it may use a different execution path.
+- **0xC0/0xC1** are minimal (opcode-only) commands. 0xC1 confirmed as no-data-phase. 0xC0's factory was not found in the standard command object architecture — it uses a different execution path. Firmware confirms exec mode 0x01 (no data phase).
 
 ### Inline READ(10) Sites (Architecture B)
 
@@ -317,7 +317,7 @@ Direction: Data-in (buffer readback) | Builder: `0x100b5230`
 Byte 0: 0xC0 (opcode)
 Bytes 1-5: 0x00
 ```
-Direction: Unknown (factory not found in standard architecture) | Builder: `0x100b52d0` — Minimal.
+Direction: None (confirmed from firmware exec mode 0x01 — status-only) | Builder: `0x100b52d0` — Minimal.
 
 ### 0xC1 VENDOR (Nikon)
 ```

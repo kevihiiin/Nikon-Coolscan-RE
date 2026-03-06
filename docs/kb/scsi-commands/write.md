@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -36,34 +36,75 @@ Data Type Qualifier fields, but transfers data in the opposite direction (host t
 Unlike READ which uses `0x80`, WRITE uses `0x00` for the control byte. This asymmetry
 is notable — the vendor flag may only be needed for data-in transfers.
 
-### Data Type Code and Qualifier
+### Data Type Code (Byte 2)
 
-Same field positions as READ (bytes 2 and 5). The data type code specifies what kind of
-data is being written:
+Specifies what category of data to write to the scanner. The firmware validates this against a dispatch table at flash `0x49B98` (10-byte entries, 0xFF-terminated). The WRITE command supports a subset of the READ DTCs — only those data types that accept host-to-device uploads.
 
-| Value | Meaning | Notes |
-|-------|---------|-------|
-| TBD | Calibration data | White/dark calibration tables |
-| TBD | LUT / gamma curve | Tone correction tables |
-| TBD | Configuration data | Scanner operating parameters |
+| Value | Name | Max Size | Qualifier | Confidence |
+|-------|------|----------|-----------|------------|
+| `0x03` | Gamma Function / LUT | 32768 | Per CDB[5] (LUT select) | Verified |
+| `0x84` | Calibration Data Upload | 6 | Single value | Verified |
+| `0x85` | Extended Calibration | varies | Single value | High |
+| `0x88` | Boundary / Per-Channel Cal | 644 | 0-3 (R/G/B/all) | Verified |
+| `0x8F` | Histogram / Profile | 324 | 0/1/3 (R/G/B) | High |
+| `0x92` | Motor / Positioning Control | 4 | 0-3 (sub-type) | Medium |
+| `0xE0` | Extended Configuration | 1024 | 0/1/3 (modes) | High |
+
+The firmware handler (at `0x025622`) dispatches each DTC to a dedicated sub-routine. Any value not in this table returns sense code 0x0050 (ILLEGAL REQUEST / Invalid Field in CDB).
+
+**Key differences from READ:**
+- WRITE supports only 7 DTCs vs READ's 15. Image data (0x00) is never written — image flow is device-to-host only.
+- DTC `0x85` (Extended Calibration) is **WRITE-only** — it has no READ counterpart. This suggests the scanner accepts calibration uploads that it does not expose for readback.
+- DTCs `0x81`, `0x87`, `0x8A`, `0x8C`, `0x8D`, `0x8E`, `0x90`, `0x93` are **READ-only** (status/measurement readback that cannot be overwritten by the host).
+
+### Data Type Qualifier (Byte 5)
+
+Same qualifier system as READ. The allowed qualifier values depend on the DTC's category byte (second byte in the firmware table entry):
+
+| Category | Allowed Qualifiers | Meaning |
+|----------|-------------------|---------|
+| `0x00` | (ignored) | No qualifier needed |
+| `0x01` | Must match table | Single mode |
+| `0x03` | 0, 1, 2, or 3 | Channel select: 0=composite/all, 1=R, 2=G, 3=B |
+| `0x30` | 0, 1, or 3 | Three-mode select (R/G/B channels, skipping 2) |
+
+For gamma/LUT (DTC=0x03): qualifier identifies which LUT table to write.
+For per-channel data (DTC=0x88): qualifier selects the color channel.
+For motor control (DTC=0x92): qualifier selects the motor sub-type.
 
 ## Data Phase
 
 **Direction:** Data-Out (host -> scanner)
 
-### Calibration Data
+The data format depends on the Data Type Code:
 
-The host can upload calibration data to override or supplement the scanner's internal
-calibration. This may include:
-- **White balance tables** — per-pixel gain correction for CCD non-uniformity
-- **Dark frame data** — offset correction for CCD dark current
-- **Gamma/LUT curves** — tone mapping applied in scanner hardware before data transfer
+### Gamma / LUT Data (DTC=0x03)
 
-### Look-Up Tables (LUTs)
+Look-up table data for hardware tone mapping. The Coolscan supports hardware LUT application where tone curves are applied by the scanner's ASIC before pixel data is transferred to the host. This is more efficient than software-based tone mapping for large scans. Max payload: 32768 bytes (32KB). The qualifier selects which LUT slot to write.
 
-The Coolscan supports hardware LUT application, where tone curves are applied by the
-scanner's ASIC before pixel data is transferred to the host. This is more efficient
-than software-based tone mapping for large scans.
+The SANE coolscan3 backend confirms this usage: `cs3_send_lut()` builds CDB `2a 00 03 00 ...` to upload gamma curves.
+
+### Calibration Data (DTC=0x84, 0x85)
+
+Upload calibration values to override or supplement the scanner's internal calibration:
+- **DTC 0x84** — Standard calibration upload (6 bytes max). The host reads calibration with READ DTC=0x84, processes/modifies in software, then writes modified values back.
+- **DTC 0x85** — Extended calibration (**WRITE-only**, no READ counterpart). This may include per-pixel gain/offset correction data that the scanner applies internally.
+
+### Boundary / Per-Channel Calibration (DTC=0x88)
+
+Per-channel boundary and calibration data (up to 644 bytes). The qualifier selects channel: 0=all, 1=R, 2=G, 3=B. The SANE coolscan3 backend confirms: `cs3_set_boundary()` builds CDB `2a 00 88 00 00 03 ...` (qualifier=3) to upload boundary data.
+
+### Histogram / Profile (DTC=0x8F)
+
+Upload histogram or profile data (324 bytes max). Qualifier selects R/G/B channel (0, 1, or 3).
+
+### Motor / Positioning Control (DTC=0x92)
+
+Write motor control parameters (4 bytes max). Qualifier selects the sub-type. This is the command interface for controlling the scanner's stepper motors (film transport, focus).
+
+### Extended Configuration (DTC=0xE0)
+
+Upload extended scanner configuration (up to 1024 bytes). Qualifier selects the mode (0, 1, or 3). This likely includes advanced operating parameters not covered by SET WINDOW.
 
 ## Usage Context
 
@@ -75,17 +116,56 @@ than software-based tone mapping for large scans.
   3. **`WRITE`** — upload modified calibration back to scanner
 - Not used for image data (image data flows scanner -> host via READ only)
 
+## Firmware Handler (Phase 4)
+
+**Handler address**: `FW:0x025506` | **Exec mode**: 0x02 (data-out) | **Perm flags**: 0x0014
+
+The handler address is labeled SEND(10) in the SCSI-2 scanner standard (opcode 0x2A = SEND, used for sending data TO the scanner). Permission flags 0x0014 require the scanner to be initialized.
+
+The handler accepts data payloads from the host and routes them based on the Data Type Code (CDB byte 2) and Data Type Qualifier (CDB byte 5) to the appropriate internal storage — calibration tables, LUT data, or configuration parameters.
+
+The dispatch chain at `0x025622`-`0x02564C` compares CDB[2] (loaded into `r8l`) against each supported DTC:
+
+```
+0x025624: cmp.b #0x03, r8l  -> beq 0x025650   (gamma/LUT)
+0x025628: cmp.b #0x84, r8l  -> beq 0x025722   (calibration)
+0x02562E: cmp.b #0x85, r8l  -> beq 0x025830   (extended calibration)
+0x025634: cmp.b #0x88, r8l  -> beq 0x0258F0   (boundary data)
+0x02563A: cmp.b #0x8F, r8l  -> beq 0x02591C   (histogram/profile)
+0x025640: cmp.b #0x92, r8l  -> beq 0x025908   (motor control)
+0x025646: cmp.b #0xE0, r8l  -> beq 0x02591C   (extended config)
+```
+
+The dispatch table at flash `0x49B98` contains 7 entries of 10 bytes each, terminated by 0xFF. Each entry encodes: DTC value, qualifier category, max transfer size, and handler-internal parameters.
+
+### Sense Codes
+
+| Sense Index | ASC/ASCQ | Condition |
+|-------------|----------|-----------|
+| 0x50 | 24/00 | Invalid field in CDB (unknown data type code) |
+| 0x53 | 26/00 | Invalid field in parameter list (bad data content) |
+| 0x65 | 08/00 | LU communication failure (DMA/transfer error) |
+
+See [Sense Code Catalog](sense-codes.md) for full details.
+
 ## Source References
 
 | Source | Location | Notes |
 |--------|----------|-------|
 | LS5000.md3 | `0x100b51f0` | CDB builder — mirrors READ structure, byte9=0x00 |
+| LS5000.md3 | `0x100b50c0` | WRITE factory — `push 2` (direction=data-out), `ret 0x20` |
+| LS5000.md3 | `0x100B0E06` | Callsite — `push 0x84` (calibration upload) |
+| Firmware | `0x025506` | Handler entry — SEND(10) dispatcher |
+| Firmware | `0x025622` | DTC dispatch chain start |
+| Firmware | `0x049B98` | DTC dispatch table (7 entries x 10 bytes) |
 
 ## Cross-References
 
-- [READ](read.md) — counterpart that reads data from the scanner
+- [READ](read.md) — counterpart that reads data from the scanner (15 DTCs vs WRITE's 7)
 - [READ BUFFER](read-buffer.md) — alternative way to read from scanner buffers
 - [WRITE BUFFER](write-buffer.md) — alternative way to write to scanner buffers
+- [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
+- [ISP1581 USB](../components/firmware/isp1581-usb.md) — USB DMA for data transfer
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
 - [USB Protocol](../architecture/usb-protocol.md) — transport layer details

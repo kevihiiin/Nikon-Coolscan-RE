@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-02-28 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -66,11 +66,17 @@ Builder at `0x100aa490`. Parameter list length varies depending on the mode page
 - Often paired with MODE SENSE: read current settings, modify, write back
 - Typical sequence: `MODE SENSE` (read) -> modify parameters -> `MODE SELECT` (write)
 
-## Open Questions
+## Firmware Handler (Phase 4)
 
-- What specific mode pages does the Coolscan support? (Need to trace callers)
-- What are the Group A vs Group B parameter groups? (Need to analyze both builder call sites)
-- Does the scanner support SP=1 (save to non-volatile storage)?
+**Handler address**: `FW:0x02194A` | **Size**: ~500 bytes | **Exec mode**: 0x02 (data-out)
+
+Receives mode parameter data from host via USB bulk-out. Mode page data buffer stored at `@0x400DAA`, header at `@0x400D8E`. CDB validation checks reserved bits are zero.
+
+## Open Questions (RESOLVED)
+
+- ~~What specific mode pages does the Coolscan support?~~ Firmware supports page 0x03 (device-specific) — see [MODE SENSE](mode-sense.md) for confirmed pages.
+- ~~What are the Group A vs Group B parameter groups?~~ Group A = standard builder (fixed 0x14-byte page 0x03 data); Group B = variable-length builder with error 9 retry. This follows the LS5000.md3 vtable group pattern (see [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md)).
+- ~~Does the scanner support SP=1?~~ MODE SENSE returns sense 0x0059 for saved pages (PC=3), so **SP=1 is not supported** for saving to non-volatile storage.
 
 ## Source References
 
@@ -78,10 +84,13 @@ Builder at `0x100aa490`. Parameter list length varies depending on the mode page
 |--------|----------|-------|
 | LS5000.md3 | `0x100aa1d0` | Variant 1 builder — Group A, param_list_len=0x14 |
 | LS5000.md3 | `0x100aa490` | Variant 2 builder — Group B, variable length |
+| Firmware | `0x02194A` | Handler — receives mode page data, 500 bytes |
+| Firmware | `0x400DAA` | Mode page data buffer (RAM) |
 
 ## Cross-References
 
 - [MODE SENSE](mode-sense.md) — reads the parameters that MODE SELECT writes
+- [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
 - [USB Protocol](../architecture/usb-protocol.md) — transport layer details

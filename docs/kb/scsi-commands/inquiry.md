@@ -3,9 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Complete |
-| **Last Updated** | 2026-02-21 |
-| **Phase** | 2 |
-| **Confidence** | High |
+| **Last Updated** | 2026-03-06 |
+| **Phase** | 2 + 4 |
+| **Confidence** | Verified (cross-validated host ↔ firmware) |
 
 ## Overview
 
@@ -75,6 +75,51 @@ itself differently based on hardware configuration or model detection.
 - May be called with EVPD=1 to request specific Vital Product Data pages (serial number, etc.)
 - Part of the startup sequence: `TEST UNIT READY` -> **`INQUIRY`** -> `MODE SENSE`
 
+## Firmware Handler (Phase 4)
+
+**Handler address**: `FW:0x025E18` | **Size**: ~580 bytes | **Exec mode**: 0x03 (data-in)
+
+### CDB Parsing (Firmware)
+
+- CDB[1] bit 0: EVPD flag (1 = VPD page mode)
+- CDB[1] bits 1-4: Reserved, must be zero → sense 0x0050
+- CDB[2]: VPD page code
+- CDB[5] bit 7: CMDDT flag
+- CDB[5] & 0x3F: allocation length low bits
+
+### Standard INQUIRY Response
+
+Built at buffer `@0x4008A2`. Device type 0x06 (Scanner). Response at flash `FW:0x49E31`: `"Nikon   LS-50 ED        1.02"`.
+
+### VPD Page Dispatch (Two-Level)
+
+**Standard VPD table** at `FW:0x49C20` (8 entries × 6 bytes):
+
+| Page | Handler | Description |
+|------|---------|-------------|
+| 0x00 | 0x0260BA | Supported VPD page list |
+| 0x01 | 0x026178 | Unit serial number |
+| 0x10 | 0x026178 | Device identification |
+| 0x40-0x41 | 0x026178 | Vendor-specific pages |
+| 0x50-0x52 | 0x026178 | Vendor-specific pages |
+
+**Adapter-specific VPD table** at `FW:0x49C74` (8 adapters × 5 entries × 6 bytes):
+
+| Adapter | Pages | Handler(s) |
+|---------|-------|------------|
+| 0 (none) | 0xF8, 0xFA, 0xFB, 0xFC | Custom: `0x026C70`, `0x026D86`, `0x026DD6`, `0x026DAA` |
+| 1 (Mount) | 0x46 | `0x026178` |
+| 2 (Strip) | 0x43, 0x44, 0xE2 | `0x026178`, `0x026178`, `0x026CC6` |
+| 3 (240) | 0x45, 0xF1 | `0x026178`, `0x026C1C` |
+| 4 (Feeder) | 0x46, 0xE2 | `0x026178`, `0x026CC6` |
+| 5 (6Strip) | 0x47, 0xE2 | `0x026178`, `0x026CC6` |
+| 6 (36Strip) | 0x10 | `0x026178` |
+| 7 (Test) | *(none)* | Factory test jig — no VPD pages |
+
+Adapter type 7 ("Test") is a factory manufacturing test jig. It is detected via GPIO Port 7 but has zero VPD page entries, meaning NikonScan would not recognize it as a valid adapter. See [Film Adapters](../components/firmware/film-adapters.md).
+
+Special case: VPD page 0xC1 is handled before table lookup (returns [page_code, 0, 2, 0, 0xC1]).
+
 ## Source References
 
 | Source | Location | Notes |
@@ -82,12 +127,17 @@ itself differently based on hardware configuration or model detection.
 | LS5000.md3 | `0x100aa5e0` | Vtable-based CDB builder |
 | LS5000.md3 | `0x100a4870` | Inline CDB builder in identification code |
 | LS5000.md3 | `0x100a5030` | Dispatch function — parses INQUIRY response |
-| Firmware | string table | Contains `"LS-50 ED"` and `"LS-5000"` INQUIRY response strings |
+| Firmware | `0x025E18` | Handler — VPD dispatch, adapter-specific pages |
+| Firmware | `0x49E31` | INQUIRY response string `"Nikon   LS-50 ED        1.02"` |
+| Firmware | `0x49C20` | Standard VPD dispatch table (8 entries) |
+| Firmware | `0x49C74` | Adapter-specific VPD table (8 adapters × 5 entries) |
 
 ## Cross-References
 
+- [Film Adapters](../components/firmware/film-adapters.md) — All 8 adapter types including factory test jig
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
+- [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table and handler details
 - [TEST UNIT READY](test-unit-ready.md) — precedes INQUIRY in startup sequence
 - [MODE SENSE](mode-sense.md) — follows INQUIRY in startup sequence
 - [USB Protocol](../architecture/usb-protocol.md) — transport layer details
