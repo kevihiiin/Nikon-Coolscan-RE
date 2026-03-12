@@ -241,7 +241,7 @@ The ASIC acts as an intermediary between the CPU's timer-driven step sequences a
 | Address | Size | Name | Description |
 |---------|------|------|-------------|
 | `0x400774` | 1 | motor_mode | Mode selector for ITU2 dispatch (2/3/4/6) |
-| `0x400791` | 1 | motor_direction | Direction flag |
+| `0x400791` | 1 | gpio_shadow | GPIO shadow register (general, 23 refs) |
 | `0x400CC8` | 2 | motor_ramp_config | Ramp table selector / speed profile |
 | `0x400C0E` | 2 | motor_speed_param | Current speed parameter |
 | `0x4052E2` | 2 | motor_step_count | Current step position |

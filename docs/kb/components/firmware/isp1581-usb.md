@@ -222,7 +222,7 @@ The ISP1581 interrupt is connected to the H8/3003 IRQ1 pin (vector 13). The inte
 4. For endpoint events: reads CDB data and signals main loop
 5. For bus reset: reinitializes USB state machine
 
-**Note**: The IRQ1 trampoline (0xFFFD3C) installation was not found in the main trampoline sequence at 0x204C4-0x205E2. It is likely installed separately by the USB initialization code, possibly at 0x12660+ or called from 0x15EAA.
+**Note**: The IRQ1 trampoline at 0xFFFD3C is installed by USB initialization code (separate from the main trampoline sequence at 0x204C4-0x205E2). The IRQ1 vector (Vec 13) at the hardware vector table points to the trampoline, which jumps to the ISP1581 ISR. See [Vector Table](vector-table.md) for the complete interrupt map.
 
 ## USB Device Descriptors in Flash
 

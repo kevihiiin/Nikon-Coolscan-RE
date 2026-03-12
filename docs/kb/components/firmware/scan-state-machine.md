@@ -3,7 +3,7 @@
 **Status**: Complete
 **Last Updated**: 2026-02-28
 **Phase**: 4 (Firmware)
-**Confidence**: High (function boundaries, state transitions, and task encoding all confirmed from binary hex analysis; some group semantic assignments are Medium confidence)
+**Confidence**: High (function boundaries, state transitions, task encoding, handler index pairing, and group structure all confirmed from binary hex analysis)
 
 ## Overview
 
@@ -280,30 +280,40 @@ Variant 0 (`0x08G0`) is handled as a special base/default case, separate from th
 
 ### Scan Groups
 
-| Group | Task Codes | Handler Indices | Entries | Description |
-|-------|-----------|----------------|---------|-------------|
-| 0 | 0x0800, 0x0810, 0x0820 | 0x0022 (shared) | 3 | Preview scan modes |
-| 3 | 0x0830-0x0834 | 0x0015-0x0019 | 5 | Standard scan A |
-| 4 | 0x0840-0x0844 | 0x0042-0x0046 | 5 | Standard scan B |
-| 5 | 0x0850-0x0854 | 0x0023-0x0027 | 5 | Extended scan A |
-| 6 | 0x0860-0x0864 | 0x0033-0x0037 | 5 | Extended scan B |
-| 7 | 0x0870-0x0874 | 0x0038-0x003C | 5 | Multi-pass scan A |
-| 8 | 0x0880-0x0884 | 0x0047-0x004B | 5 | Multi-pass scan B |
-| 9 | 0x0891-0x0894 | 0x0085-0x0088 | 4 | Fine extended A (no base) |
-| A | 0x08A1-0x08A4 | 0x0089-0x008C | 4 | Fine extended B (no base) |
-| B | 0x08B1-0x08B4 | 0x008D-0x0090 | 4 | Fine extended C (no base) |
+| Group | Task Codes | Handler Indices | Entries | Mode |
+|-------|-----------|----------------|---------|------|
+| 0 | 0x0800 | 0x0022 (shared) | 1 | Preview — low resolution |
+| 1 | 0x0810 | 0x0022 (shared) | 1 | Preview — medium resolution |
+| 2 | 0x0820 | 0x0022 (shared) | 1 | Preview — full resolution |
+| 3 | 0x0830-0x0834 | 0x0015-0x0019 | 5 | Fine scan, 8-bit, no ICE |
+| 4 | 0x0840-0x0844 | 0x0042-0x0046 | 5 | Fine scan, 8-bit, with ICE/IR |
+| 5 | 0x0850-0x0854 | 0x0023-0x0027 | 5 | Fine scan, 14-bit, no ICE |
+| 6 | 0x0860-0x0864 | 0x0033-0x0037 | 5 | Fine scan, 14-bit, with ICE/IR |
+| 7 | 0x0870-0x0874 | 0x0038-0x003C | 5 | Multi-pass scan, no ICE |
+| 8 | 0x0880-0x0884 | 0x0047-0x004B | 5 | Multi-pass scan, with ICE/IR |
+| 9 | 0x0891-0x0894 | 0x0085-0x0088 | 4 | Extended multi-sample A (no base) |
+| A | 0x08A1-0x08A4 | 0x0089-0x008C | 4 | Extended multi-sample B (no base) |
+| B | 0x08B1-0x08B4 | 0x008D-0x0090 | 4 | Extended multi-sample C (no base) |
 
-### Group Pairing
+### Group Pairing (from handler index contiguity analysis)
 
-Handler indices reveal three natural pairs (adjacent indices = related functionality):
+Handler indices cluster into 5 allocation blocks, revealing the firmware development timeline and functional relationships:
 
-| Pair | Groups | Handler Range | Likely Distinction |
-|------|--------|--------------|-------------------|
-| 1 | 3 + 5 | 0x0015-0x0019, 0x0023-0x0027 | Standard vs extended (original) |
-| 2 | 6 + 7 | 0x0033-0x0037, 0x0038-0x003C | Multi-resolution scan variants |
-| 3 | 4 + 8 | 0x0042-0x0046, 0x0047-0x004B | Additional modes (possibly IR) |
+| Block | Groups | Handler Range | Scan Mode | Evidence |
+|-------|--------|--------------|-----------|----------|
+| 1 | 3 | 0x0015-0x0019 | Fine 8-bit, no ICE | Lowest indices = first scan mode implemented |
+| 2 | 0/1/2 + 5 | 0x0022-0x0027 | Preview + Fine 14-bit | Shares infrastructure with preview |
+| 3 | 6 + 7 | 0x0033-0x003C | 14-bit ICE + Multi-pass | Adjacent indices = closely related pipelines |
+| 4 | 4 + 8 | 0x0042-0x004B | 8-bit ICE + Multi-pass ICE | Adjacent indices = ICE variants |
+| 5 | 9 + A + B | 0x0085-0x0090 | Extended multi-sample | High indices + no variant 0 = late additions |
 
-Groups 9, A, B (handler indices 0x0085-0x0090) were added later in firmware development — evidenced by their high, non-contiguous handler indices and lack of variant 0.
+**Key structural observations:**
+- All 5-entry groups (3-8) have contiguous handler indices with constant diff=1 per variant
+- Groups within the same block (e.g., 6+7) use immediately adjacent index ranges, confirming they share core scan logic with minimal parametric differences
+- The 8-bit/14-bit distinction is the primary axis: (3=8-bit, 5=14-bit), (4=8-bit+ICE, 6=14-bit+ICE)
+- ICE (infrared channel for Digital ICE dust removal) is the secondary axis
+- Multi-pass (multiple CCD exposures per line) is the tertiary axis
+- Groups 9-B (handler indices 0x0085-0x0090) were added in a later firmware revision — evidenced by the large gap from 0x004B to 0x0085 and the lack of variant 0 (no base/default case)
 
 ### Preview Group (Group 0)
 
@@ -371,7 +381,7 @@ COMPLETION / ERROR
 | `0x40078C` | long | `saved_desc` | Saved scan descriptor |
 | `0x400790` | ptr | `motor_state` | Motor state pointer |
 | `0x400896` | long | `counter` | DMA/line counter |
-| `0x4007B0` | word | `handler_idx` | Handler index from task dispatch |
+| `0x4007B0` | word | `sense_code` | SCSI sense code (consistent with memory-map.md) |
 | `0x40049E` | long | `handler_ptr` | Active handler function pointer |
 | `0x400B24` | ptr | `asic_base` | ASIC configuration base address |
 | `0x400F22` | byte | `adapter_type` | Adapter bitmask (0x01-0x40) |

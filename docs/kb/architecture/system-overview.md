@@ -12,11 +12,11 @@ The Nikon Coolscan family are dedicated 35mm/120 film scanners communicating via
 
 | Component | Details |
 |-----------|---------|
-| CPU | Hitachi H8/3003 (H8/300H family), clock speed unverified |
+| CPU | Hitachi H8/3003 (H8/300H family), 8 external IRQ lines (IRQ0-IRQ7), clock speed unverified |
 | Address Space | 24-bit, big-endian |
 | Flash | Fujitsu MBM29F400BC, 512KB NOR, TSOP48 |
 | Main RAM | 128KB SRAM at 0x400000 |
-| ASIC DSL RAM | 224KB at 0x800000 (range table at FW:0x4A114 ends at 0x837FFF) |
+| ASIC DSL RAM | 256KB physical at 0x800000 (BSC range table at FW:0x207A8 maps to 0x83FFFF); firmware uses 224KB (validation table at FW:0x4A114 ends at 0x837FFF; last 32KB unmapped for DMA) |
 | Buffer RAM | 64KB at 0xC00000 |
 | USB Controller | Philips ISP1581, registers at 0x600000 |
 | USB | VID 0x04B0 (Nikon), PID 0x4001 |
@@ -28,8 +28,9 @@ The Nikon Coolscan family are dedicated 35mm/120 film scanners communicating via
 |---------------|------|---------|
 | 0x000000-0x07FFFF | 512KB | NOR Flash (firmware) |
 | 0x400000-0x41FFFF | 128KB | Main RAM |
+| 0x200000-0x200FFF | 4KB | Custom ASIC registers (172 unique addresses) |
 | 0x600000-0x6000FF | 256B | ISP1581 USB controller registers |
-| 0x800000-0x837FFF | 224KB | ASIC DSL RAM (verified from range table at FW:0x4A114) |
+| 0x800000-0x83FFFF | 256KB | ASIC DSL RAM (physical, BSC at FW:0x207A8); firmware validates 224KB (FW:0x4A114 to 0x837FFF) |
 | 0xC00000-0xC0FFFF | 64KB | Buffer RAM |
 | 0xFFFD00-0xFFFF3F | ~576B | H8/3003 on-chip I/O registers |
 | 0xFFFF40-0xFFFFF3 | ~180B | On-chip RAM (used for vector trampolines) |
@@ -68,7 +69,7 @@ Complete GPIO port reference map traced from firmware binary (all MOV.B, BSET, B
 | 0x00000 | 0x0190 | Vector table + startup/bootloader code |
 | 0x04000 | ~16B | Bootloader flags (2 bytes data, rest erased) |
 | 0x06000 | ~80B | Settings/calibration data (structured, rest erased) |
-| 0x08000 | 0x8000 | Extended settings (entirely 0xFF in our dump — erased or unused on this unit) |
+| 0x08000 | 0x8000 | Unused/erased region (entirely 0xFF; no firmware code references any address in 0x8000-0x9FFF as a memory pointer — all 82 occurrences of values in this range are numeric constants or on-chip I/O via sign-extended @aa:16) |
 | 0x10000 | ~28.5KB | Recovery firmware (smaller separate image) |
 | 0x20000 | ~202KB | Main firmware (0x20000-0x528C0) |
 | 0x60000 | 0x10000 | Log area — newer (structured 32-byte records, 0xAA marker) |
@@ -96,7 +97,7 @@ Complete GPIO port reference map traced from firmware binary (all MOV.B, BSET, B
 | 49 | 0x0C4 | Reserved† | 0xFFFD30 | H8/3003-specific interrupt |
 | 60 | 0x0F0 | ADI | 0xFFFD34 | A/D conversion complete |
 
-†Vec 19 and 49 are in gaps of the generic H8/300H vector table but active in this firmware. All SCI vectors (52-59) are inactive — serial I/O is polled.
+†Vec 19 and 49 are in gaps of the generic H8/300H pspec. In the H8/3003, Vec 19 is **IRQ7** (8th external interrupt — motor positioning/scan segment completion; 392 bytes, accesses motor/scan state at 0x4052xx, writes task codes to 0x400778). Vec 49 is a **chip-specific timer interrupt** for CCD line readout/DMA coordination (writes ASIC registers 0x200001 and 0x2001C1 to trigger DMA, reads I/O 0xFFFF4C). All SCI vectors (52-59) are inactive — serial I/O is polled.
 
 **Evidence**: Binary vector table dump, SLEIGH pspec (`h8.pspec`), handler register access verification. See [Vector Table](../components/firmware/vector-table.md) for full analysis.
 
@@ -112,7 +113,7 @@ Host PC <-- USB 2.0 --> ISP1581 <-- CPU bus --> H8/3003 firmware
 
 1. Host sends SCSI CDB via USB bulk-out pipe
 2. Host queries device phase via vendor command 0xD0 **(verified: NKDUSCAN.dll @ 0x10002b55)**
-3. Based on phase (0x01=data-out, 0x02=status, 0x03=data-in): transfer data or complete command
+3. Based on phase (0x01=no-data/status, 0x02=data-out, 0x03=data-in): transfer data or complete command
 4. Host retrieves sense data via 0x06 on error **(verified: NKDUSCAN.dll @ 0x10002b5a)**
 
 This is a custom USB-SCSI wrapping protocol, NOT standard USB Mass Storage.

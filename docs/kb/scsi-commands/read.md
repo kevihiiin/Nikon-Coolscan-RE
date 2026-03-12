@@ -50,13 +50,13 @@ Specifies what category of data to read. The firmware validates this against a d
 | `0x87` | Scan Parameters / Status | 24 | None (ignored) | Verified |
 | `0x88` | Boundary / Per-Channel Cal | 644 | 0-3 (R/G/B/all) | Verified |
 | `0x8A` | Exposure / Gain Parameters | 14 | 0-3 (R/G/B/all) | High |
-| `0x8C` | Offset / Dark Current | 10 | 0-3 (R/G/B/all) | Medium |
+| `0x8C` | Offset / Dark Current | 10 | 0-3 (R/G/B/all) | High |
 | `0x8D` | Extended Scan Line Data | Variable | 0/1/3 (modes) | High |
-| `0x8E` | Focus / Measurement Data | Variable | 0 or 1 | Medium |
+| `0x8E` | Focus / Measurement Data | Variable | 0 or 1 | High |
 | `0x8F` | Histogram / Profile | 324 | 0/1/3 (R/G/B) | High |
-| `0x90` | CCD Characterization | 54 | 0-3 (R/G/B/all) | Medium |
-| `0x92` | Motor / Positioning Status | 10 | 0-3 (sub-type) | Medium |
-| `0x93` | Adapter / Film Type Info | 12 | Single value | Medium |
+| `0x90` | CCD Characterization | 54 | 0-3 (R/G/B/all) | High |
+| `0x92` | Motor / Positioning Status | 10 | 0-3 (sub-type) | High |
+| `0x93` | Adapter / Film Type Info | 12 | Single value | High |
 | `0xE0` | Extended Configuration | 1030 | 0/1/3 (modes) | High |
 
 The firmware handler (at `0x0240E2`) dispatches each DTC to a dedicated sub-routine. Any value not in this table returns sense code 0x0050 (ILLEGAL REQUEST / Invalid Field in CDB).
@@ -102,8 +102,26 @@ Raw pixel data in the format specified by the preceding SET WINDOW command:
 
 ### Calibration Data
 
-Internal calibration values — format is scanner-specific and requires firmware analysis
-to fully document.
+Internal calibration values with scanner-specific formats.
+
+### DTC Sub-handler Details (from firmware dispatch at FW:0x240E2)
+
+Each DTC branches to a dedicated sub-handler in the READ dispatch chain. Sub-handler addresses and key behaviors for the previously Medium-confidence DTCs:
+
+**DTC 0x8C — Offset/Dark Current** (sub-handler at `FW:0x24BB4`, 10 bytes):
+Reads per-channel calibration data from RAM at `0x40107C` (word) and `0x40108C` (word), with qualifier selecting the channel. Uses shared per-channel reader at `FW:0x24C9C`. Response is 10 bytes of offset/dark current measurements used for CCD black-level correction.
+
+**DTC 0x8E — Focus/Measurement** (sub-handler at `FW:0x24CDE`, variable size):
+Reads focus measurement data from `0x405282` (word). For qualifier=0, reads 3 iterations of 9 bytes each; for qualifier=1, reads variable-length measurement. Calls `FW:0x24EE2` for extended processing. Data represents autofocus sensor readings.
+
+**DTC 0x90 — CCD Characterization** (sub-handler at `FW:0x24E84`, 54 bytes):
+Validates command state (`0x400773` must be 0x06 or 0x07). For active scans (state 0x01), checks multiple scan config flags (`0x400E99`, `0x400E96`, `0x400EA1`, `0x400EA0`, `0x400EA4`, `0x4052D6`). Returns 54 bytes (0x36) of CCD characterization data via shared response builder at `FW:0x25060`.
+
+**DTC 0x92 — Motor/Positioning Status** (sub-handler at `FW:0x24F82`, 10 bytes):
+Copies 10 bytes from RAM at `0x400B20` (motor state block) via `FW:0x25120`. Transfer size validated as ≤ 0x0A. Yields (calls 0x109E2) if scanner is in active scan state (0x01). Response contains motor position, speed, and direction data.
+
+**DTC 0x93 — Adapter/Film Type Info** (sub-handler at `FW:0x24FC4`, 12 bytes):
+Copies 12 bytes starting at RAM address `0x6042` (via mov.l #0x60042). Transfer validated as ≤ 0x0C. Response contains adapter identification (type, holder, film format) — the hardware counterpart to the string table at `0x49E30`.
 
 ## Usage Context
 

@@ -28,7 +28,7 @@ The adapter name strings are at flash `0x49E30`-`0x49E77`, referenced by the poi
 
 ### Adapter Detection
 
-The firmware reads GPIO Port 7 (`0xFF85`, PDR7) to determine the currently inserted adapter. This port is read 16 times in the firmware, with 14 of those reads occurring inside the SCAN handler (`FW:0x0220B8`). The Port 7 value maps to an adapter index through a lookup that determines the adapter_type variable.
+The firmware reads GPIO Port 7 (`0xFFFF8E` / short address `0xFF8E`) to determine the currently inserted adapter. This port is read 16 times in the firmware, with 14 of those reads occurring inside the SCAN handler (`FW:0x0220B8`). The Port 7 value maps to an adapter index through a lookup that determines the adapter_type variable.
 
 ### VPD Page Dispatch
 

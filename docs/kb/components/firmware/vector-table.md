@@ -22,16 +22,16 @@ The H8/3003 has 64 interrupt vectors (256 bytes at 0x000000-0x0000FF). Each vect
 | 15 | 0x03C | 0xFFFD14 | **0x033444** | IRQ3 | **External interrupt — motor encoder pulses** |
 | 16 | 0x040 | 0xFFFD18 | **0x014D4A** | IRQ4 | External interrupt (shared handler with IRQ5) |
 | 17 | 0x044 | 0xFFFD18 | **0x014D4A** | IRQ5 | External interrupt (shared handler with IRQ4) |
-| 19 | 0x04C | 0xFFFD38 | **0x02B544** | Reserved† | Motor position tracking / operation initiation |
+| 19 | 0x04C | 0xFFFD38 | **0x02B544** | **IRQ7** (H8/3003) | Motor step completion / scan segment init (392 bytes; reads I/O 0xFFFF3C, writes 0x400778/0x4052xx) |
 | 32 | 0x080 | 0xFFFD1C | **0x010B76** | IMIA2 (ITU2 cmp A) | **Motor mode dispatcher** (reads motor_mode at 0x400774) |
 | 36 | 0x090 | 0xFFFD20 | **0x02D536** | IMIA3 (ITU3 cmp A) | Timer 3 compare match A |
 | 40 | 0x0A0 | 0xFFFD24 | **0x010A16** | IMIA4 (ITU4 cmp A) | **System tick timer** (increments timestamp at 0x40076E, reads TSR4) |
 | 45 | 0x0B4 | 0xFFFD28 | **0x02CEF2** | DEND0B (DMA ch0 B) | DMA channel 0B transfer end (clears DTCR0B bit 3) |
 | 47 | 0x0BC | 0xFFFD2C | **0x02E10A** | DEND1B (DMA ch1 B) | DMA channel 1B transfer end |
-| 49 | 0x0C4 | 0xFFFD30 | **0x02E9F8** | Reserved† | H8/3003-specific interrupt |
+| 49 | 0x0C4 | 0xFFFD30 | **0x02E9F8** | Timer/CCD (H8/3003) | CCD line readout / DMA coordination (reads I/O 0xFFFF4C, writes ASIC 0x200001+0x2001C1) |
 | 60 | 0x0F0 | 0xFFFD34 | **0x02EDDE** | ADI (A/D converter) | A/D conversion complete (tests ADCSR bit 7 at 0xFFFFE8) |
 
-†Vec 19 and 49 fall in gaps of the generic H8/300H pspec. The H8/3003 may assign these to chip-specific peripherals not in the generic model. Vec 52 (SCI0 ERI at 0xD0) is **inactive** — all SCI vectors (52-59) point to the default handler, so serial communication is polled, not interrupt-driven.
+†Vec 19 and 49 fall in gaps of the generic H8/300H pspec. The H8/3003 has 8 external interrupts (IRQ0-IRQ7) vs 6 in basic H8/300H, assigning Vec 18=IRQ6 and Vec 19=**IRQ7**. This pushes all subsequent vectors down by 2 relative to generic H8/300H numbering. Vec 19's handler (0x02B544, 392 bytes) accesses motor/scan state variables (0x4052EA, 0x4052E8, 0x4052EC-ED, 0x4052EE) and I/O register 0xFFFF3C, writing task codes (0x0310) to 0x400778. Vec 49's handler (0x02E9F8) manages CCD line readout timing — it writes ASIC registers 0x200001 (DMA trigger) and 0x2001C1 (CCD timing) while accessing pixel/line data at 0x4052xx, 0x4058FC, 0x4062DC, and 0x406DB6. Vec 52 (SCI0 ERI at 0xD0) is **inactive** — all SCI vectors (52-59) point to the default handler, so serial communication is polled, not interrupt-driven.
 
 All 49 inactive vectors point to 0x000186 (default handler = infinite loop).
 
@@ -119,7 +119,7 @@ Found 16 RTE instructions, confirming interrupt handler boundaries:
 **Motor Control:**
 - ITU2 compare A (0x010B76) — Motor mode dispatcher. Reads motor_mode (0x400774), dispatches to scan/AF/encoder handlers. Started/stopped per motor movement via BSET/BCLR #2, TSTR.
 - IRQ3 (0x033444) — Encoder pulse ISR. Counts pulses, measures inter-pulse timing for position/speed feedback.
-- Vec 19 (0x02B544) — Position tracking. Integrates encoder data, initiates motor operations.
+- Vec 19 / IRQ7 (0x02B544) — **Motor step completion / scan segment initialization**. Fires on external interrupt (limit switch or auxiliary encoder). Reads motor state (0x4052EA), sets task_code 0x0310 for motor positioning, initializes scan config variables (0x400E9x range), sets calibration values (0x400B8A/B8C). Also accesses I/O register 0xFFFF3C (likely 8-bit timer counter). 392 bytes.
 
 **DMA (Scan Data Transfer):**
 - ITU3 compare A (0x02D536) — Timer-based DMA coordination
@@ -129,7 +129,7 @@ Found 16 RTE instructions, confirming interrupt handler boundaries:
 **System:**
 - ITU4 compare A (0x010A16) — System tick timer. Started once at init (`BSET #4, TSTR` at 0x010A10), never stopped. Increments global timestamp at 0x40076E.
 - ADI (0x02EDDE) — A/D conversion complete. Tests ADCSR bit 7 (ADF flag at 0xFFFFE8). Used for analog measurements (lamp intensity, CCD temperature, or similar).
-- Vec 49 (0x02E9F8) — H8/3003-specific interrupt. Accesses `0x400778`, `0x4052FE`, `0x405298`.
+- Vec 49 (0x02E9F8) — **CCD line readout / DMA coordination**. H8/3003-specific timer interrupt for scan line timing. Reads I/O 0xFFFF4C (8-bit timer register), writes ASIC 0x200001 (DMA trigger) and 0x2001C1 (CCD line timing). Manages pixel transfer state: reads 0x4052F1 (scan_active), 0x4052F0/F2 (scan status), 0x405284/5288 (pixel descriptors), 0x4058FC (line counter), 0x4062DC/DD (channel data). Controls DMA-to-USB pipeline during active scanning.
 
 **Note on Serial Communication:** All SCI interrupt vectors (52-59) are **inactive** in this firmware — serial communication with film adapters (SA-21, MA-21) is handled via **polled I/O**, not interrupts. SCI register accesses (SMR, BRR, SSR, RDR, TDR) are sparse (2-3 sites each) at scattered locations: SCI0 at `0x1686A`, `0x33F6A`, `0x137FE`; SCI1 at `0x33828`, `0x2F89A`, `0x385E6`. No BRR configuration in the I/O init table — ports are configured dynamically when an adapter is detected.
 

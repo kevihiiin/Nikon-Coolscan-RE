@@ -179,7 +179,7 @@ This is a **pull model** — the timer ISR periodically checks if scan data is r
 |------|---------|---------|
 | 2 | `0x02E268` | Block transfer |
 | 3 | `0x02EDC0` | Streaming transfer |
-| 4 | `0x0337E` | Scan line transfer (pixel processing) |
+| 4 | `0x3337E` | Scan line transfer (pixel processing) |
 | 6 | `0x02E276` | Calibration transfer |
 
 ## Stage 5: USB Bulk Transfer
@@ -243,7 +243,7 @@ mov.w   r0, @0x60001C         ; Write to ISP1581 DMA_CNT
 | `0x40049A` | `usb_busy` | 0/1 | USB endpoint busy flag |
 | `0x40076E` | `timestamp` | 32-bit | ITU4 system tick timestamp counter |
 | `0x406370` | `scan_desc_ptr` | 32-bit | Scan descriptor pointer |
-| `0x400791` | `operation_type` | byte | Current operation type |
+| `0x400791` | `gpio_shadow` | byte | Current operation type |
 | `0x4064E6` | `line_counter` | word | Remaining scan lines |
 
 ## SCAN Handler (0x2EC00)

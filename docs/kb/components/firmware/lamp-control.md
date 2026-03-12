@@ -7,16 +7,17 @@
 
 ## Overview
 
-The LS-50 uses a white LED lamp (not fluorescent tube) for illumination during scanning. Lamp control is managed through GPIO Port 8 bit 2, with exposure parameters configured through the SCSI Vendor C1 subcommand 0x80.
+The LS-50 uses a white LED lamp (not fluorescent tube) for illumination during scanning. Lamp control is managed through GPIO bit 0 at address `0xFF85`, with exposure parameters configured through the SCSI Vendor C1 subcommand 0x80.
 
 ## Lamp GPIO
 
-**Port 8 (P8DR at `0xFF85`, P8DDR at `0xFF84`)** is the primary lamp control:
+**Register at `0xFF85`** (`0xFFFF85` full address) is the lamp control register. Based on H8/3003 port register layout (P1DDR=0x80, P1DR=0x82, P3DDR=0x84, **P4DDR=0x85**, P3DR=0x86 — interleaved pattern confirmed by 11 other port references in the GPIO table), this is **Port 4 Data Direction Register (P4DDR)**. The SLEIGH pspec's "TSR3" mapping is for generic H8/300H, not the H8/3003 specifically.
+
+Lamp control uses DDR toggling (open-drain pattern): BCLR #0 sets P4 bit 0 to input mode, allowing an external pull-up to activate the lamp circuit. BSET #0 sets it to output mode, driving the pin to control lamp off:
 
 | Pin | Function | Direction |
 |-----|----------|-----------|
-| Bit 0 | Direction/mode control | Output (set via P8DDR) |
-| Bit 2 | **Lamp enable** | Output |
+| Bit 0 | **Lamp enable** (BCLR to turn on) | Output |
 
 ### Write Sites
 
@@ -24,12 +25,12 @@ All 6 lamp-on write sites in the firmware:
 
 | Address | Instruction | Context |
 |---------|------------|---------|
-| `0x2C66A` | `BSET #2, @0xFF85` | Lamp ON in scan init |
-| `0x2D2E8` | `BSET #2, @0xFF85` | Lamp ON in scan setup |
-| `0x2D3C2` | `BSET #2, @0xFF85` | Lamp ON in alt scan path |
-| `0x2D4EE` | `BSET #2, @0xFF85` | Lamp ON in shutdown sequence |
-| `0x2D53E` | `BSET #2, @0xFF85` | Lamp ON in calibration |
-| `0x2D670` | `BSET #2, @0xFF85` | Lamp ON in readout |
+| `0x2C66A` | `BCLR #0, @0xFF85` | Lamp ON in scan init |
+| `0x2D2E8` | `BCLR #0, @0xFF85` | Lamp ON in scan setup |
+| `0x2D3C2` | `BCLR #0, @0xFF85` | Lamp ON in alt scan path |
+| `0x2D4EE` | `BCLR #0, @0xFF85` | Lamp ON in shutdown sequence |
+| `0x2D53E` | `BCLR #0, @0xFF85` | Lamp ON in calibration |
+| `0x2D670` | `BCLR #0, @0xFF85` | Lamp ON in readout |
 
 ### Consistent Pattern
 
@@ -38,16 +39,16 @@ All lamp-on write sites use the same code pattern:
 ```asm
 mov.b   #0xA3, r0l           ; Status value
 mov.b   r0l, @(status_reg)   ; Write status
-mov.b   @0xFF85, r0l         ; Read current P8DR
-mov.b   r0l, @0x400791       ; Save to shadow register
-bset    #2, @0xFF85           ; LAMP ON
+mov.b   @0xFF85, r0l         ; Read current GPIO
+mov.b   r0l, @0x400791       ; Save to GPIO shadow register
+bclr    #0, @0xFF85           ; LAMP ON (active-low: clear bit 0)
 sub.w   r0, r0
 mov.w   r0, @0xFF86           ; Clear adjacent port register
 ```
 
-The RAM shadow register at `0x400791` tracks the lamp state.
+The RAM address `0x400791` is a general GPIO shadow register (used before bit operations on multiple GPIO ports — 0xFF85, 0xFF67, 0xFF71, 0xFF7B — with 23 total references). It preserves the pre-modification GPIO state.
 
-Lamp-off likely uses a byte write (writing 0x00 to P8DR) rather than BCLR, as no BCLR instructions for Port 8 were found.
+Lamp-off would use `BSET #0, @0xFF85` (set bit 0 high = inactive), the inverse of the BCLR #0 used for lamp-on.
 
 ## Lamp State Machine
 
@@ -65,7 +66,7 @@ The lamp state machine is managed by subroutine `FW:0x13C6E`, called from the C1
 Key state variables:
 - `0x400082` — Lamp state (0 = off, 1 = active)
 - `0x400E5F` — Lamp active flag (set by C1/0x80 handler)
-- `0x400791` — Port 8 shadow register
+- `0x400791` — GPIO shadow register (general, not lamp-specific)
 
 ## Exposure Control (C1 Subcommand 0x80)
 

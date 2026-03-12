@@ -47,7 +47,7 @@ Specifies what category of data to write to the scanner. The firmware validates 
 | `0x85` | Extended Calibration | varies | Single value | High |
 | `0x88` | Boundary / Per-Channel Cal | 644 | 0-3 (R/G/B/all) | Verified |
 | `0x8F` | Histogram / Profile | 324 | 0/1/3 (R/G/B) | High |
-| `0x92` | Motor / Positioning Control | 4 | 0-3 (sub-type) | Medium |
+| `0x92` | Motor / Positioning Control | 4 | 0-3 (sub-type) | High |
 | `0xE0` | Extended Configuration | 1024 | 0/1/3 (modes) | High |
 
 The firmware handler (at `0x025622`) dispatches each DTC to a dedicated sub-routine. Any value not in this table returns sense code 0x0050 (ILLEGAL REQUEST / Invalid Field in CDB).
@@ -100,7 +100,20 @@ Upload histogram or profile data (324 bytes max). Qualifier selects R/G/B channe
 
 ### Motor / Positioning Control (DTC=0x92)
 
-Write motor control parameters (4 bytes max). Qualifier selects the sub-type. This is the command interface for controlling the scanner's stepper motors (film transport, focus).
+Write motor control parameters (4 bytes). Qualifier selects the sub-type. Sub-handler at `FW:0x25908`:
+
+1. Validates transfer size == 4 bytes (sense 0x0050 if mismatch)
+2. Validates qualifier against allowed range (sense 0x0050 if invalid)
+3. Checks exec_mode at `0x40049B` via `FW:0x1374A`
+4. Reads 4 payload bytes from USB data transfer via `FW:0x13E20`
+5. Validates byte[0] (motor ID) and byte[2] (direction/mode): sense 0x0053 if invalid
+6. Unpacks payload:
+   - Byte 0: Motor selector (0x01=scan motor, 0x02=focus motor)
+   - Byte 1: Operation mode (step count multiplier)
+   - Byte 2: Direction/flags (bit 0=direction, bits 4-7=speed profile)
+   - Byte 3: Step count parameter
+7. Writes motor command to `0x400790` (motor_state) and dispatches via `FW:0x25B6A`
+8. Calls motor subroutines at `FW:0x25BF6` (3 call sites for different motor operations)
 
 ### Extended Configuration (DTC=0xE0)
 

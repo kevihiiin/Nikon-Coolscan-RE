@@ -87,9 +87,9 @@ The 16-bit permission flags at offset +2 control which scanner states allow the 
 | Source | Opcode Count | Opcodes |
 |--------|-------------|---------|
 | LS5000.md3 (Phase 2) | 17 | 00, 12, 15, 16, 17, 1A, 1B, 1C, 1D, 24, 25, 28, 2A, C0, C1, E0, E1 |
-| Firmware (Phase 4) | 20 | Same 17 + **0x03, 0x3B, 0x3C** |
+| Firmware (Phase 4) | 21 | Same 17 + **0x03, 0x3B, 0x3C, 0xD0** |
 
-*Note*: REQUEST SENSE (0x03) and phase query (0xD0) are transport-layer opcodes handled by NKDUSCAN.dll, not LS5000.md3. D0 is not in the firmware's SCSI dispatch table — it is handled by the ISP1581 USB module.
+*Note*: REQUEST SENSE (0x03) and phase query (0xD0) are transport-layer opcodes handled by NKDUSCAN.dll, not LS5000.md3. D0 IS present in the firmware's SCSI dispatch table at `0x498E8` (handler at `0x13748` in the shared module region), but LS5000.md3 never builds this CDB — it is sent by the USB driver layer.
 
 The firmware supports **3 additional opcodes** beyond what LS5000.md3 builds:
 - **0x03 REQUEST SENSE** — Handled by firmware at 0x021866 (sense translation table at 0x16DEE)
@@ -154,7 +154,7 @@ The internal state machine determines the current scanner state. The dispatch co
 
 ## Internal Task Code Table (0x49910)
 
-A secondary table at 0x49910 maps 16-bit internal task codes to handler indices. This table has 93 entries of 4 bytes each (task_code:16, handler_index:16), terminated by 0x0000.
+A secondary table at 0x49910 maps 16-bit internal task codes to handler indices. This table has 97 entries of 4 bytes each (task_code:16, handler_index:16), terminated by 0x0000.
 
 These are **not SCSI opcodes** — they represent the firmware's internal task/event system. The task codes use a hierarchical naming: the high byte is the subsystem, the low byte is the specific task.
 

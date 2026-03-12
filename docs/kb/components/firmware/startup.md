@@ -106,7 +106,7 @@ The firmware uses a data-driven initialization table to configure all hardware r
 0x020372: bcs    0x020368              ; Loop until end
 ```
 
-Key registers initialized (see [I/O Register Init](./io-init-table.md) for full table):
+Key registers initialized:
 
 | Register | Address | Value | Purpose |
 |----------|---------|-------|---------|
@@ -169,16 +169,16 @@ See [Vector Table](./vector-table.md) for the complete mapping.
 | 0x01000-0x03FFF | 12KB | ERASED |
 | 0x04000-0x04FFF | 4KB | Small data block (BSC config?) |
 | 0x05000-0x05FFF | 4KB | ERASED |
-| 0x06000-0x06FFF | 4KB | Log area 1 |
+| 0x06000-0x06FFF | 4KB | Small data block |
 | 0x07000-0x07FFF | 4KB | ERASED |
 | 0x08000-0x0FFFF | 32KB | ERASED (no "extended settings") |
 | 0x10000-0x17FFF | 32KB | Shared handler module (interrupt handlers, USB code) |
 | 0x18000-0x1FFFF | 32KB | ERASED |
 | 0x20000-0x52FFF | ~200KB | Main firmware code + data |
 | 0x53000-0x5FFFF | 52KB | ERASED |
-| 0x60000-0x63FFF | 16KB | Log area 2 |
+| 0x60000-0x63FFF | 16KB | Log area 1 (433 × 32-byte usage telemetry records) |
 | 0x64000-0x6FFFF | 48KB | ERASED |
-| 0x70000-0x7FFFF | 64KB | Additional firmware code |
+| 0x70000-0x7FFFF | 64KB | Log area 2 (2048 × 32-byte usage telemetry records) |
 
 **Total used**: ~320KB of 512KB
 

@@ -69,30 +69,48 @@ The model-specific configuration function is at `FW:0x142AA`:
 ; LS-5000: fine DAC = 0x00, coarse = 180
 ```
 
-## Calibration Data in Flash (0x4C000-0x4EFFF)
+## CCD Characterization Data in Flash (0x4A8BC-0x528BD)
 
-Factory-programmed calibration data occupies 12KB of flash:
-
-| Region | Address | Size | Content |
-|--------|---------|------|---------|
-| Primary | `0x4C000-0x4E83F` | 10304 bytes | Per-pixel binary map (0/1 values) |
-| Gap | `0x4E840-0x4E8AF` | 112 bytes | Zeroed separator |
-| Secondary | `0x4E8B0-0x4EFFF` | 1872 bytes | Secondary correction map |
+Factory-programmed per-CCD-element correction data occupies ~32KB of flash. This is an **analog correction level table** (NOT a binary defect map — the previous characterization was incorrect due to sampling only the quiet center region where values happen to be 0/1).
 
 ### Data Structure
 
-The calibration data contains **only byte values 0x00 and 0x01** — a binary map:
-- Primary region: 10304 bytes / 2 = **5152 pixels** (close to CCD active pixel count)
-- `0x01` density decreases from ~65% at start to ~20% later — consistent with per-pixel characterization
-- The `0x4D000` sub-region is much sparser (3671 zeros vs 425 ones in 4KB) — likely a **defect pixel map**
+```
+Pointer table at FW:0x4A37E:
+  [0] = 0x0004A8BC  → Section 1 (pointers 0 and 1 are identical)
+  [1] = 0x0004A8BC  → Section 1
+  [2] = 0x0004E8BD  → Section 2
 
-Interpretation: This is a **per-CCD-pixel defect/correction table** written during factory characterization:
-- `0x01` = pixel nominal
-- `0x00` = pixel needs correction (dark current defect, gain variation, etc.)
+Section 1 (0x4A8BC-0x4E8BC, 16,385 bytes):
+  Bytes 0-1:      0x3FFF (length header = 16383)
+  Bytes 2-16381:  4095 groups × 4 bytes (correction levels 0-6)
+  Bytes 16382-84: 3 trailing zero bytes
+
+Section 2 (0x4E8BD-0x528BD, 16,385 bytes):
+  Bytes 0-1:      0x3FFF (length header = 16383)
+  Bytes 2-16381:  4095 groups × 4 bytes (correction levels 0-11)
+  Bytes 16382-84: 3 trailing zero bytes
+
+End marker: 0xFF at 0x528BE (erased flash)
+Total: 32,770 bytes (~32KB)
+```
+
+### Key Properties
+
+- **11 distinct byte values** (0x00 through 0x0B), NOT binary 0/1
+- **100% 4-byte grouping**: every group has 4 identical bytes (zero violations across 8190 groups). Each group maps to 4 CCD sub-elements (likely 4 sub-pixel positions per CCD element)
+- **4095 groups per section** (2^12 − 1): matches the CCD's active element count
+- **Monotonic edge-to-center decay**: correction levels decrease from edges (values 5-6) toward center (values 0-1), consistent with optical vignetting and CCD dark current falloff
+- **Section 2 has higher values** than Section 1 (avg +1 across 1202 differing groups), suggesting different scan modes with different integration times
+- **Localized hot pixel cluster** at Section 2 groups 144-159 (values 10-11, absent in Section 1) — a physical CCD defect requiring extra correction at one scan speed
+
+### Firmware Access
+
+The firmware reads this data via pointer table at `FW:0x4A37E`, using `mov.l @0x0004A37E:32, ER4` at code address `0x36E24`, followed by sequential byte reads with `mov.b @ER4+, R0L` (post-increment). The `0x3FFF` length constant is referenced at 7 firmware code locations.
 
 ### No Runtime Flash Writes to Calibration Area
 
-**Zero code references** to addresses `0x4C000`, `0x4D000`, or `0x4E000` in the firmware. The calibration data was written during factory flash programming and is never modified by the firmware at runtime.
+**Zero direct code references** to any address in 0x4A8BC-0x528BD. The data is accessed only through the pointer table. It was written during factory flash programming and is never modified by the firmware at runtime.
 
 The flash programming routine at `FW:0x3A300` supports multiple flash chip variants but is only used to write to the log areas (`0x60000`, `0x70000`).
 

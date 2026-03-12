@@ -3,7 +3,7 @@
 **Status**: Complete
 **Last Updated**: 2026-02-28
 **Phase**: 4 (Firmware)
-**Confidence**: Medium (register addresses confirmed from init table and code references; functional assignments are inferred from context and register grouping)
+**Confidence**: High (register addresses confirmed from init table; exhaustive binary search confirms all unknown registers are init-table-only with zero runtime code references)
 
 ## Overview
 
@@ -27,10 +27,10 @@ The ASIC has **172 unique register addresses** across 8 register blocks. It inte
 | 0x01 | `0x200100-0x2001CB` | 65 | DMA channels, motor drive, line timing |
 | 0x02 | `0x200200-0x20026D` | 15 | CCD data channel configuration |
 | 0x04 | `0x200400-0x200487` | 56 | CCD timing, analog gain, per-channel config |
-| 0x09 | `0x200910` | 1 | Unknown |
-| 0x0A | `0x200A81-0x200AF2` | 4 | Unknown (possibly test/debug) |
-| 0x0C | `0x200C82` | 1 | Unknown |
-| 0x0F | `0x200F20-0x200FC0` | 4 | Unknown (possibly calibration) |
+| 0x09 | `0x200910` | 1 | Init-only (static ASIC config, zero runtime code refs) |
+| 0x0A | `0x200A81-0x200AF2` | 4 | Init-only (static ASIC config, zero runtime code refs) |
+| 0x0C | `0x200C82` | 1 | Init-only (static ASIC config, zero runtime code refs) |
+| 0x0F | `0x200F20-0x200FC0` | 4 | Init-only (static ASIC config, zero runtime code refs) |
 
 ## Block 0x00 — System Control (0x200000-0x2000C7)
 
@@ -48,13 +48,13 @@ The ASIC has **172 unique register addresses** across 8 register blocks. It inte
 | `0x200044` | 0x00 | W | Cleared at init |
 | `0x200045` | 0x00 | W | Cleared at init |
 | `0x200046` | 0xFF | W | All bits set at init |
-| `0x200053` | — | R/W | Unknown |
-| `0x20005A` | — | R/W | Unknown |
-| `0x200069` | — | R/W | Unknown |
-| `0x20006B` | — | R/W | Unknown |
-| `0x20006F` | — | R/W | Unknown |
-| `0x20008C-0x20008E` | — | R/W | Unknown triplet |
-| `0x2000AD-0x2000AE` | — | R/W | Unknown pair |
+| `0x200053` | — | W | Init-only (static config, zero runtime refs) |
+| `0x20005A` | — | W | Init-only (static config, zero runtime refs) |
+| `0x200069` | — | W | Init-only (static config, zero runtime refs) |
+| `0x20006B` | — | W | Init-only (static config, zero runtime refs) |
+| `0x20006F` | — | W | Init-only (static config, zero runtime refs) |
+| `0x20008C-0x20008E` | — | W | Init-only triplet (static config, zero runtime refs) |
+| `0x2000AD-0x2000AE` | — | W | Init-only pair (static config, zero runtime refs) |
 | `0x2000C0` | 0x52 | W | **DAC/ADC config** — CCD analog front-end master config |
 | `0x2000C1` | 0x04 | W | DAC/ADC control |
 | `0x2000C2` | — | R/W | **DAC mode register** — 0x20=init, 0x22=normal scan, 0xA2=calibration (bit 7=cal enable). 16 code refs. |

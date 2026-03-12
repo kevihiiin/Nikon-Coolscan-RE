@@ -3,7 +3,7 @@
 **Status**: Complete
 **Last Updated**: 2026-02-28
 **Phase**: 4 (Firmware)
-**Confidence**: High (verified from I/O init table, BSC config, binary analysis)
+**Confidence**: Verified (I/O init table, BSC config, binary analysis, exhaustive address reference search)
 
 ## Overview
 
@@ -16,6 +16,8 @@ The LS-50 uses a Hitachi H8/3003 (H8/300H family) with a 24-bit address bus. The
     0x000000-0x0000FF  Interrupt vector table (64 × 4 bytes)
     0x000100-0x003FFF  Boot code + startup
     0x004000-0x005FFF  Settings area (mostly erased 0xFF)
+    0x006000-0x007FFF  Extended settings area (identical to 0x4000 block, rest erased)
+    0x008000-0x00FFFF  Unused — entirely 0xFF, NO firmware code references
     0x010000-0x017FFF  Shared handler module (ISP1581 USB, response manager)
     0x018000-0x01FFFF  Erased (unused)
     0x020000-0x052FFF  Main firmware (code + data tables)
@@ -62,9 +64,13 @@ The LS-50 uses a Hitachi H8/3003 (H8/300H family) with a 24-bit address bus. The
     0x60002C           Bulk mode register
     0x600084           DMA count register
 
-0x800000-0x837FFF  ASIC RAM (224KB) — CCD line buffer / DMA target
-    17 × 8KB banks mapped for DMA operations
-    Bank addresses: 0x800000, 0x808000, ..., 0x836000
+0x800000-0x83FFFF  ASIC RAM (256KB physical, BSC range table at FW:0x207A8)
+    Firmware-accessible: 224KB (0x800000-0x837FFF, validation table at FW:0x4A114)
+    Last 32KB (0x838000-0x83FFFF): BSC-mapped but not in firmware validation table
+    16 DMA banks (4 × 32KB + 12 × 8KB = 224KB):
+      Banks 1-4:  0x800000, 0x808000, 0x810000, 0x818000  (32KB spacing)
+      Banks 5-16: 0x820000, 0x822000, ..., 0x836000       (8KB spacing)
+    Code reference 0x838000 found at FW:0x3E2E4 — used as boundary marker
 
 0xC00000-0xC0FFFF  Buffer RAM (64KB) — USB transfer staging
     0xC00000           Ping-pong bank A (calibration, scan data)
@@ -99,10 +105,11 @@ The LS-50 uses a Hitachi H8/3003 (H8/300H family) with a 24-bit address bus. The
 | Boot code | 0x0100-0x018A | 138B | SP init, bank select, jump to main |
 | Default handler | 0x0182-0x018A | 8B | NMI (0x0182), default infinite loop (0x0186) |
 | Boot trampoline data | 0x06B4 | 48B | Erased (0xFF) — trampolines installed by main FW |
-| Settings | 0x4000-0x5FFF | 8KB | Mostly erased |
+| Settings | 0x4000-0x7FFF | 16KB | Mostly erased (structured data at 0x4000, 0x6000) |
+| Unused | 0x8000-0xFFFF | 32KB | Entirely 0xFF — no firmware references |
 | Shared module | 0x10000-0x17FFF | 32KB | ISP1581, response manager, context switch, utility stubs |
 | Main firmware | 0x20000-0x52FFF | ~204KB | SCSI handlers, motor, scan, calibration, data tables |
-| Data tables | 0x45000-0x528BE | ~55KB | Task table, VPD, ramp, defect map |
+| Data tables | 0x45000-0x528BE | ~55KB | Task table, VPD, ramp, CCD characterization map |
 | Log area 1 | 0x60000-0x63FFF | 16KB | Usage telemetry (wraps from area 2) |
 | Log area 2 | 0x70000-0x7FFFF | 64KB | Usage telemetry (fills first) |
 
@@ -125,7 +132,7 @@ The LS-50 uses a Hitachi H8/3003 (H8/300H family) with a 24-bit address bus. The
 | 0x400778 | 2 | task_code | Current task code (primary dispatch) |
 | 0x40077A | 2 | scan_progress | Scan progress / DMA state |
 | 0x40078C | 4 | task_remaining | Task remaining work counter |
-| 0x400791 | 1 | motor_direction | Motor direction flag |
+| 0x400791 | 1 | gpio_shadow | GPIO shadow register (general, 23 refs across multiple ports) |
 | 0x400896 | 4 | task_budget | Task time budget counter |
 | 0x4007B0 | 2 | sense_code | SCSI sense code |
 | 0x4007B6 | 1 | scsi_opcode | Current SCSI opcode |
