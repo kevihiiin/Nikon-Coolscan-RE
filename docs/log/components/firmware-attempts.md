@@ -597,3 +597,90 @@ Vector-table.md had **10 of 13 active vectors with wrong interrupt source names*
 **KB Created**: `docs/kb/components/firmware/film-adapters.md` — Film adapters, factory test jig, film holders, positioning objects, calibration params
 **KB Updated**: data-tables.md (string table expanded), inquiry.md (VPD table expanded to 8 adapters with handlers), send-diagnostic.md (RECEIVE DIAGNOSTIC section expanded), reserve.md (RELEASE section added)
 **Confidence**: High (direct binary verification, VPD table confirmed empty for Test adapter)
+
+## Attempt 34 — 2026-03-11 — Flash 0x8000 region and ASIC RAM reconciliation
+**Tool**: Python binary analysis (H8/300H instruction pattern search)
+**Target**: Flash addresses 0x8000-0x9FFF, ASIC RAM tables at 0x207A8 and 0x4A114
+**What I tried**: Exhaustive search for any firmware instruction referencing 0x8000-0x9FFF as a memory pointer. Checked all MOV.L, MOV.W, MOV.B patterns with @aa:32 addressing. Also reconciled ASIC RAM size discrepancy between two firmware tables.
+**What I found**:
+- 82 hits in 0x8000-0x9FFF range — ALL are numeric constants (0x8000=bit15 bitmask, 0x8001=comparison value) or sign-extended @aa:16 on-chip I/O (e.g., @0x8004 → 0xFF8004). Zero flash memory pointer references.
+- ASIC RAM: BSC range table at 0x207A8 maps 256KB physical (0x800000-0x83FFFF). Firmware validation table at 0x4A114 covers 224KB (0x800000-0x837FFF). DMA bank table at 0x49A94: 16 banks (4×32KB at 0x800000/0x808000/0x810000/0x818000 + 12×8KB at 0x820000-0x836000). Last 32KB (0x838000-0x83FFFF) is BSC-mapped but not DMA-accessible.
+**KB Updated**: memory-map.md (flash 0x8000 as "Unused — entirely 0xFF, NO firmware code references", ASIC RAM section rewritten with 16 DMA banks), system-overview.md (ASIC RAM note)
+**Confidence**: Verified (exhaustive pattern search, two-table reconciliation)
+
+## Attempt 35 — 2026-03-11 — GPIO 0xFF85 identification and Vec 19/49 semantics
+**Tool**: H8/3003 register layout analysis + handler disassembly
+**Target**: GPIO register at 0xFF85 (lamp control), interrupt vectors 19 and 49
+**What I tried**: Identified 0xFF85 using the interleaved DDR/DR pattern for H8/3003 ports. Analyzed Vec 19 and Vec 49 handler code for peripheral register access patterns.
+**What I found**:
+- 0xFF85 = P4DDR (Port 4 Data Direction Register). Interleaved layout: P1DDR=0x80, P1DR=0x82, P3DDR=0x84, P4DDR=0x85, P4DR=0x86. The BCLR #0 instruction sets P4 bit 0 to input mode (DDR=0), using an external pull-up resistor to activate the lamp circuit (open-drain control pattern).
+- Vec 19 = IRQ7 on H8/3003 (extra external interrupt vs basic H8/300H). Handler at 0x02B544 (392 bytes): reads I/O 0xFFFF3C, accesses motor/scan state (0x4052EA, 0x4052E8, 0x4052EE), writes task code 0x0310 to 0x400778. Purpose: motor step completion / scan segment initialization.
+- Vec 49: Handler at 0x02E9F8 writes ASIC 0x200001 (DMA trigger) and 0x2001C1 (CCD timing), reads pixel/line data at 0x4052xx, 0x4058FC, 0x4062DC, 0x406DB6. Purpose: CCD line readout / DMA coordination timing.
+**KB Updated**: lamp-control.md (GPIO identity), vector-table.md (Vec 19/49 source and purpose)
+**Confidence**: Verified (register layout + handler register access patterns)
+
+## Attempt 36 — 2026-03-11 — DTC table full decode and scan group semantics
+**Tool**: Python script (parse_dtc_tables.py) + hex analysis
+**Target**: DTC tables at 0x49AD8 (READ) and 0x49B98 (WRITE), scan task groups
+**What I tried**: Parsed both DTC dispatch tables. Analyzed scan group handler index allocation for functional meaning.
+**What I found**:
+- READ table: 15 entries × 12 bytes. Entry format: [DTC:8, qual_cat:8, reserved:16, max_size:16, RAM_addr:32, sub_idx:8, pad:8]. DTC 0x87 is the only entry with non-zero RAM address (0x400D45). Sub-handler indices map to dispatch chain offsets.
+- WRITE table: 7 entries × 10 bytes. DTC 0x8F and 0xE0 share handler at 0x2591C.
+- Scan groups: 5 handler index allocation blocks reveal development timeline. Block 1 (groups 3, indices 0x15-0x19) = first mode implemented. Block 5 (groups 9-B, indices 0x85-0x90) = late additions with no variant 0. Three orthogonal mode axes: 8-bit/14-bit, ICE/no-ICE, single/multi-pass.
+**KB Updated**: data-tables.md (complete READ/WRITE DTC table sections), scan-state-machine.md (group semantics and handler pairing analysis)
+**Confidence**: Verified (direct table parsing + cross-reference with dispatch code)
+
+## Attempt 37 — 2026-03-11 — READ/WRITE DTC sub-handler documentation
+**Tool**: Ghidra exports + hex dump analysis
+**Target**: READ DTC sub-handlers for 0x8C/0x8E/0x90/0x92/0x93, WRITE DTC 0x92
+**What I tried**: Traced dispatch chain at 0x240E2 (READ) and 0x025622 (WRITE) to extract branch targets. Decoded each sub-handler's behavior from register access and RAM reference patterns.
+**What I found**:
+- READ 0x8C at FW:0x24BB4: reads per-channel offset/dark current from RAM 0x40107C (word) and 0x40108C (word), qualifier selects channel via shared reader at FW:0x24C9C. 10 bytes.
+- READ 0x8E at FW:0x24CDE: reads focus measurement from 0x405282 (word). Qualifier 0: 3×9 bytes; qualifier 1: variable. Extended processing at FW:0x24EE2.
+- READ 0x90 at FW:0x24E84: validates cmd_state (0x400773 must be 0x06 or 0x07). 54 bytes via shared builder at FW:0x25060.
+- READ 0x92 at FW:0x24F82: copies 10 bytes from RAM 0x400B20 (motor state block). Yields during active scan state (0x01).
+- READ 0x93 at FW:0x24FC4: copies 12 bytes from RAM address 0x60042. Adapter identification data.
+- WRITE 0x92 at FW:0x25908: validates size==4, unpacks 4-byte payload: byte0=motor selector (0x01=scan, 0x02=focus), byte1=operation mode, byte2=direction/flags (bit0=direction, bits4-7=speed profile), byte3=step count. Dispatches via FW:0x25B6A.
+**KB Updated**: read.md (DTCs 0x8C-0x93 upgraded to High), write.md (DTC 0x92 upgraded to High)
+**Confidence**: High (firmware hex analysis, sub-handler behavioral patterns confirmed)
+
+## Attempt 38 — 2026-03-11 — ASIC register unknowns exhaustive binary search
+**Tool**: Python binary analysis (instruction-boundary-aware search)
+**Target**: 20 "Unknown" ASIC registers (blocks 0x00, 0x09, 0x0A, 0x0C, 0x0F)
+**What I tried**: Exhaustive search across entire 512KB firmware for all H8/300H instruction patterns that could encode the 20 unknown register addresses. Checked MOV.B/W/L @aa:32, register-indirect @(disp,ERn), and immediate patterns.
+**What I found**: 27 raw matches across all 20 registers — ALL false positives. 23 are instruction boundary straddles (address bytes appear within multi-byte instructions but don't form valid address-referencing instructions at proper boundaries), 4 are data table coincidences. No firmware code outside the I/O init table at FW:0x2001C ever accesses these registers.
+**KB Updated**: asic-registers.md — All 20 registers upgraded from "Unknown" to "Init-only (static ASIC config, zero runtime code refs)", confidence upgraded to High.
+**Confidence**: High (exhaustive search with instruction boundary validation)
+
+## Attempt 39 — 2026-03-11 — CCD Characterization data structure correction
+**Tool**: Python binary analysis + firmware pointer table trace
+**Target**: Flash region previously documented as "CCD Defect Map (0x4C000-0x4EFFF, 12KB)"
+**What I tried**: Re-analyzed the calibration data starting from the firmware pointer table at FW:0x4A37E rather than the previously assumed 0x4C000 start address. Decoded the full data structure including length headers.
+**What I found**: The previous characterization was WRONG — not a binary 0/1 defect map, but an analog correction level table.
+- True address range: 0x4A8BC-0x528BD (~32KB, not 12KB)
+- Two sections of 16,385 bytes each, each starting with 0x3FFF length header
+- 4095 groups × 4 bytes per section (4 identical bytes per group = 4 CCD sub-elements)
+- 11 distinct correction levels (0x00-0x0B), NOT binary 0/1
+- Monotonic edge-to-center decay pattern (5-6 at edges, 0-1 at center)
+- Section 2 has higher values (+1 average) and localized hot pixel cluster at groups 144-159
+- Previous analysis only examined center region where values happen to be 0/1
+- Firmware accesses via pointer table at 0x4A37E → mov.l @0x0004A37E:32, ER4
+- Zero runtime flash writes to this region — factory-programmed only
+**KB Updated**: calibration.md (complete rewrite of CCD data section), data-tables.md (CCD Defect Map → CCD Characterization Map)
+**Confidence**: High (direct firmware pointer table trace, full data structure decode)
+
+## Attempt 40 — 2026-03-11 — Host-side field resolution (Wave 4)
+**Tool**: Ghidra decompiled exports analysis
+**Target**: CUSB2Command fields +0x0C/+0x14, CDB object +0x04, MAID caps 0x801D/0x8101, scan ops 5/6, vendor ext params
+**What I tried**: Analyzed Ghidra exports for LS5000.md3 and NKDUSCAN.dll to resolve all Wave 4 unknowns.
+**What I found**:
+- CUSB2Command +0x0C: has_callback boolean (1 if error callback registered, 0 otherwise)
+- CUSB2Command +0x14: CUSBSession* pointer (session object, set during command init)
+- CDB object +0x04: 16-bit status/result word, initialized to 0 by constructor
+- MAID 0x801D: Digital ROC/GEM post-processing enable flag
+- MAID 0x8101 (type 0x101B): Scan Acquire B — secondary image acquisition object (e.g. DRAG/ICE output)
+- Scan ops 5/6: Batch scan start/complete (via CDlgBatchSettings/CPrefTabBatchScan MFC classes)
+- CommandParams: +0x00 is data_buffer_ls (set by LS5000.md3 but NOT read by NKDUSCAN), +0x0C is callback func ptr, +0x10 is callback context (set by FUN_100ae410), +0x20 is the actual data buffer used for USB I/O
+- Vendor ext params 0x102-0x10D: dynamically registered from GET WINDOW response bitmasks (already documented in set-window-descriptor.md)
+**KB Updated**: classes.md (+0x0C, +0x14), scsi-command-build.md (+0x04), scan-workflows.md (0x801D, 0x8101, ops 5/6), usb-protocol.md (CommandParams struct)
+**Confidence**: High (Ghidra decompiled exports cross-referenced with binary analysis)

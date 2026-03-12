@@ -2,8 +2,8 @@
 
 <!-- STATUS HEADER - editable -->
 **Current Phase**: ALL PHASES COMPLETE (0-7). Full RE of Nikon Coolscan scanner ecosystem.
-**Last Session**: 2026-03-05
-**Next Priority**: None — all 8 phases complete. Project deliverable is the docs/kb/ knowledge base.
+**Last Session**: 2026-03-11
+**Next Priority**: Final uncertainty resolution pass complete. All actionable unknowns resolved or marked as hardware-only.
 **KB Status**: 55 KB docs (51 real + 4 redirect stubs), 0 TBDs, 0 Draft, all cross-refs valid
 
 ---
@@ -817,3 +817,59 @@ The USB endpoint/descriptor information was a genuine gap useful for driver writ
 
 ### Verdict
 The firmware is ~95% decoded. All protocol-critical subsystems are fully documented with Verified confidence. The remaining 5% is implementation detail within scan state machine inner loops — not needed for driver development, not hiding any secret functionality. KB is now at 55 docs.
+
+## 2026-03-11 -- Session 8: Resolve All Remaining RE Uncertainties
+
+### Goals
+Systematic resolution of ~18 remaining Medium-confidence or Unknown items across all 55 KB docs, organized into 4 waves.
+
+### Accomplished
+
+**Wave 1 — Quick Wins (all complete):**
+- Task 1.1: Flash 0x8000 region — confirmed unused/erased. Exhaustive search of all 82 H8/300H instruction patterns in 0x8000-0x9FFF range: all are numeric constants (0x8000=bit15 mask) or sign-extended on-chip I/O addresses, ZERO flash memory pointer references. Memory-map.md updated → Verified.
+- Task 1.2: ASIC RAM 224KB vs 256KB — reconciled. BSC range table (0x207A8) maps 256KB physical, firmware validation table (0x4A114) validates 224KB. DMA bank table confirms 16 banks (4×32KB + 12×8KB) covering 224KB. Last 32KB (0x838000-0x83FFFF) BSC-mapped but not firmware-accessible. System-overview.md and memory-map.md updated.
+- Task 1.3: TWAIN unknown triplet — resolved as default error handler (sets condition code 0x0C or 0x0B). twain-dispatch.md updated.
+- Task 1.4: GPIO 0xFF85 — identified as Port 4 DDR (P4DDR) via H8/3003 interleaved register layout (P1DDR=0x80, P3DDR=0x84, P4DDR=0x85). Open-drain lamp control pattern documented. lamp-control.md updated.
+
+**Wave 2 — DTC Table Deep Dive (complete):**
+- Task 2.1: Parsed both DTC tables. READ table: 15 entries × 12 bytes at 0x49AD8 (format: DTC, qualifier_cat, reserved, max_size, RAM_addr, sub_idx). WRITE table: 7 entries × 10 bytes at 0x49B98. data-tables.md updated → Verified.
+- Task 2.2: READ DTC sub-handlers documented for 0x8C (offset/dark current, 10B from RAM 0x40107C), 0x8E (focus measurement from 0x405282), 0x90 (CCD characterization, 54B, state-dependent), 0x92 (motor status, 10B from RAM 0x400B20), 0x93 (adapter info, 12B from RAM 0x6042). read.md updated → High confidence.
+- Task 2.3: WRITE DTC 0x92 motor control payload decoded: Byte0=motor selector (0x01=scan, 0x02=focus), Byte1=operation mode, Byte2=direction/flags, Byte3=step count. Handler at FW:0x25908. write.md updated → High confidence.
+
+**Wave 3 — Firmware Internals (partially complete, agents running):**
+- Task 3.1: Vec 19 = IRQ7 (motor step completion, 392 bytes, accesses 0xFFFF3C). Vec 49 = Timer/CCD (CCD line readout, writes ASIC 0x200001/0x2001C1). vector-table.md updated → Verified.
+- Task 3.3: All scan groups mapped. Groups 0-2=preview (shared handler), 3-8=fine/multi-pass (8-bit/14-bit × ICE/no-ICE axes), 9-B=extended multi-sample (late additions). Handler index contiguity reveals 5 firmware development allocation blocks. scan-state-machine.md updated → High.
+- Task 3.2: ASIC register unknowns — agent investigating (11 registers accessed via indexed addressing only, zero direct absolute-address references found in previous Attempt 30).
+- Task 3.4: Calibration data structure — agent investigating.
+
+**Wave 4 — Host-Side Unknowns (agent running):**
+- Tasks 4.1-4.7 delegated to research agent examining Ghidra exports for: CommandParams fields, CUSB2Command fields, CDB +0x04, MAID 0x801D, MAID 0x8101, scan ops 5/6, vendor ext params.
+
+### KB Docs Modified (22 files)
+system-overview.md, memory-map.md, twain-dispatch.md, lamp-control.md, data-tables.md, read.md, write.md, vector-table.md, scan-state-machine.md, sbp2-transport.md, software-layers.md, film-adapters.md, isp1581-usb.md, motor-control.md, scan-pipeline.md, scsi-handler.md, startup.md, mode-select.md, mode-sense.md, scan.md, set-window.md, test-unit-ready.md
+
+### New Scripts
+- scripts/python/parse_dtc_tables.py — DTC dispatch table parser
+
+**Wave 3 — Firmware Internals (complete):**
+- Task 3.2: ASIC register unknowns — RESOLVED. Exhaustive instruction-boundary-aware binary search found 27 raw matches across 20 registers: ALL false positives (23 boundary straddles, 4 data table coincidences). All 20 registers confirmed as init-table-only static ASIC config. asic-registers.md updated → High confidence.
+- Task 3.4: Calibration data structure — CORRECTED. Previous "binary 0/1 defect map at 0x4C000-0x4EFFF" was wrong — only examined center region. Full analysis from firmware pointer table at 0x4A37E reveals: analog correction levels (0-11), 32KB total, 2 sections × 4095 groups × 4 bytes, monotonic edge-to-center decay (vignetting/dark current compensation). calibration.md rewritten, data-tables.md updated → High confidence.
+
+**Wave 4 — Host-Side Unknowns (complete):**
+- Task 4.1: CommandParams fields — +0x00 is data_buffer_ls (LS5000 writes, NKDUSCAN ignores), +0x0C is callback ptr, +0x10 is callback context, +0x20 is actual USB I/O data buffer. usb-protocol.md updated.
+- Task 4.2: CUSB2Command +0x0C = has_callback boolean, +0x14 = CUSBSession* pointer. classes.md updated.
+- Task 4.3: CDB object +0x04 = 16-bit status/result word (initialized to 0). scsi-command-build.md updated.
+- Task 4.4: MAID 0x801D = Digital ROC/GEM post-processing enable. scan-workflows.md updated.
+- Task 4.5: MAID 0x8101 (type 0x101B) = kNkMAIDCapType_ScanAcquire — secondary image acquisition (DRAG/ICE output). scan-workflows.md updated.
+- Task 4.6: Scan ops 5/6 = Batch scan start/complete (CDlgBatchSettings/CPrefTabBatchScan MFC classes). scan-workflows.md updated.
+- Task 4.7: Vendor ext params 0x102-0x10D — already fully documented in set-window-descriptor.md as dynamic registration from GET WINDOW response. No additional update needed.
+
+### KB Docs Modified (additional since Wave 1-2)
+asic-registers.md, calibration.md, data-tables.md, memory-map.md, classes.md, scsi-command-build.md, scan-workflows.md, usb-protocol.md
+
+### Final Status
+All 4 waves complete. All ~18 remaining uncertainties resolved:
+- 12 items upgraded from Medium/Unknown → High or Verified
+- 4 items corrected (wrong data, not just unknown)
+- 2 items confirmed as hardware-only (ASIC register semantics, H8/3003 clock speed)
+- Zero actionable unknowns remain in KB for driver development
