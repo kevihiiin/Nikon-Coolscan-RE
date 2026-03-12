@@ -98,3 +98,41 @@ Following a comprehensive firmware audit, several SCSI command KB docs were expa
 4. **Film Adapters KB doc**: Created docs/kb/components/firmware/film-adapters.md documenting all 8 adapter types, VPD handler dispatch, film holders, positioning objects, and calibration parameter names.
 
 No new criteria — Phase 5 was already 7/7 complete. These are documentation quality improvements.
+
+## 2026-03-12 — Session 13: Deep-Dive SCSI Command Sequences Document
+
+### Purpose
+Created a comprehensive step-by-step protocol reference documenting the exact SCSI command sequences for every scanner operation, with full CDB hex bytes, timing, data payloads, and error handling. This is the "implementation cookbook" for driver developers — synthesizes findings from all 55+ KB docs into a single actionable reference.
+
+### Created
+- `docs/kb/deep-dive/scsi-command-sequences.md` (1475 lines)
+
+### Content Covered (10 operations)
+1. **Scanner Initialization** — INQUIRY → TEST UNIT READY poll → MODE SENSE → GET WINDOW → RESERVE
+2. **Film Adapter Detection** — INQUIRY VPD pages 0x80-0x84 for adapter type + capabilities
+3. **Film Loading & Positioning** — OBJECT POSITION (0x31) + SEND DIAGNOSTIC for eject/load/park
+4. **Autofocus** — Host-driven contrast maximization via E0/C1/E1 vendor commands + motor control via WRITE DTC 0x92
+5. **Preview Scan** — SET WINDOW → SCAN type 1 → READ DTC 0x00 loop → sense check
+6. **Final Scan** — Full resolution: SET WINDOW → calibration → SCAN type 1 → READ DTC 0x00
+7. **Multi-Sampling Scan** — SET WINDOW byte 50 encodes sample count (1-64)
+8. **Calibration** — SCAN type 3 triggers firmware DAC mode 0xA2, 4 calibration routines
+9. **Film Eject** — SEND DIAGNOSTIC (0x1D) triggers firmware EJECT task
+10. **Error Recovery** — Sense code catalog usage, NOT READY polling, recovery flows
+
+### Additional Sections
+- Complete CDB Reference Table (all 17 opcodes with hex layouts)
+- READ Data Type Codes (15 DTCs) and WRITE Data Type Codes (7 DTCs)
+- Vendor E0/C1/E1 subcommand reference (23 subcommands)
+- Firmware scan state machine overview (97 task codes, 12 scan functions)
+- Minimal Driver Implementation appendix (quick-start for developers)
+- Cross-reference index linking back to detailed KB docs
+
+### Sources Synthesized
+- All 20 SCSI command KB docs
+- USB protocol doc, scan-operation-vtables, scsi-command-build
+- Firmware: scsi-handler, scan-state-machine, calibration, motor-control, film-adapters, startup
+- NikonScan4.ds scan-workflows
+- Ghidra exports: ls5000_scan_phases, ls5000_scan_controller, ls5000_scan_sequences
+
+### Confidence
+Verified — all CDB bytes cross-validated against both host-side CDB builders (LS5000.md3) and firmware dispatch handlers. Sequences verified from scan operation vtable architecture.

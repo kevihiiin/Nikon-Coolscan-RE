@@ -2,9 +2,9 @@
 
 <!-- STATUS HEADER - editable -->
 **Current Phase**: ALL PHASES COMPLETE (0-7). Full RE of Nikon Coolscan scanner ecosystem.
-**Last Session**: 2026-03-11
-**Next Priority**: Final uncertainty resolution pass complete. All actionable unknowns resolved or marked as hardware-only.
-**KB Status**: 55 KB docs (51 real + 4 redirect stubs), 0 TBDs, 0 Draft, all cross-refs valid
+**Last Session**: 2026-03-12
+**Next Priority**: All phases complete. Deep-dive firmware scan engine analysis created.
+**KB Status**: 57 KB docs (53 real + 4 redirect stubs), 0 TBDs, 0 Draft, all cross-refs valid
 
 ---
 <!-- ENTRIES BELOW - APPEND ONLY -->
@@ -873,3 +873,71 @@ All 4 waves complete. All ~18 remaining uncertainties resolved:
 - 4 items corrected (wrong data, not just unknown)
 - 2 items confirmed as hardware-only (ASIC register semantics, H8/3003 clock speed)
 - Zero actionable unknowns remain in KB for driver development
+
+## 2026-03-12 -- Session 9: Deep-Dive SCSI Command Sequences
+
+### Goals
+- Create comprehensive step-by-step protocol reference with exact SCSI command sequences for all scanner operations
+- Synthesize all KB findings into a single implementation-ready document
+
+### Accomplished
+- Created `docs/kb/deep-dive/scsi-command-sequences.md` (1475 lines)
+- Covers all 10 scanner operations: initialization, adapter detection, film loading, autofocus, preview scan, final scan, multi-sampling, calibration, eject, error recovery
+- Full CDB hex bytes for all 17 SCSI opcodes
+- Complete READ (15) and WRITE (7) data type code references
+- Vendor E0/C1/E1 subcommand reference (23 subcommands)
+- Firmware scan state machine overview
+- Minimal driver implementation appendix
+- Cross-referenced back to all detailed KB docs
+- Synthesized from 30+ KB documents, Ghidra exports, and firmware analysis
+
+### Key Deliverable
+This document is the "implementation cookbook" — a developer can read it front-to-back and implement a working scanner driver without needing to consult 55 individual KB docs for the command sequences.
+
+### Next Steps
+- No outstanding work items — all phases complete, all uncertainties resolved, deep-dive reference created
+
+## 2026-03-12 -- Session 9: Firmware Scan Engine Deep Dive
+
+### Goals
+- Decode the ~110KB of firmware scan inner loop code that was previously described as "function boundaries mapped but not decoded"
+- Create comprehensive C pseudocode reconstruction of the scan hot path
+- Document CCD capture, DMA transfer, pixel processing, USB staging, and motor synchronization
+
+### Accomplished
+- Created `docs/kb/deep-dive/firmware-scan-engine.c` (1918 lines) — comprehensive annotated C pseudocode
+- Decoded and documented 20 sections covering the complete scan data path:
+  1. Hardware architecture overview (H8/3003 + ASIC + ISP1581)
+  2. Memory map with all 172 ASIC registers, ISP1581 registers, CPU I/O
+  3. All scan state variables (30+ RAM addresses with purposes)
+  4. CCD sensor and analog front-end initialization
+  5. ASIC DMA engine (configure, trigger, poll cycle)
+  6. All 7 interrupt service routines active during scanning
+  7. Scan initialization chain (F12 -> adapter config -> F2 orchestrator)
+  8. Inner scan loop (pre-function state machine at 0x40000, 792 bytes)
+  9. Scan step core (F1 at 0x40318, per-line pixel processing)
+  10. Pixel processing (0x36C90, block-based with yield between 4-16KB blocks)
+  11. DMA burst coordination (ITU3 ISR at 0x2D536, two-level dispatch)
+  12. USB transfer pipeline (ITU4 polling -> ISP1581 DMA -> bulk-in)
+  13. Multi-pass scanning (F8 at 0x42E2A, 3790 bytes)
+  14. Color channel handling (4-channel CCD demux, bank layout)
+  15. Resolution scaling (DPI -> motor step + CCD timing + DMA count)
+  16. Shading correction (firmware does NOT correct — host-side only)
+  17. Error detection (DMA timeout, motor stall, buffer overrun, USB stall)
+  18. Timing diagrams (per-line pipeline, cooperative scheduling, DMA bursts)
+  19. Buffer layout and geometry (ASIC RAM banks, Buffer RAM ping-pong)
+  20. Complete scan sequence walkthrough (host setup through completion)
+
+### Key Findings
+- The firmware scan engine is approximately 28.5KB of code total
+- Processing is MINIMAL: only bit extraction (14-bit from 16-bit CCD words) — all image processing is host-side
+- Double-buffering at two levels: ASIC RAM (0x800000/0x818000) and Buffer RAM (0xC00000/0xC08000)
+- DMA burst mechanism: ITU3 ISR counts bursts (16KB each), fires line-complete callback at count=0
+- USB transfer is pull-model: ITU4 system tick polls scan_status, initiates transfer when buffer full
+- Pipeline parallelism: motor+CCD capture overlaps CPU extraction overlaps USB transfer
+- At 4000 DPI 14-bit RGB+IR: ~32KB/line, ~3.5ms/line, ~285 lines/sec, ~13s per 35mm frame
+- Five concurrent ISRs coordinate the pipeline: IRQ1(USB), IRQ3(encoder), ITU2(motor), ITU3(DMA), ITU4(USB poll)
+- Cooperative coroutine yield() between pixel processing blocks prevents USB host timeout
+
+### Next Steps
+- No outstanding work items — firmware scan engine fully decoded and documented
