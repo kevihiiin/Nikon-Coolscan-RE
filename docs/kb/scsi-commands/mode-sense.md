@@ -71,8 +71,7 @@ Each mode page begins with:
 | 1 | 1 | Page Length (bytes following) |
 | 2+ | varies | Page-specific parameters |
 
-The specific mode pages supported by the Coolscan and their parameter layouts require
-further analysis.
+Supported pages: **0x03** (device-specific: resolution, max scan area) and **0x3F** (all pages). See the firmware handler section below for full details.
 
 ## Usage Context
 

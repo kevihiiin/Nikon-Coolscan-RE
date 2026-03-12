@@ -83,18 +83,11 @@ Window Descriptors.
 | 32 | 1 | Compression Type | |
 | 33+ | varies | Vendor-specific extensions | Nikon-specific parameters |
 
-#### Nikon Vendor Extensions (estimated)
+#### Nikon Vendor Extensions
 
-The Coolscan likely extends the standard window descriptor with fields for:
-- Multi-sample scanning (multi-pass averaging)
-- Infrared channel (for Digital ICE)
-- Analog gain per channel (R/G/B/IR)
-- Film type selection (positive/negative)
-- Focus position
-- Scan speed / quality mode
-
-These vendor extensions require further analysis of the data buffers constructed
-by callers of the SET WINDOW builder.
+The Coolscan extends the standard window descriptor with vendor-specific fields. See [SET WINDOW Descriptor](set-window-descriptor.md) for the complete 80-byte descriptor layout including:
+- Multi-sample scanning, infrared channel (Digital ICE), analog gain per channel
+- Film type selection, focus position, scan speed / quality mode
 
 ## Usage Context
 

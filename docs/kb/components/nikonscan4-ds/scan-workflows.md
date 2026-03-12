@@ -105,7 +105,7 @@ LS5000.md3 creates a tree of capability objects during module open (`FUN_10028be
          │     └─ 0x800C (type 0x1022) — ICE (infrared dust removal)
          │        └─ 0x800E (type 0x1023) — DRAG (Digital ROC/GEM)
          └─ 0x8105 (type 0x1025) — Image Object B
-            └─ 0x8101 (type 0x101B) — (unknown)
+            └─ 0x8101 (type 0x101B) — Scan Acquire B (secondary image acquisition, e.g. DRAG/ICE output)
 ```
 
 Deregistration order (reverse of creation): 0x8105, 0x800E, 0x800C, 0x8007, 0x8005, 0x8103, 0x800B, 0x8003, 0x8000
@@ -120,7 +120,7 @@ Source: `LS5000.md3:0x10028be0` (creation), deregistration at end of close handl
 | 0x100C | 0x100C | kNkMAIDCapType_Module |
 | 0x1012 | 0x1012 | kNkMAIDCapType_ScanParam |
 | 0x1016 | 0x1016 | kNkMAIDCapType_MultiSample |
-| 0x101B | 0x101B | kNkMAIDCapType_? |
+| 0x101B | 0x101B | kNkMAIDCapType_ScanAcquire (secondary image data path) |
 | 0x101F | 0x101F | kNkMAIDCapType_DataObject |
 | 0x1021 | 0x1021 | kNkMAIDCapType_ImageObject |
 | 0x1022 | 0x1022 | kNkMAIDCapType_ICE |
@@ -243,7 +243,7 @@ d. Configure MAID capabilities:
 | 0x25 | 6 (set) | 1 (bool) | local_3c | Scan direction (0=forward, 1=reverse) |
 | 0x8007 | 6 (set) | 1 (bool) | local_44 | Multi-sample enable |
 | 0x801B | 7 (get) | 10 (rect) | &local_278 | Get ROI/scan area bounds |
-| 0x801D | 6 (set) | 1 (bool) | local_19 | Unknown boolean (auto-something?) |
+| 0x801D | 6 (set) | 1 (bool) | local_19 | **Digital ROC/GEM post-processing enable** (true when batch scan AND DRAG/ICE buffers valid) |
 
 These use the pattern:
 ```c
@@ -278,7 +278,7 @@ When the scan orchestrator sets capability values through MAID, they flow throug
 | 0x8007 (multi-sample) | Boolean enable | Multi-sample object | SET WINDOW multi-sample field |
 | 0x8005 (scan params) | Resolution, etc. | Scan parameter object | SET WINDOW descriptor (resolution, area, depth) |
 | 0x801B (ROI) | RECT structure | Image object property | SET WINDOW scan area fields |
-| 0x801D (unknown) | Boolean | Image object property | Unknown (possibly auto-exposure flag) |
+| 0x801D (DRAG post-proc) | Boolean | Image object property | Digital ROC/GEM post-processing enable (MFC string 0x341E) |
 
 ### Detailed SCSI Command Sequences per Workflow Type
 
@@ -373,7 +373,7 @@ From other NikonScan4.ds functions:
 | 0x8010 | 0x3435 | Progress indicator |
 | 0x801A | 0x341C | Scanner property display |
 | 0x801B | 0x341D | ROI/area display |
-| 0x801D | 0x341E | Unknown property display |
+| 0x801D | 0x341E | "Digital ROC/GEM post processing" enable status |
 | 0x80A3 | 0x3434 | Scanner property display |
 | 0x8011-0x80A2 | (default) | Fallthrough to generic handler |
 
@@ -471,9 +471,9 @@ From `CStoppableCommandQueue::StatusHandler` (`NikonScan4.ds:0x1004d0c0`, 573 by
 | 0x46B | 4 | Final scan (full resolution) |
 | 0x46E | 1 | Preview scan (low resolution) |
 | 0x470 | 2 | Thumbnail scan |
-| 0x471 | 5 | (unknown operation) |
+| 0x471 | 5 | Batch scan start (CDlgBatchSettings dialog) |
 | 0x472 | 3 | Autofocus |
-| 0x474 | 6 | (unknown operation) |
+| 0x474 | 6 | Batch scan complete/status |
 
 The CStoppableCommandQueue control ID for scan operations is `0x3422`.
 

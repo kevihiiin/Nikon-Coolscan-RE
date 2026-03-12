@@ -15,7 +15,7 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 └──────────────────────┬───────────────────────────────┘
                        │ TWAIN API (DS_Entry)
 ┌──────────────────────▼───────────────────────────────┐
-│              NikonScan4.ds (2.3MB)                    │
+│              NikonScan4.ds (2.2MB)                    │
 │              TWAIN Data Source                         │
 │  - Scan workflow orchestration                        │
 │  - UI parameter mapping                               │
@@ -38,7 +38,7 @@ NikonScan 4.03 uses a layered architecture to communicate with Coolscan scanners
 ┌─────────▼──────────┐  ┌──────────▼─────────┐
 │  NKDUSCAN.dll      │  │  NKDSBP2.dll       │
 │  USB Transport     │  │  IEEE1394/SBP2      │
-│  (90KB)            │  │  Transport (86KB)   │
+│  (88KB)            │  │  Transport (84KB)   │
 │  14 RTTI classes   │  │  13 RTTI classes    │
 │  - CUSB2Command    │  │  - CSBP2Command     │
 │  - CUSBSession     │  │  - CSBP2Session     │

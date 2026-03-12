@@ -52,8 +52,7 @@ Offset  Length  Field
 0x04    16      Mode page data (page code + page-specific parameters)
 ```
 
-The exact mode page codes and their parameter meanings require further analysis of the
-callers of this builder.
+Supports mode page 0x03 (device-specific: resolution, max scan area). See [MODE SENSE](mode-sense.md) for confirmed page details.
 
 ### Variant 2 — Group B (variable length)
 

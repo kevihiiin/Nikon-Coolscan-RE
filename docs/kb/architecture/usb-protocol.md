@@ -141,17 +141,17 @@ The SCSI command is described by a parameter block at `[this + 0x18]` in CUSB2Co
 
 ```c
 struct CommandParams {
-    DWORD field_00;           // +0x00: unknown
+    DWORD data_buffer_ls;     // +0x00: data buffer pointer (set by LS5000.md3, NOT read by NKDUSCAN)
     DWORD direction;          // +0x04: 1=data-in, 2=data-out, other=no-data
     DWORD cdb_size;           // +0x08: CDB size (0x20=standard, 0x40=extended)
     DWORD callback;           // +0x0C: error callback function pointer (or NULL)
-    DWORD field_10;           // +0x10: unknown
-    DWORD cdb_data;           // +0x14: pointer to CDB bytes
-    DWORD field_18;           // +0x18: secondary data / chunk size hint
+    DWORD callback_context;   // +0x10: callback context (command object pointer, set by FUN_100ae410)
+    DWORD cdb_length;         // +0x14: CDB length (from CDB builder return value)
+    DWORD cdb_data;           // +0x18: pointer to CDB bytes
     DWORD transfer_length;    // +0x1C: total data transfer size in bytes
-    DWORD field_20;           // +0x20: unknown
-    DWORD data_buffer;        // +0x24: pointer to data buffer
-    DWORD sense_buffer_size;  // +0x28: sense data buffer size
+    DWORD data_buffer;        // +0x20: pointer to data buffer (used by NKDUSCAN for ReadFile/WriteFile)
+    DWORD sense_buffer_size;  // +0x24: sense data buffer size constant (0x20)
+    DWORD additional_params;  // +0x28: pointer to additional params buffer
 };
 ```
 

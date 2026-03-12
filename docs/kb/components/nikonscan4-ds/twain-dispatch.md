@@ -68,7 +68,8 @@ TW_UINT16 TwainDispatch(TW_IDENTITY* pOrigin, TW_UINT32 DG, TW_UINT16 DAT, TW_UI
             return GetIdentity(pOrigin, pData);      // 0x10091030
     }
 
-    // Unknown triplet when DS not open
+    // Default error path — unrecognized triplet in pre-open state
+    // Sets condition code: 0x0C (non-zero DG) or 0x0B (DG==0) for status reporting
     source->SetState(DG ? 0x0C : 0x0B);  // vtable[4] @ 0x10139a84
     return TWRC_FAILURE;
 }
@@ -196,5 +197,5 @@ Source: `NikonScan4.ds:0x1007A250`
 
 - [Software Layers](../../architecture/software-layers.md)
 - [LS5000 MAID Entrypoint](../ls5000-md3/maid-entrypoint.md)
-- [Command Queue Architecture](command-queue.md) (Phase 3, pending)
-- [Scan Workflow](scan-workflow.md) (Phase 3, pending)
+- [Command Queue Architecture](command-queue.md)
+- [Scan Workflows](scan-workflows.md)

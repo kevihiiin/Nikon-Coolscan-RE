@@ -55,7 +55,7 @@ Common sense keys when not ready:
 
 **Handler address**: `FW:0x0215C2` | **Size**: ~700 bytes | **Exec mode**: 0x01 (USB state setup)
 
-The largest SCSI handler in the firmware. Reports scanner readiness through a comprehensive state machine check on `@0x40077C` (scanner state byte):
+Reports scanner readiness through a comprehensive state machine check on `@0x40077C` (scanner state byte):
 
 ### Scanner State Machine
 

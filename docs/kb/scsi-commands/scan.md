@@ -36,8 +36,6 @@ The transfer length field in byte 4 may indicate:
 - Scan operation sub-type (preview vs. final scan)
 - Window identifier
 
-Further analysis of the callers is needed to determine the exact semantics.
-
 ## Data Phase
 
 **Direction:** Data-Out (host → scanner)

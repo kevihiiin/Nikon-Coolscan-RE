@@ -52,7 +52,7 @@ Source: FC1 at `LS5000.md3:0x100a45a0`, FC2/FC3 in transport close functions.
 | Offset | Size | Field |
 |--------|------|-------|
 | +0x00 | 4 | Vtable pointer |
-| +0x04 | 4 | Unknown (possibly flags) |
+| +0x04 | 2 | Status/result word (16-bit, initialized to 0 by constructor) |
 | +0x08 | 1 | CDB[0] — Operation Code |
 | +0x09 | 1 | CDB[1] — Misc bits |
 | +0x0A | 1 | CDB[2] — Page/sub-command |

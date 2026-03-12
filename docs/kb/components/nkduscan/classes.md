@@ -97,9 +97,9 @@ struct CUSB2Command {
     DWORD* vtable;              // +0x00: pointer to vtable at 0x1000e210
     DWORD  status;              // +0x04: execution status (2=success, 3=error)
     DWORD  error_code;          // +0x08: error code (0, 0x11003, 0x21008)
-    DWORD  field_0C;            // +0x0C: unknown
+    DWORD  has_callback;        // +0x0C: boolean — 1 if error callback is registered, 0 otherwise
     DWORD  handle;              // +0x10: USB pipe HANDLE (for ReadFile/WriteFile)
-    DWORD  field_14;            // +0x14: unknown
+    CUSBSession* session;       // +0x14: pointer to CUSBSession object (set during command init)
     CommandParams* params;      // +0x18: pointer to command parameters
 };
 ```

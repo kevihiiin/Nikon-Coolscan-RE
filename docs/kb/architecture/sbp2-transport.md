@@ -17,14 +17,14 @@ NKDSBP2.dll provides the IEEE 1394 (FireWire) transport layer for Nikon Coolscan
 |----------|------------|-------------------------------|
 | **Size** | 84KB | 88KB |
 | **Exports** | 1 (`NkDriverEntry`) | 1 (`NkDriverEntry`) |
-| **RTTI Classes** | 7 (6 concrete + type_info) | 14 (8 concrete + 6 = type_info) |
+| **RTTI Classes** | 13 (6 project + 7 stdlib) | 14 (8 project + 6 stdlib) |
 | **Imports** | KERNEL32.dll + STI.dll | KERNEL32.dll + STI.dll |
 | **KERNEL32 funcs** | 72 | 72 |
 | **Key Difference** | No `ReadFile` import | Uses `ReadFile` + `WriteFile` |
 
 ## Class Architecture
 
-### NKDSBP2.dll Classes (7 RTTI)
+### NKDSBP2.dll Classes (13 RTTI total, 6 project)
 
 ```
 ICommand (interface)          IDevice (interface)
@@ -124,15 +124,15 @@ Function codes (identical between USB and 1394):
 
 | FC | Purpose |
 |----|---------|
-| 1 | Initialize/open device |
-| 2 | Close device |
-| 3 | Get device info |
-| 4 | Get device capabilities |
-| 5 | **Send SCSI command** (CDB + data transfer) |
-| 6 | Request sense data |
-| 7 | Reset device |
-| 8 | Abort current operation |
-| 9 | Get status |
+| 1 | Initialize / open session |
+| 2 | Close session |
+| 3 | Close command |
+| 4 | Release resource |
+| 5 | **Execute SCSI command** (CDB + data transfer) |
+| 6 | Get command status |
+| 7 | Shutdown / release all |
+| 8 | Query command (detailed status) |
+| 9 | Execute and retrieve result |
 
 FC5 is the critical function -- it sends a SCSI CDB to the scanner. The CDB format is identical regardless of transport; only the underlying delivery mechanism differs.
 
