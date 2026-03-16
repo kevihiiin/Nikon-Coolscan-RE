@@ -69,8 +69,7 @@ pub struct MemoryBus {
     /// On-chip RAM (896 bytes at 0xFFFB80-0xFFFEFF — includes trampoline area).
     onchip_ram: Vec<u8>,
     /// On-chip I/O registers (256 bytes at 0xFFFF00).
-    /// Directly managed here for simple registers; peripherals override via callbacks.
-    onchip_io: [u8; 256],
+    pub onchip_io: [u8; 256],
 
     /// Callback for ASIC reads/writes (0x200000-0x200FFF).
     /// If None, writes are accepted and reads return stored value.
@@ -78,6 +77,11 @@ pub struct MemoryBus {
 
     /// ISP1581 register backing (0x600000-0x6000FF).
     isp1581_regs: [u8; 256],
+
+    /// Port 7 override value (for adapter detection).
+    /// Address 0xFFFF8E is shared between Port 7 GPIO and ITU4 TIER.
+    /// This field provides the Port 7 read value without corrupting the timer register.
+    pub port7_override: u8,
 
     /// Trace callback — if set, called on every memory access.
     pub trace_enabled: bool,
@@ -98,6 +102,7 @@ impl MemoryBus {
             onchip_io: [0x00; 256],
             asic_regs: [0x00; 0x1000],
             isp1581_regs: [0x00; 256],
+            port7_override: 0,
             trace_enabled: false,
             unmapped_reads: 0,
             unmapped_writes: 0,
@@ -232,6 +237,11 @@ impl MemoryBus {
     /// Read on-chip I/O register (0xFFFF00-0xFFFFFF).
     fn read_onchip_io(&self, addr: u32) -> u8 {
         let offset = (addr - 0xFFFF00) as usize;
+        // Port 7 (0xFFFF8E) shares address with ITU4 TIER.
+        // Port 7 value is stored in port7_override; return it for reads.
+        if offset == 0x8E && self.port7_override != 0 {
+            return self.port7_override;
+        }
         self.onchip_io[offset]
     }
 

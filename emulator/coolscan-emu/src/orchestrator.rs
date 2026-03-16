@@ -37,6 +37,10 @@ impl Emulator {
         peripherals.gpio.set_adapter(config.adapter);
         peripherals.watchdog.enabled = config.watchdog;
 
+        // Set Port 7 override for adapter detection reads.
+        // Address 0xFFFF8E is shared with ITU4 TIER, so we use a separate field.
+        bus.port7_override = peripherals.gpio.port_7_input;
+
         // Pre-install trampolines in on-chip RAM.
         // The firmware normally installs these during cold boot (0x0204C4-0x0205F7),
         // but we take the warm-boot path (ASIC ready). Without trampolines,
@@ -63,6 +67,17 @@ impl Emulator {
             bus.write_byte(ram_addr + 3, handler as u8);
         }
         log::info!("Pre-installed {} trampolines in on-chip RAM", trampolines.len());
+
+        // Pre-copy USB fast-path code from flash to RAM.
+        // The firmware normally does this during init but our warm-boot path skips it.
+        // Source: flash 0x124BA, Dest: RAM 0x4010A0, Size: 414 bytes.
+        // Entry point: 0x40115C (offset 0xBC into the block).
+        // This MUST happen before the RAM test to survive, but the RAM test only
+        // writes 0x55AA patterns and then verifies — it doesn't zero the area.
+        // Actually, the RAM test DOES overwrite this area. But the firmware re-copies
+        // later during init. For warm boot, we copy AFTER the JIT context init
+        // (which happens after RAM test) to ensure persistence.
+        // We'll do the actual copy in the JIT init block.
 
         // Context system will be initialized just before the first TRAPA.
         // We can't do it at startup because the RAM test overwrites 0x400000-0x420000.
@@ -160,6 +175,39 @@ impl Emulator {
                     self.bus.write_long(0x40076A, frame_sp);
                     // Context A index = 0 (current)
                     self.bus.write_word(0x400764, 0x0000);
+                    // Pre-start ITU4 (system tick timer) via model directly.
+                    // Warm-boot path skips timer start code. Without ITU4 running,
+                    // the system tick at 0x40076E never increments and the firmware
+                    // hangs in a polling loop at 0x0352B0 waiting for time to advance.
+                    // Configure via timer model to avoid I/O address conflicts
+                    // (0xFFFF8E is shared between Port 7 and ITU4 TIER).
+                    // Configure ITU4 in BOTH model AND bus so sync doesn't overwrite.
+                    // ITU4 base in onchip_io: 0x8C
+                    {
+                        let t4 = &mut self.peripherals.timers.timers[4];
+                        t4.tcr = 0xA3;   // Internal clock φ/8, clear on GRA match
+                        t4.tier = 0x01;   // IMIEA enabled (compare-match A interrupt)
+                        t4.gra = 0x2000;  // Compare value — fires every 8192 timer ticks (~32K insns)
+                        t4.tcnt = 0;
+                    }
+                    // Mirror to bus (ITU4 base = 0x8C)
+                    self.bus.onchip_io[0x8C] = 0xA3; // TCR4
+                    // Skip 0x8E (TIER4) — conflicts with Port 7, model handles directly
+                    self.bus.onchip_io[0x92] = 0x20; // GRA4H
+                    self.bus.onchip_io[0x93] = 0x00; // GRA4L → GRA = 0x2000
+                    self.peripherals.timers.tstr |= 0x10; // Start ITU4 (bit 4)
+                    self.bus.onchip_io[0x60] |= 0x10;     // Mirror TSTR to bus
+                    log::info!("JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)");
+
+                    // Pre-copy USB fast-path code from flash to RAM.
+                    // Flash 0x124BA → RAM 0x4010A0, 414 bytes.
+                    // This code handles USB endpoint data transfer in the ISR fast path.
+                    for j in 0..414u32 {
+                        let byte = self.bus.read_byte(0x124BA + j);
+                        self.bus.write_byte(0x4010A0 + j, byte);
+                    }
+                    log::info!("JIT: Copied 414-byte USB fast-path code to RAM 0x4010A0");
+
                     log::info!(
                         "JIT context init: Context B SP=0x{:06X}, entry=0x029B16",
                         frame_sp
@@ -177,8 +225,13 @@ impl Emulator {
                 decoded.len,
             );
 
-            // Sanity checks
-            if new_pc < 0x000100 || (new_pc >= 0x080000 && new_pc < 0x200000) {
+            // Sanity checks — PC should only be in valid code regions:
+            // Flash: 0x000100-0x07FFFF, RAM: 0x400000-0x41FFFF,
+            // On-chip RAM: 0xFFFB80-0xFFFEFF (trampolines)
+            let pc_valid = (0x000100..=0x07FFFF).contains(&new_pc)
+                || (0x400000..=0x41FFFF).contains(&new_pc)
+                || (0xFFFB80..=0xFFFEFF).contains(&new_pc);
+            if !pc_valid {
                 log::error!(
                     "HALT: PC went out of range to 0x{:06X} after executing {:?} at 0x{:06X} (insn #{})",
                     new_pc, decode::disassemble(&decoded.insn), insn_pc, i
@@ -210,6 +263,21 @@ impl Emulator {
                 }
                 0x020374 if last_milestone_pc < 0x020374 => {
                     log::info!("MILESTONE: Past I/O init table (0x020374) after {} instructions", i);
+                    // Dump timer registers after init
+                    log::info!("  TSTR(0x60)=0x{:02X}", self.bus.onchip_io[0x60]);
+                    for t in 0..5u8 {
+                        let base: usize = match t {
+                            0 => 0x64, 1 => 0x6E, 2 => 0x78, 3 => 0x82, 4 => 0x8C, _ => 0,
+                        };
+                        let tcr = self.bus.onchip_io[base];
+                        let tier = self.bus.onchip_io[base + 2];
+                        let gra = ((self.bus.onchip_io[base + 6] as u16) << 8)
+                            | self.bus.onchip_io[base + 7] as u16;
+                        if tcr != 0 || tier != 0 {
+                            log::info!("  ITU{}: TCR=0x{:02X} TIER=0x{:02X} GRA=0x{:04X}", t, tcr, tier, gra);
+                        }
+                    }
+                    log::info!("  Port7(0x8E)=0x{:02X}", self.bus.onchip_io[0x8E]);
                     last_milestone_pc = self.cpu.pc;
                 }
                 0x020796 if last_milestone_pc < 0x020796 => {
@@ -250,19 +318,74 @@ impl Emulator {
     }
 
     /// Sync peripheral models with memory bus state.
+    /// Called after every instruction to propagate I/O register writes to models
+    /// and model outputs back to the bus.
     fn sync_peripherals(&mut self) {
-        // Sync ASIC: check if memory bus has new writes, process through ASIC model
-        // The ASIC model manages side-effects (status bits, DMA triggers)
-        // Check if ASIC master enable was written
+        // --- Timer sync ---
+        // The firmware writes timer registers (0xFFFF60-0xFFFF95) via the memory bus.
+        // We sync key registers to the timer model each cycle.
+        // TSTR (0xFFFF60) — timer start bits
+        let tstr = self.bus.onchip_io[0x60];
+        if tstr != self.peripherals.timers.tstr {
+            self.peripherals.timers.tstr = tstr;
+        }
+        // Sync per-timer registers when that timer's TSTR bit is set
+        for timer_idx in 0..5u8 {
+            if tstr & (1 << timer_idx) != 0 {
+                let base: usize = match timer_idx {
+                    0 => 0x64,
+                    1 => 0x6E,
+                    2 => 0x78,
+                    3 => 0x82,
+                    4 => 0x8C,
+                    _ => unreachable!(),
+                };
+                let t = &mut self.peripherals.timers.timers[timer_idx as usize];
+                t.tcr = self.bus.onchip_io[base];
+                t.tior = self.bus.onchip_io[base + 1];
+                // TIER at base+2: skip for ITU4 (0x8E conflicts with Port 7 GPIO)
+                if timer_idx != 4 {
+                    t.tier = self.bus.onchip_io[base + 2];
+                }
+                // GRA = big-endian 16-bit at base+6..base+7
+                t.gra = ((self.bus.onchip_io[base + 6] as u16) << 8)
+                    | self.bus.onchip_io[base + 7] as u16;
+                t.grb = ((self.bus.onchip_io[base + 8] as u16) << 8)
+                    | self.bus.onchip_io[base + 9] as u16;
+                // Sync TSR: firmware clears flags by writing 0 to bits.
+                // Read bus TSR and AND with model TSR (bus clear takes effect).
+                let bus_tsr = self.bus.onchip_io[base + 3];
+                t.tsr &= bus_tsr;
+                // Write back TCNT (model increments it)
+                self.bus.onchip_io[base + 3] = t.tsr;
+                self.bus.onchip_io[base + 4] = (t.tcnt >> 8) as u8;
+                self.bus.onchip_io[base + 5] = t.tcnt as u8;
+            }
+        }
+
+        // --- GPIO sync ---
+        // Port 7 at 0xFFFF8E CONFLICTS with ITU4 TIER at the same address.
+        // Resolution: Port 7 is read-only input. We handle it as a special case
+        // in the memory bus read path instead of writing to onchip_io[0x8E].
+        // The firmware reads Port 7 via BILD/BTST on @0x8E:8 or MOV.B @0xFF8E:16.
+        // We intercept these reads in the memory bus rather than corrupting the timer register.
+        //
+        // Port A (0xFFFFA2/A3) — no conflict, sync directly
+        self.peripherals.gpio.port_a_ddr = self.bus.onchip_io[0xA2];
+        self.peripherals.gpio.port_a_dr = self.bus.onchip_io[0xA3];
+        // Port 4 (0xFFFF85) — lamp control, no conflict
+        let p4 = self.bus.onchip_io[0x85];
+        if p4 != self.peripherals.gpio.port_4_dr {
+            self.peripherals.gpio.port_4_dr = p4;
+            self.peripherals.gpio.lamp_on = p4 & 0x01 == 0;
+        }
+
+        // --- ASIC sync ---
         let master = self.bus.asic_reg(0x0001);
         if master != self.asic.read(0x0001) {
-            log::debug!("ASIC master enable sync: bus=0x{:02X} model=0x{:02X}", master, self.asic.read(0x0001));
             self.asic.write(0x0001, master);
-            // Write back any derived values
             self.bus.set_asic_reg(0x0041, self.asic.read(0x0041));
-            log::debug!("ASIC 0x200041 now = 0x{:02X}", self.bus.asic_reg(0x0041));
         }
-        // Always sync status registers back
         self.bus.set_asic_reg(0x0002, self.asic.read(0x0002));
         self.asic.tick();
     }
@@ -272,6 +395,9 @@ impl Emulator {
         // Timer interrupts
         let timer_irqs = self.peripherals.timers.tick();
         for vec in timer_irqs {
+            if vec == vectors::IMIA4 && !self.irq.has_pending() {
+                log::debug!("ITU4 compare-match → Vec 40 queued (CCR.I={})", self.cpu.interrupt_masked() as u8);
+            }
             self.irq.assert_interrupt(vec, match vec {
                 vectors::IMIA4 => vectors::PRIORITY_LOW,
                 vectors::IMIA2 | vectors::IMIA3 => vectors::PRIORITY_MEDIUM,

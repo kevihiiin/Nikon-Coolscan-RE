@@ -61,11 +61,11 @@ impl Cpu {
     // RnL = low 8 bits of Rn (bits 7..0 of ERn)
 
     pub fn read_er(&self, n: u8) -> u32 {
-        self.er[n as usize]
+        self.er[(n & 7) as usize]
     }
 
     pub fn write_er(&mut self, n: u8, val: u32) {
-        self.er[n as usize] = val;
+        self.er[(n & 7) as usize] = val;
     }
 
     pub fn read_r(&self, n: u8) -> u16 {

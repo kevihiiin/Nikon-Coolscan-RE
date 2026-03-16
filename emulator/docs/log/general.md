@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 1 — CPU Core
-**Status**: In Progress — firmware executes 50M+ instructions, context switching works, approaching main loop
+**Current Phase**: 1 — CPU Core (COMPLETE per milestone) / 2 — Interrupts (IN PROGRESS)
+**Status**: Firmware boots, context switches, timer interrupts fire, 2.1M instructions before USB fast-path issue
 **Last Updated**: 2026-03-16
 
 ---
@@ -96,8 +96,48 @@
 - Timer interrupt timing may need tuning (ITU4 system tick drives firmware's cooperative scheduling)
 
 **Next Steps**:
-- Add more milestone checks to track init progress between 1.15M and 50M instructions
-- Check if firmware reaches 0x0207F2 (Context A main loop) with more instructions
-- Check if firmware reaches 0x029B16 (Context B main loop)
+- Fix USB fast-path RAM corruption (code at 0x4010A0 gets overwritten after JIT copy)
+- Investigate why JMP at 0x401136 has wrong bytes (should be F955, got 5A6BFF40)
 - Begin ISP1581 EP data exchange for SCSI command reception
 - Profile instruction execution rate and optimize if needed
+
+---
+
+## Session 2 — 2026-03-16 (continued)
+
+**Goals**: Fix timer interrupts, get firmware past init to main loop
+
+**Accomplished**:
+- Fixed critical I/O routing: on-chip I/O registers were stored in flat array, peripheral models never saw writes
+- Added timer register sync: TSTR, TCR, TIER, GRA, TCNT, TSR all sync between bus and timer model
+- Fixed Port 7 / ITU4 TIER address conflict at 0xFFFF8E: Port 7 now uses dedicated `port7_override` field
+- Fixed timer TSR sync direction: firmware flag clears now propagate to model (was overwriting bus with model)
+- Added OR.L/XOR.L/AND.L register-register decoding (01F0 64/65/66 prefix)
+- Pre-configured ITU4 system tick timer in JIT init (TCR=0xA3, GRA=0x2000, TIER=0x01)
+- Pre-copied 414-byte USB fast-path code from flash 0x124BA to RAM 0x4010A0
+- Improved PC range validation: only Flash, RAM, On-chip RAM regions allowed
+- Added register index bounds masking (n & 7) to prevent panics from corrupt state
+
+**Firmware progress (new milestones):**
+- ITU4 system tick interrupts firing (Vec 40 → trampoline 0xFFFD24 → ISR 0x010A16)
+- Trampoline install at instruction 1,149,757
+- Interrupts enabled at instruction 1,149,767
+- USB fast-path code called at instruction ~2.1M (JMP to 0x40115C)
+- Crash at instruction 2,136,900: JMP @0x6BFF40 from RAM 0x401136 (RAM code corrupted)
+
+**Key findings:**
+- Address 0xFFFF8E is shared between Port 7 GPIO and ITU4 TIER register — must handle separately
+- Timer prescaler sync was overwriting JIT-configured values with I/O init table defaults (TCR=0x00)
+- TSR sync was writing model flags back to bus, undoing firmware's flag clear writes
+- Timer GRA=0x0100 was too fast (1K insns/tick) causing interrupt storm; 0x2000 (32K/tick) is better
+- Firmware at 0x010A10 does BSET #4, @0x60:8 to start ITU4 — reached during warm-boot init
+- USB fast-path code at 0x4010A0 gets corrupted between JIT copy and actual use (~1.8M instructions later)
+
+**Blockers**:
+- USB fast-path RAM code corruption at 0x401136 (bytes changed from F955 to 5A6BFF40)
+- Root cause likely: firmware init writes to the same RAM area after our JIT copy
+
+**Next Steps**:
+- Add memory watchpoint on 0x4010A0-0x40123E to catch who overwrites the USB code
+- Or: defer USB code copy to just before it's first accessed
+- Continue with Phase 2: verify all 15 interrupt vectors work correctly

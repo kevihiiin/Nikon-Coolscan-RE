@@ -736,14 +736,45 @@ fn decode_01cd_prefix(_bus: &mut MemoryBus, _pc: u32, w0: u16, _w1: u16, _nib2: 
     Decoded { insn: Instruction::Unknown(w0), len: 4 }
 }
 
-/// Decode 01F0 prefix — 32-bit MOV.L with 24-bit displacement
+/// Decode 01F0 prefix — 32-bit operations: OR.L/XOR.L/AND.L reg, MOV.L @(d:24)
 fn decode_01f0_prefix(bus: &mut MemoryBus, pc: u32, w1: u16) -> Decoded {
-    let w1_lo = ((w1 >> 8) & 0xF) as u8;
+    let w1_hi = (w1 >> 8) as u8;
     let w1_n2 = ((w1 >> 4) & 0xF) as u8;
     let w1_n3 = (w1 & 0xF) as u8;
 
-    match w1_lo {
-        0x6 => {
+    match w1_hi {
+        0x64 => {
+            // OR.L ERs, ERd (01F0 64 sd)
+            return Decoded {
+                insn: Instruction::Or(Size::Long, Operand::Reg32(w1_n2), Operand::Reg32(w1_n3)),
+                len: 4,
+            };
+        }
+        0x65 => {
+            // XOR.L ERs, ERd (01F0 65 sd)
+            return Decoded {
+                insn: Instruction::Xor(Size::Long, Operand::Reg32(w1_n2), Operand::Reg32(w1_n3)),
+                len: 4,
+            };
+        }
+        0x66 => {
+            // AND.L ERs, ERd (01F0 66 sd)
+            return Decoded {
+                insn: Instruction::And(Size::Long, Operand::Reg32(w1_n2), Operand::Reg32(w1_n3)),
+                len: 4,
+            };
+        }
+        0x6B => {
+            // MOV.L with 24-bit displacement — fall through to existing handler
+        }
+        _ => {
+            return Decoded { insn: Instruction::Unknown(0x01F0), len: 4 };
+        }
+    }
+
+    // MOV.L @(d:24, ERs), ERd or MOV.L ERs, @(d:24, ERd)
+    match w1_hi {
+        0x6B => {
             // MOV.L @(d:24, ERs), ERd (01F0 6B 2s_d disp24)
             if w1_n2 & 0x8 == 0 {
                 let rs = w1_n2 & 0x7;
