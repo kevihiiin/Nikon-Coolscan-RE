@@ -61,5 +61,6 @@ The simplest handler. Checks abort/completion state:
 - [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
 - [SCSI Command Catalog](../components/ls5000-md3/scsi-command-build.md) — Full command list
 - [NkDriverEntry API](../components/nkduscan/api.md) — FC5 executes this command
+- [Driver Guide: Scan Data Transfer](../driver-guide/scan-data-transfer.md) — Complete abort sequence (C0 → TUR poll → USB clear)
 
 Source: `LS5000.md3:0x100b52d0` (builder), `FW:0x028AB4` (handler)

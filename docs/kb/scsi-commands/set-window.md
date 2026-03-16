@@ -132,6 +132,7 @@ Receives window descriptor data from host. Parses standard SCSI window fields pl
 - [MODE SELECT](mode-select.md) — sets additional operating parameters
 - [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
 - [Motor Control](../components/firmware/motor-control.md) — Motor speed depends on resolution
+- [Driver Guide: Scan Data Transfer](../driver-guide/scan-data-transfer.md) — Vendor extension bytes 54-57 (per-channel exposure time)
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
 - [USB Protocol](../architecture/usb-protocol.md) — transport layer details

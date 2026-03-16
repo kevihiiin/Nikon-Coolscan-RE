@@ -200,3 +200,4 @@ Source: `NikonScan4.ds:0x1004d0c0` (StatusHandler), `LS5000.md3:0x100ae3c0` (com
 - [Scan State Machine](../components/firmware/scan-state-machine.md) — Scan error conditions
 - [TEST UNIT READY](test-unit-ready.md) — Primary sense code consumer
 - [SET WINDOW Descriptor](set-window-descriptor.md) — Parameter validation errors
+- [Driver Guide: Scan Data Transfer](../driver-guide/scan-data-transfer.md) — Sense codes 0x56, 0x66, 0x6F in scan transfer context

@@ -130,4 +130,5 @@ The SCAN handler interfaces with the motor subsystem (documented in [Motor Contr
 - [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
+- [Driver Guide: Scan Data Transfer](../driver-guide/scan-data-transfer.md) — Post-SCAN sequence, buffer architecture, abort mechanism
 - [USB Protocol](../architecture/usb-protocol.md) — transport layer details

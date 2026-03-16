@@ -189,7 +189,9 @@ Rules:
 KB structure:
 - `docs/kb/architecture/` -- System overview, software layers, USB protocol, MAID interface
 - `docs/kb/scsi-commands/` -- Per-command docs (the crown jewel for driver writers)
-- `docs/kb/components/` -- Deep analysis per binary (nkduscan/, ls5000-md3/, firmware/, etc.)
+- `docs/kb/components/` -- Modular per-binary analysis (nkduscan/, ls5000-md3/, firmware/, etc.)
+- `docs/kb/deep-dive/` -- Comprehensive developer references (C pseudocode, full protocol sequences, data table decodes)
+- `docs/kb/driver-guide/` -- Practical implementation guides and Q&A for driver developers
 - `docs/kb/scanners/` -- Per-model notes (coolscan-v-ls50, super-coolscan-5000, etc.)
 - `docs/kb/reference/` -- CPU reference, chip datasheets, spec summaries
 

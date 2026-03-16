@@ -132,3 +132,17 @@ Note: ALL image processing (dark subtraction, white normalization,
 
 ### Cross-Model
 - [Model Comparison](docs/kb/scanners/model-comparison.md) — All 6 scanner models, transport/module mapping
+
+### Driver Development Guide
+- [Scan Data Transfer Q&A](docs/kb/driver-guide/scan-data-transfer.md) — Image byte count calculation, end-of-scan behavior, abort sequence, buffer architecture, vendor extension bytes
+
+### Deep Dive References
+- [SCSI Command Sequences](docs/kb/deep-dive/scsi-command-sequences.md) — Complete CDB sequences for every scanner operation (Verified)
+- [Firmware Data Tables](docs/kb/deep-dive/firmware-data-tables.md) — Byte-level decode of all flash data tables (Verified)
+- [Firmware Memory Map](docs/kb/deep-dive/firmware-memory-map.md) — Complete address space reference
+- [Scanner Options & Settings](docs/kb/deep-dive/scanner-options-settings.md) — All configurable parameters
+- [Multi-Pass Scanning](docs/kb/deep-dive/multi-pass-scanning.md) — Multi-pass firmware analysis
+- [PC Software Interface](docs/kb/deep-dive/pc-software-interface.md) — Host-to-scanner communication reference
+- [ICE Implementation](docs/kb/deep-dive/ice-implementation.md) — Full Digital ICE/ROC/GEM algorithm analysis
+- [Image Processing Pipeline](docs/kb/deep-dive/image-processing-pipeline.md) — Complete post-scan processing pipeline
+- Firmware C Pseudocode: [Main System](docs/kb/deep-dive/firmware-main-system.c), [Scan Engine](docs/kb/deep-dive/firmware-scan-engine.c), [Hardware Control](docs/kb/deep-dive/firmware-hardware-control.c), [SCSI Handlers](docs/kb/deep-dive/firmware-scsi-handlers.c), [Memory Map Header](docs/kb/deep-dive/firmware-memory-map.h)

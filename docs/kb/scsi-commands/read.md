@@ -162,6 +162,7 @@ The READ handler has restrictive permission flags (0x0054) — it can only be ca
 - [SET WINDOW](set-window.md) — defines the data format that READ will return
 - [READ BUFFER](read-buffer.md) — alternative way to read from scanner buffers
 - [Firmware SCSI Handler](../components/firmware/scsi-handler.md) — Full dispatch table
+- [Driver Guide: Scan Data Transfer](../driver-guide/scan-data-transfer.md) — DTC 0x87 byte count, chunked read loop, short transfer handling
 - [ISP1581 USB](../components/firmware/isp1581-usb.md) — USB DMA for data transfer
 - [SCSI Command Build Infrastructure](../components/ls5000-md3/scsi-command-build.md) — CDB builder vtable system
 - [NKDUSCAN API](../components/nkduscan/api.md) — USB transport that sends this CDB
