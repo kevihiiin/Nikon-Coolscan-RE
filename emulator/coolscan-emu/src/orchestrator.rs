@@ -199,14 +199,10 @@ impl Emulator {
                     self.bus.onchip_io[0x60] |= 0x10;     // Mirror TSTR to bus
                     log::info!("JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)");
 
-                    // Pre-copy USB fast-path code from flash to RAM.
-                    // Flash 0x124BA → RAM 0x4010A0, 414 bytes.
-                    // This code handles USB endpoint data transfer in the ISR fast path.
-                    for j in 0..414u32 {
-                        let byte = self.bus.read_byte(0x124BA + j);
-                        self.bus.write_byte(0x4010A0 + j, byte);
-                    }
-                    log::info!("JIT: Copied 414-byte USB fast-path code to RAM 0x4010A0");
+                    // Note: USB fast-path code (flash 0x124BA → RAM 0x4010A0, 414 bytes)
+                    // is copied by the firmware itself during init. The firmware patches
+                    // addresses during copy, so pre-copying from flash gives wrong bytes.
+                    // We let the firmware handle its own copy.
 
                     log::info!(
                         "JIT context init: Context B SP=0x{:06X}, entry=0x029B16",

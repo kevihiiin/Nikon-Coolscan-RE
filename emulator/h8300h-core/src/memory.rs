@@ -78,6 +78,9 @@ pub struct MemoryBus {
     /// ISP1581 register backing (0x600000-0x6000FF).
     isp1581_regs: [u8; 256],
 
+    /// USB fast-path code watchpoint (detect writes to 0x4010A0-0x40124E).
+    pub usb_code_watchpoint: bool,
+
     /// Port 7 override value (for adapter detection).
     /// Address 0xFFFF8E is shared between Port 7 GPIO and ITU4 TIER.
     /// This field provides the Port 7 read value without corrupting the timer register.
@@ -102,6 +105,7 @@ impl MemoryBus {
             onchip_io: [0x00; 256],
             asic_regs: [0x00; 0x1000],
             isp1581_regs: [0x00; 256],
+            usb_code_watchpoint: false,
             port7_override: 0,
             trace_enabled: false,
             unmapped_reads: 0,
