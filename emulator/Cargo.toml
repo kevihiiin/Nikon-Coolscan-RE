@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "coolscan-emu",
+    "h8300h-core",
+    "peripherals",
+    "bridge",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+h8300h-core = { path = "h8300h-core" }
+peripherals = { path = "peripherals" }
+bridge = { path = "bridge" }
+log = "0.4"
+env_logger = "0.11"

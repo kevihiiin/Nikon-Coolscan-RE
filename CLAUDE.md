@@ -3,7 +3,8 @@
 ## What This Project Is
 
 Reverse engineering Nikon Coolscan film scanner firmware and Windows drivers to document
-the complete SCSI communication protocol. End goal: build modern cross-platform drivers.
+the complete SCSI communication protocol. **Two deliverables**: (1) Protocol documentation (docs/kb/),
+(2) H8/3003 CPU emulator running the actual firmware binary for HIL-free development.
 
 **Primary target**: Coolscan V (LS-50, uses LS5000.md3 module). Later: LS-5000, LS-4000, LS-8000, LS-9000.
 
@@ -12,14 +13,10 @@ the complete SCSI communication protocol. End goal: build modern cross-platform 
 Every new session, follow this chain:
 
 1. **You are here** -- `CLAUDE.md` (this file) gives you project context
-2. **Read `docs/log/general.md` header** -- tells you current phase and what to work on next
-3. **Read `docs/phases/phase-NN-<name>.md`** for the current phase -- contains:
-   - Completion criteria (checklist of what "done" means)
-   - Detailed methodology (what to analyze, in what order)
-   - Key files and addresses to examine
-   - What to look for and where
-4. **Read `docs/log/phases/phase-NN-<name>.md`** -- the phase attempt log, tells you what was already tried
-5. **Read relevant `docs/log/components/NAME-attempts.md`** -- what was already found for the binary you're working on
+2. **If doing RE work**: Read `docs/log/general.md` → current phase doc → phase log → component log → KB
+3. **If doing emulator work**: Read `emulator/docs/log/general.md` → current emulator phase log → component log
+4. **Read `docs/phases/phase-NN-<name>.md`** for the current phase (RE) or relevant emulator phase log
+5. **Read relevant `docs/log/components/NAME-attempts.md`** or `emulator/docs/log/components/`
 6. **Read relevant `docs/kb/` docs** -- existing findings to build upon
 
 Only then begin work.
@@ -67,6 +64,7 @@ If a finding is too uncertain (Low confidence), still add it to KB but mark it c
 - `scripts/shell/` -- bootstrap_ghidra.sh and other shell scripts
 - `.claude/skills/` -- RE-specific slash command skills
 - `tools/` -- Third-party tools (Ghidra H8/300H SLEIGH module etc.)
+- `emulator/` -- H8/3003 CPU emulator (Rust workspace, clean-room implementation)
 
 ## Key Binaries (by RE priority)
 
@@ -148,6 +146,61 @@ A finding is only **"Verified"** when confirmed from both sides.
 ### When stuck
 Log the failure, mark KB as Low confidence, add REVISIT to phase log, and move on. Use `/unstuck` for suggestions.
 
+## Emulator -- Clean-Room Rules (CRITICAL -- NO EXCEPTIONS)
+
+The emulator (`emulator/`) is a clean-room H8/3003 CPU implementation.
+
+### Allowed sources for CPU behavior:
+- Hitachi H8/300H Programming Manual (emulator/reference/)
+- ISP1581 datasheet (emulator/reference/)
+- Our own RE docs (docs/kb/) -- we wrote them
+
+### Forbidden sources (DO NOT REFERENCE):
+- SLEIGH files in this repo (tools/ghidra-h8/) -- no license
+- MAME source code (any file)
+- libh8300h, QEMU H8, GDB simulator, or any other emulator source
+- Any code implementing H8 instruction decode/execute from external projects
+
+### Emulator Project Structure
+
+```
+emulator/
+├── Cargo.toml              # Rust workspace
+├── reference/              # Hitachi manual, ISP1581 datasheet (clean-room sources)
+├── coolscan-emu/           # Binary crate: CLI + orchestration
+├── h8300h-core/            # Library: CPU core (decoder, executor, interrupts, memory)
+├── peripherals/            # Library: ISP1581, ASIC, GPIO, timers, DMA, ADC, SCI, WDT
+├── bridge/                 # Library: TCP + USB gadget bridges
+├── tests/                  # Integration tests
+└── docs/log/               # Emulator attempt logs (APPEND ONLY, same rules as RE logs)
+```
+
+### Emulator Phases
+
+| Phase | Name | Milestone |
+|-------|------|-----------|
+| 0 | Setup | Manual review, Rust workspace, enum skeleton |
+| 1 | CPU Core | Firmware boots to 0x020334 |
+| 2 | Interrupts | Context switch works |
+| 3 | USB | TUR response via TCP + USB gadget |
+| 4 | SCSI | Full init sequence passes |
+| 5 | Scan | Full scan returns image data |
+| 6 | Polish | End-to-end validation |
+
+### Emulator Key Constants
+
+- Context A stack: 0x410000 | Context B stack: 0x40D000
+- Stack guards: A < 0x40F000 warn | B < 0x408000 warn
+- SP save watchpoint: 0x400766-0x40076D
+
+### Emulator Logging
+
+Same APPEND ONLY rules as RE logs. Locations:
+- `emulator/docs/log/general.md` -- session journal
+- `emulator/docs/log/phases/phase-NN-*.md` -- per-phase
+- `emulator/docs/log/components/*.md` -- per-component
+- `emulator/docs/decisions/*.md` -- design decisions
+
 ## Tools
 
 - **uv** for Python -- Use `uv run` to execute Python scripts (deps in `pyproject.toml`)
@@ -158,6 +211,8 @@ Log the failure, mark KB as Low confidence, add REVISIT to phase log, and move o
 - **radare2** -- Firmware analysis (`r2 -e asm.arch=h8300`)
 - **Python scripts** in `scripts/python/` -- PE parsing, RTTI extraction, pattern matching
 - **binwalk, strings, xxd, objdump, file** -- Standard binary analysis
+- **Rust** (`cargo build/test/run`) for emulator at `emulator/`
+- **Reference manuals** at `emulator/reference/` (Hitachi H8/300H, ISP1581)
 
 ## Logging Rules (CRITICAL)
 

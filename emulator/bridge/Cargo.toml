@@ -1,0 +1,13 @@
+[package]
+name = "bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "USB bridge layer (TCP socket + Linux USB gadget)"
+
+[dependencies]
+peripherals.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true

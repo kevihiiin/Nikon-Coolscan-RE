@@ -1,0 +1,230 @@
+/// ITU (Integrated Timer Unit) 0-4 model.
+///
+/// Each timer has: TCR, TIOR, TIER, TSR, TCNT(16-bit), GRA(16-bit), GRB(16-bit).
+/// TSTR (0xFFFF60) starts/stops timers with per-bit enable.
+///
+/// Active timers in Coolscan V firmware:
+///   ITU2: Motor stepping (Vec 32 = IMIA2)
+///   ITU3: DMA burst counter (Vec 36 = IMIA3)
+///   ITU4: System tick (Vec 40 = IMIA4)
+
+/// Timer interrupt vectors.
+pub const ITU2_IMIA_VEC: u8 = 32;
+pub const ITU3_IMIA_VEC: u8 = 36;
+pub const ITU4_IMIA_VEC: u8 = 40;
+
+pub struct Timer {
+    pub tcr: u8,
+    pub tior: u8,
+    pub tier: u8,
+    pub tsr: u8,
+    pub tcnt: u16,
+    pub gra: u16,
+    pub grb: u16,
+    /// Prescaler counter (divides CPU clock).
+    prescale_count: u32,
+}
+
+impl Timer {
+    pub fn new() -> Self {
+        Self {
+            tcr: 0,
+            tior: 0,
+            tier: 0,
+            tsr: 0,
+            tcnt: 0,
+            gra: 0xFFFF,
+            grb: 0xFFFF,
+            prescale_count: 0,
+        }
+    }
+
+    /// Get the prescaler divisor from TCR bits 2-0.
+    fn prescaler(&self) -> u32 {
+        match self.tcr & 0x07 {
+            0 => 0,    // Internal clock / 1 (but bit patterns vary by timer)
+            1 => 1,    // φ/1
+            2 => 2,    // φ/2
+            3 => 4,    // φ/4
+            4 => 8,    // φ/8
+            _ => 1,    // External clock sources — treat as /1
+        }
+    }
+
+    /// Returns true if compare-match A interrupt should fire.
+    pub fn tick(&mut self) -> bool {
+        let div = self.prescaler();
+        if div == 0 {
+            return false;
+        }
+
+        self.prescale_count += 1;
+        if self.prescale_count < div {
+            return false;
+        }
+        self.prescale_count = 0;
+
+        self.tcnt = self.tcnt.wrapping_add(1);
+
+        // Check compare-match A
+        if self.tcnt == self.gra {
+            self.tsr |= 0x01; // IMFA flag
+            // Clear on compare-match if configured (TCR bits 5-4)
+            let cclr = (self.tcr >> 5) & 0x03;
+            if cclr == 1 {
+                self.tcnt = 0;
+            }
+            // Generate interrupt if IMIEA enabled (TIER bit 0)
+            if self.tier & 0x01 != 0 {
+                return true;
+            }
+        }
+
+        // Check compare-match B
+        if self.tcnt == self.grb {
+            self.tsr |= 0x02; // IMFB flag
+            let cclr = (self.tcr >> 5) & 0x03;
+            if cclr == 2 {
+                self.tcnt = 0;
+            }
+        }
+
+        false
+    }
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct TimerUnit {
+    pub tstr: u8,  // Timer start register (bit n = ITUn running)
+    pub timers: [Timer; 5],
+}
+
+impl TimerUnit {
+    pub fn new() -> Self {
+        Self {
+            tstr: 0,
+            timers: [
+                Timer::new(),
+                Timer::new(),
+                Timer::new(),
+                Timer::new(),
+                Timer::new(),
+            ],
+        }
+    }
+
+    /// Tick all running timers. Returns list of interrupt vectors to fire.
+    pub fn tick(&mut self) -> Vec<u8> {
+        let mut irqs = Vec::new();
+
+        for i in 0..5 {
+            if self.tstr & (1 << i) != 0 {
+                if self.timers[i].tick() {
+                    let vec = match i {
+                        0 => 24, // IMIA0
+                        1 => 28, // IMIA1
+                        2 => ITU2_IMIA_VEC,
+                        3 => ITU3_IMIA_VEC,
+                        4 => ITU4_IMIA_VEC,
+                        _ => unreachable!(),
+                    };
+                    irqs.push(vec);
+                }
+            }
+        }
+
+        irqs
+    }
+
+    /// Read a timer register.
+    pub fn read(&self, offset: u8) -> u8 {
+        match offset {
+            0x60 => self.tstr,
+            // Per-timer registers: base addresses
+            // ITU0: 0x64-0x6B, ITU1: 0x6E-0x75, ITU2: 0x78-0x7F
+            // ITU3: 0x82-0x89, ITU4: 0x8A-0x91 (approximate — actual layout is:
+            // TSTR=0x60, TSNC=0x61, TMDR=0x62, TFCR=0x63
+            // ITU0: TCR0=0x64, TIOR0=0x65, TIER0=0x66, TSR0=0x67,
+            //       TCNT0H=0x68, TCNT0L=0x69, GRA0H=0x6A, GRA0L=0x6B,
+            //       GRB0H=0x6C, GRB0L=0x6D
+            // ITU1: TCR1=0x6E, ... GRB1L=0x77
+            // ITU2: TCR2=0x78, ... GRB2L=0x81
+            // ITU3: TCR3=0x82, ... GRB3L=0x8B
+            // ITU4: TCR4=0x8C, ... GRB4L=0x95
+            _ => self.read_timer_reg(offset),
+        }
+    }
+
+    /// Write a timer register.
+    pub fn write(&mut self, offset: u8, val: u8) {
+        match offset {
+            0x60 => self.tstr = val,
+            0x61 => {} // TSNC — ignore
+            0x62 => {} // TMDR — ignore
+            0x63 => {} // TFCR — ignore
+            _ => self.write_timer_reg(offset, val),
+        }
+    }
+
+    fn timer_index_and_reg(&self, offset: u8) -> Option<(usize, u8)> {
+        match offset {
+            0x64..=0x6D => Some((0, offset - 0x64)),
+            0x6E..=0x77 => Some((1, offset - 0x6E)),
+            0x78..=0x81 => Some((2, offset - 0x78)),
+            0x82..=0x8B => Some((3, offset - 0x82)),
+            0x8C..=0x95 => Some((4, offset - 0x8C)),
+            _ => None,
+        }
+    }
+
+    fn read_timer_reg(&self, offset: u8) -> u8 {
+        let Some((idx, reg)) = self.timer_index_and_reg(offset) else {
+            return 0;
+        };
+        let t = &self.timers[idx];
+        match reg {
+            0 => t.tcr,
+            1 => t.tior,
+            2 => t.tier,
+            3 => t.tsr,
+            4 => (t.tcnt >> 8) as u8,
+            5 => t.tcnt as u8,
+            6 => (t.gra >> 8) as u8,
+            7 => t.gra as u8,
+            8 => (t.grb >> 8) as u8,
+            9 => t.grb as u8,
+            _ => 0,
+        }
+    }
+
+    fn write_timer_reg(&mut self, offset: u8, val: u8) {
+        let Some((idx, reg)) = self.timer_index_and_reg(offset) else {
+            return;
+        };
+        let t = &mut self.timers[idx];
+        match reg {
+            0 => t.tcr = val,
+            1 => t.tior = val,
+            2 => t.tier = val,
+            3 => t.tsr &= val, // Write 0 to clear flag bits
+            4 => t.tcnt = (t.tcnt & 0x00FF) | ((val as u16) << 8),
+            5 => t.tcnt = (t.tcnt & 0xFF00) | val as u16,
+            6 => t.gra = (t.gra & 0x00FF) | ((val as u16) << 8),
+            7 => t.gra = (t.gra & 0xFF00) | val as u16,
+            8 => t.grb = (t.grb & 0x00FF) | ((val as u16) << 8),
+            9 => t.grb = (t.grb & 0xFF00) | val as u16,
+            _ => {}
+        }
+    }
+}
+
+impl Default for TimerUnit {
+    fn default() -> Self {
+        Self::new()
+    }
+}

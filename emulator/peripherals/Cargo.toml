@@ -1,0 +1,13 @@
+[package]
+name = "peripherals"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Nikon Coolscan peripheral models (ISP1581, ASIC, GPIO, timers, DMA)"
+
+[dependencies]
+h8300h-core.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true

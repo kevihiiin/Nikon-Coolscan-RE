@@ -1,0 +1,12 @@
+[package]
+name = "h8300h-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Clean-room H8/300H CPU core emulator"
+
+[dependencies]
+log.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true

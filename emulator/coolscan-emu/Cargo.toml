@@ -1,0 +1,13 @@
+[package]
+name = "coolscan-emu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Nikon Coolscan V firmware emulator"
+
+[dependencies]
+h8300h-core.workspace = true
+peripherals.workspace = true
+bridge.workspace = true
+log.workspace = true
+env_logger.workspace = true
