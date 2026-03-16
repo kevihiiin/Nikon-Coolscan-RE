@@ -680,9 +680,9 @@ fn exec_shift(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, op: &Operand, shif
     write_sized(cpu, bus, size, op, result);
     update_nz(cpu, size, result);
     cpu.set_flag(CCR_C, carry);
-    // V = N xor C for arithmetic shifts, 0 otherwise
-    let is_arith = matches!(shift, ShiftOp::Shal | ShiftOp::Shar);
-    cpu.set_flag(CCR_V, if is_arith { cpu.negative() ^ cpu.carry() } else { false });
+    // V: SHAL = overflow (N^C, i.e. sign bit changed), all others = 0
+    // Per Hitachi manual: SHAR V=0, SHLL/SHLR V=0, all rotates V=0
+    cpu.set_flag(CCR_V, matches!(shift, ShiftOp::Shal) && (cpu.negative() ^ cpu.carry()));
 }
 
 /// Size-generic shift/rotate operating on u32, parameterized by bit width and mask.
