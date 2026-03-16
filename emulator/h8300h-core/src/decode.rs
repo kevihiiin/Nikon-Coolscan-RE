@@ -95,8 +95,8 @@ pub enum Instruction {
     Sub(Size, Operand, Operand),
     Cmp(Size, Operand, Operand),
     Neg(Size, Operand),
-    Inc(Size, Operand),             // INC.B/W/L
-    Dec(Size, Operand),             // DEC.B/W/L
+    Inc(Size, Operand, u8),          // INC.B/W/L #1 or #2
+    Dec(Size, Operand, u8),          // DEC.B/W/L #1 or #2
     Addx(Operand, Operand),         // ADDX (byte only, with carry)
     Subx(Operand, Operand),         // SUBX (byte only, with borrow)
     Adds(Operand, Operand),         // ADDS #1/2/4, ERn (no flags)
@@ -337,7 +337,7 @@ fn decode_group_0(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                 (0x4, 0x0) => {
                     // ORC #imm8, CCR  — 0140 imm8 (but nib2=4, nib3=0 gives 0x0140)
                     // Wait — 0x0140 is op_hi=0, op_lo=1, nib2=4, nib3=0
-                    let imm = bus.read_byte(pc + 2);
+                    let _imm = bus.read_byte(pc + 2);
                     // Actually ORC: 04 imm8
                     // No, ORC is 0x04xx. Let me re-check.
                     // 0100 prefix for MOV.L / extended ops
@@ -437,7 +437,7 @@ fn decode_group_0(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
             } else {
                 // INC.B Rd (0A 0r)
                 Decoded {
-                    insn: Instruction::Inc(Size::Byte, Operand::Reg8(nib3)),
+                    insn: Instruction::Inc(Size::Byte, Operand::Reg8(nib3), 1),
                     len: 2,
                 }
             }
@@ -455,14 +455,14 @@ fn decode_group_0(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                 0x5 => {
                     // INC.W #1, Rd (0B 5r)
                     Decoded {
-                        insn: Instruction::Inc(Size::Word, Operand::Reg16(nib3)),
+                        insn: Instruction::Inc(Size::Word, Operand::Reg16(nib3), 1),
                         len: 2,
                     }
                 }
                 0x7 => {
                     // INC.L #1, ERd (0B 7r)
                     Decoded {
-                        insn: Instruction::Inc(Size::Long, Operand::Reg32(nib3)),
+                        insn: Instruction::Inc(Size::Long, Operand::Reg32(nib3), 1),
                         len: 2,
                     }
                 }
@@ -484,14 +484,14 @@ fn decode_group_0(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                     // INC.W #2, Rd (0B Dr)
                     // Actually DEC or INC #2
                     Decoded {
-                        insn: Instruction::Inc(Size::Word, Operand::Reg16(nib3)),
+                        insn: Instruction::Inc(Size::Word, Operand::Reg16(nib3), 2),
                         len: 2,
                     }
                 }
                 0xF => {
                     // INC.L #2, ERd (0B Fr)
                     Decoded {
-                        insn: Instruction::Inc(Size::Long, Operand::Reg32(nib3)),
+                        insn: Instruction::Inc(Size::Long, Operand::Reg32(nib3), 2),
                         len: 2,
                     }
                 }
@@ -807,127 +807,56 @@ fn decode_01_extended(_bus: &mut MemoryBus, _pc: u32, w0: u16, _w1: u16, _nib2: 
     Decoded { insn: Instruction::Unknown(w0), len: 4 }
 }
 
+/// Decode an ALU operation from the nib2 code used by groups 79/7A.
+/// nib2: 0=MOV, 1=ADD, 2=CMP, 3=SUB, 4=OR, 5=XOR, 6=AND.
+fn decode_alu_op(nib2: u8, size: Size, src: Operand, dst: Operand) -> Option<Instruction> {
+    match nib2 {
+        0x0 => Some(Instruction::Mov(size, src, dst)),
+        0x1 => Some(Instruction::Add(size, src, dst)),
+        0x2 => Some(Instruction::Cmp(size, src, dst)),
+        0x3 => Some(Instruction::Sub(size, src, dst)),
+        0x4 => Some(Instruction::Or(size, src, dst)),
+        0x5 => Some(Instruction::Xor(size, src, dst)),
+        0x6 => Some(Instruction::And(size, src, dst)),
+        _ => None,
+    }
+}
+
+/// Decode size and register from nib2 for shift/rotate instructions.
+/// nib2 pattern: 0=Byte, 1=Word, 3=Long (for the "left" variant),
+///               8=Byte, 9=Word, B=Long (for the "right" variant).
+/// Returns (is_right_variant, size, operand) or None if nib2 is invalid.
+fn decode_shift_size(nib2: u8, nib3: u8) -> Option<(bool, Size, Operand)> {
+    let is_right = nib2 & 0x8 != 0;
+    match nib2 & 0x7 {
+        0x0 => Some((is_right, Size::Byte, Operand::Reg8(nib3))),
+        0x1 => Some((is_right, Size::Word, Operand::Reg16(nib3))),
+        0x3 => Some((is_right, Size::Long, Operand::Reg32(nib3))),
+        _ => None,
+    }
+}
+
 /// Group 1: various ops — CMP, MOV, shifts, etc
-fn decode_group_1(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, nib3: u8) -> Decoded {
+fn decode_group_1(_bus: &mut MemoryBus, _pc: u32, w0: u16, op_lo: u8, nib2: u8, nib3: u8) -> Decoded {
     match op_lo {
-        0x0 => {
-            // SHLL/SHAL/ROTL etc (10 xx)
-            match nib2 {
-                0x0 => Decoded {
-                    insn: Instruction::Shal(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x1 => Decoded {
-                    insn: Instruction::Shal(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0x3 => Decoded {
-                    insn: Instruction::Shal(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                0x8 => Decoded {
-                    insn: Instruction::Shar(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x9 => Decoded {
-                    insn: Instruction::Shar(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0xB => Decoded {
-                    insn: Instruction::Shar(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
-            }
-        }
-        0x1 => {
-            // SHLL/SHLR
-            match nib2 {
-                0x0 => Decoded {
-                    insn: Instruction::Shll(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x1 => Decoded {
-                    insn: Instruction::Shll(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0x3 => Decoded {
-                    insn: Instruction::Shll(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                0x8 => Decoded {
-                    insn: Instruction::Shlr(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x9 => Decoded {
-                    insn: Instruction::Shlr(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0xB => Decoded {
-                    insn: Instruction::Shlr(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
-            }
-        }
-        0x2 => {
-            // ROTL/ROTR
-            match nib2 {
-                0x0 => Decoded {
-                    insn: Instruction::Rotl(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x1 => Decoded {
-                    insn: Instruction::Rotl(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0x3 => Decoded {
-                    insn: Instruction::Rotl(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                0x8 => Decoded {
-                    insn: Instruction::Rotr(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x9 => Decoded {
-                    insn: Instruction::Rotr(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0xB => Decoded {
-                    insn: Instruction::Rotr(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
-            }
-        }
-        0x3 => {
-            // ROTXL/ROTXR
-            match nib2 {
-                0x0 => Decoded {
-                    insn: Instruction::Rotxl(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x1 => Decoded {
-                    insn: Instruction::Rotxl(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0x3 => Decoded {
-                    insn: Instruction::Rotxl(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                0x8 => Decoded {
-                    insn: Instruction::Rotxr(Size::Byte, Operand::Reg8(nib3)),
-                    len: 2,
-                },
-                0x9 => Decoded {
-                    insn: Instruction::Rotxr(Size::Word, Operand::Reg16(nib3)),
-                    len: 2,
-                },
-                0xB => Decoded {
-                    insn: Instruction::Rotxr(Size::Long, Operand::Reg32(nib3)),
-                    len: 2,
-                },
-                _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
+        // Shift/rotate groups 0x0-0x3 share the same nib2 encoding pattern.
+        // Each group has a "left" (nib2 < 8) and "right" (nib2 >= 8) variant.
+        0x0..=0x3 => {
+            if let Some((is_right, size, operand)) = decode_shift_size(nib2, nib3) {
+                let insn = match (op_lo, is_right) {
+                    (0x0, false) => Instruction::Shal(size, operand),
+                    (0x0, true)  => Instruction::Shar(size, operand),
+                    (0x1, false) => Instruction::Shll(size, operand),
+                    (0x1, true)  => Instruction::Shlr(size, operand),
+                    (0x2, false) => Instruction::Rotl(size, operand),
+                    (0x2, true)  => Instruction::Rotr(size, operand),
+                    (0x3, false) => Instruction::Rotxl(size, operand),
+                    (0x3, true)  => Instruction::Rotxr(size, operand),
+                    _ => unreachable!(),
+                };
+                Decoded { insn, len: 2 }
+            } else {
+                Decoded { insn: Instruction::Unknown(w0), len: 2 }
             }
         }
         0x4 => {
@@ -1052,7 +981,7 @@ fn decode_group_1(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
             } else {
                 // DEC.B Rd (1A 0r)
                 Decoded {
-                    insn: Instruction::Dec(Size::Byte, Operand::Reg8(nib3)),
+                    insn: Instruction::Dec(Size::Byte, Operand::Reg8(nib3), 1),
                     len: 2,
                 }
             }
@@ -1065,11 +994,11 @@ fn decode_group_1(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                     len: 2,
                 },
                 0x5 => Decoded {
-                    insn: Instruction::Dec(Size::Word, Operand::Reg16(nib3)),
+                    insn: Instruction::Dec(Size::Word, Operand::Reg16(nib3), 1),
                     len: 2,
                 },
                 0x7 => Decoded {
-                    insn: Instruction::Dec(Size::Long, Operand::Reg32(nib3)),
+                    insn: Instruction::Dec(Size::Long, Operand::Reg32(nib3), 1),
                     len: 2,
                 },
                 0x8 => Decoded {
@@ -1081,11 +1010,11 @@ fn decode_group_1(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                     len: 2,
                 },
                 0xD => Decoded {
-                    insn: Instruction::Dec(Size::Word, Operand::Reg16(nib3)),
+                    insn: Instruction::Dec(Size::Word, Operand::Reg16(nib3), 2),
                     len: 2,
                 },
                 0xF => Decoded {
-                    insn: Instruction::Dec(Size::Long, Operand::Reg32(nib3)),
+                    insn: Instruction::Dec(Size::Long, Operand::Reg32(nib3), 2),
                     len: 2,
                 },
                 _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
@@ -1213,8 +1142,8 @@ fn decode_group_5(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
         }
         0xA => {
             // JMP @aa:24 (5A aa:24)
-            let abs_hi = ((nib2 as u32) << 16) | ((nib3 as u32) << 8) | (bus.read_byte(pc + 2) as u32);
-            let abs_lo = bus.read_byte(pc + 3) as u32;
+            let _abs_hi = ((nib2 as u32) << 16) | ((nib3 as u32) << 8) | (bus.read_byte(pc + 2) as u32);
+            let _abs_lo = bus.read_byte(pc + 3) as u32;
             // Wait, JMP @aa:24 is 4 bytes: 5A xx xx xx
             // The address is in bytes 1-3 of the 4-byte instruction
             let addr = ((nib2 as u32) << 20) | ((nib3 as u32) << 16) | (bus.read_word(pc + 2) as u32);
@@ -1652,51 +1581,78 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
             if w1_hi == 0x6A {
                 let mode_byte = (w1 & 0xFF) as u8;
                 let mode_hi = (mode_byte >> 4) & 0xF;
+                let mode_lo = mode_byte & 0xF;
 
-                // 78 prefix + 6A: bit operation on @(d:24, ERbase)
-                // Format: 78 rr 6A [mode]x dd dd dd pp OP BN = 10 bytes
-                // mode = 2 (read) or A (write-back), x = sub-mode (often 0 or 8)
-                let w2 = bus.read_word(pc + 4);
-                let w3 = bus.read_word(pc + 6);
-                let w4 = bus.read_word(pc + 8);
+                if mode_lo != 0 {
+                    // 78 rr 6A [mode][reg] d23 d15 d7 pad = 8-byte MOV.B with 24-bit displacement
+                    // mode_hi: 2 = read, A = write. mode_lo: register number (8 = R0L, etc.)
+                    let w2 = bus.read_word(pc + 4);
+                    let w3 = bus.read_word(pc + 6);
+                    let d_hi = (w2 >> 8) as u32;
+                    let d_mid = (w2 & 0xFF) as u32;
+                    let d_lo = (w3 >> 8) as u32;
+                    let disp = (d_hi << 16) | (d_mid << 8) | d_lo;
+                    let reg = mode_lo;
 
-                // Displacement: bytes 4-6 (24-bit)
-                let disp = ((w2 as u32) << 8) | ((w3 >> 8) as u32);
-                let disp = disp & 0x00FFFFFF;
-
-                let bit_op = (w3 & 0xFF) as u8;
-                let bit_nib = (w4 >> 8) as u8;
-                let bit_num = bit_nib & 0x7;
-
-                let target = Operand::RegIndirectDisp24(base_reg, disp);
-                let bit = Operand::Imm8(bit_num);
-
-                let insn = match bit_op {
-                    0x63 | 0x73 => Instruction::Btst(bit, target),
-                    0x60 => Instruction::Bset(Operand::Reg8(bit_nib), target),
-                    0x70 => Instruction::Bset(bit, target),
-                    0x62 => Instruction::Bclr(Operand::Reg8(bit_nib), target),
-                    0x72 => Instruction::Bclr(bit, target),
-                    0x61 => Instruction::Bnot(Operand::Reg8(bit_nib), target),
-                    0x71 => Instruction::Bnot(bit, target),
-                    0x67 if bit_nib & 0x8 == 0 => Instruction::Bst(bit, target),
-                    0x67 => Instruction::Bist(Operand::Imm8(bit_num), target),
-                    0x74 if bit_nib & 0x8 == 0 => Instruction::Bor(bit, target),
-                    0x74 => Instruction::Bior(Operand::Imm8(bit_num), target),
-                    0x75 if bit_nib & 0x8 == 0 => Instruction::Bxor(bit, target),
-                    0x75 => Instruction::Bixor(Operand::Imm8(bit_num), target),
-                    0x76 if bit_nib & 0x8 == 0 => Instruction::Band(bit, target),
-                    0x76 => Instruction::Biand(Operand::Imm8(bit_num), target),
-                    0x77 if bit_nib & 0x8 == 0 => Instruction::Bld(bit, target),
-                    0x77 => Instruction::Bild(Operand::Imm8(bit_num), target),
-                    _ => {
-                        // Unrecognized bit op — treat as NOP to avoid halting
-                        log::warn!("78-prefix: unknown bit_op 0x{:02X} at PC=0x{:06X}", bit_op, pc);
-                        Instruction::Nop
+                    if mode_hi & 0x8 == 0 {
+                        // Read: MOV.B @(d:24, ERbase), Rn
+                        Decoded {
+                            insn: Instruction::Mov(Size::Byte,
+                                Operand::RegIndirectDisp24(base_reg, disp),
+                                Operand::Reg8(reg)),
+                            len: 8,
+                        }
+                    } else {
+                        // Write: MOV.B Rn, @(d:24, ERbase)
+                        Decoded {
+                            insn: Instruction::Mov(Size::Byte,
+                                Operand::Reg8(reg),
+                                Operand::RegIndirectDisp24(base_reg, disp)),
+                            len: 8,
+                        }
                     }
-                };
+                } else {
+                    // 78 rr 6A [mode]0 dd dd dd pp OP BN = 10-byte bit operation
+                    let w2 = bus.read_word(pc + 4);
+                    let w3 = bus.read_word(pc + 6);
+                    let w4 = bus.read_word(pc + 8);
 
-                Decoded { insn, len: 10 }
+                    let disp = ((w2 as u32) << 8) | ((w3 >> 8) as u32);
+                    let disp = disp & 0x00FFFFFF;
+
+                    let bit_op = (w3 & 0xFF) as u8;
+                    let bit_nib = (w4 >> 8) as u8;
+                    let bit_num = bit_nib & 0x7;
+
+                    let target = Operand::RegIndirectDisp24(base_reg, disp);
+                    let bit = Operand::Imm8(bit_num);
+
+                    let insn = match bit_op {
+                        0x63 | 0x73 => Instruction::Btst(bit, target),
+                        0x60 => Instruction::Bset(Operand::Reg8(bit_nib), target),
+                        0x70 => Instruction::Bset(bit, target),
+                        0x62 => Instruction::Bclr(Operand::Reg8(bit_nib), target),
+                        0x72 => Instruction::Bclr(bit, target),
+                        0x61 => Instruction::Bnot(Operand::Reg8(bit_nib), target),
+                        0x71 => Instruction::Bnot(bit, target),
+                        0x67 if bit_nib & 0x8 == 0 => Instruction::Bst(bit, target),
+                        0x67 => Instruction::Bist(Operand::Imm8(bit_num), target),
+                        0x74 if bit_nib & 0x8 == 0 => Instruction::Bor(bit, target),
+                        0x74 => Instruction::Bior(Operand::Imm8(bit_num), target),
+                        0x75 if bit_nib & 0x8 == 0 => Instruction::Bxor(bit, target),
+                        0x75 => Instruction::Bixor(Operand::Imm8(bit_num), target),
+                        0x76 if bit_nib & 0x8 == 0 => Instruction::Band(bit, target),
+                        0x76 => Instruction::Biand(Operand::Imm8(bit_num), target),
+                        0x77 if bit_nib & 0x8 == 0 => Instruction::Bld(bit, target),
+                        0x77 => Instruction::Bild(Operand::Imm8(bit_num), target),
+                        _ => {
+                            log::warn!("78-prefix: unknown bit_op 0x{:02X} at PC=0x{:06X}", bit_op, pc);
+                            Instruction::Nop
+                        }
+                    };
+
+                    Decoded { insn, len: 10 }
+                }
             } else if (w1 >> 8) == 0x6B {
                 // 78 rr 6B: MOV.L with 24-bit displacement (same as 0100 78 variant)
                 let w2 = bus.read_word(pc + 4);
@@ -1729,120 +1685,26 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
             }
         }
         0x9 => {
-            // MOV.W #imm16, Rd (79 1r imm16) or ADD/CMP/SUB.W #imm16
-            match nib2 {
-                0x0 => {
-                    // MOV.W #imm16, Rd
-                    let imm = bus.read_word(pc + 2);
-                    Decoded {
-                        insn: Instruction::Mov(Size::Word, Operand::Imm16(imm), Operand::Reg16(nib3)),
-                        len: 4,
-                    }
-                }
-                0x1 => {
-                    // ADD.W #imm16, Rd
-                    let imm = bus.read_word(pc + 2);
-                    Decoded {
-                        insn: Instruction::Add(Size::Word, Operand::Imm16(imm), Operand::Reg16(nib3)),
-                        len: 4,
-                    }
-                }
-                0x2 => {
-                    // CMP.W #imm16, Rd
-                    let imm = bus.read_word(pc + 2);
-                    Decoded {
-                        insn: Instruction::Cmp(Size::Word, Operand::Imm16(imm), Operand::Reg16(nib3)),
-                        len: 4,
-                    }
-                }
-                0x3 => {
-                    // SUB.W #imm16, Rd
-                    let imm = bus.read_word(pc + 2);
-                    Decoded {
-                        insn: Instruction::Sub(Size::Word, Operand::Imm16(imm), Operand::Reg16(nib3)),
-                        len: 4,
-                    }
-                }
-                0x4 => {
-                    // OR.W #imm16, Rd
-                    let imm = bus.read_word(pc + 2);
-                    Decoded {
-                        insn: Instruction::Or(Size::Word, Operand::Imm16(imm), Operand::Reg16(nib3)),
-                        len: 4,
-                    }
-                }
-                0x5 => {
-                    // XOR.W #imm16, Rd
-                    let imm = bus.read_word(pc + 2);
-                    Decoded {
-                        insn: Instruction::Xor(Size::Word, Operand::Imm16(imm), Operand::Reg16(nib3)),
-                        len: 4,
-                    }
-                }
-                0x6 => {
-                    // AND.W #imm16, Rd
-                    let imm = bus.read_word(pc + 2);
-                    Decoded {
-                        insn: Instruction::And(Size::Word, Operand::Imm16(imm), Operand::Reg16(nib3)),
-                        len: 4,
-                    }
-                }
-                _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
+            // MOV/ADD/CMP/SUB/OR/XOR/AND.W #imm16, Rd (79 nr imm16)
+            // nib2 selects operation: 0=MOV, 1=ADD, 2=CMP, 3=SUB, 4=OR, 5=XOR, 6=AND
+            let imm = bus.read_word(pc + 2);
+            let src = Operand::Imm16(imm);
+            let dst = Operand::Reg16(nib3);
+            if let Some(insn) = decode_alu_op(nib2, Size::Word, src, dst) {
+                Decoded { insn, len: 4 }
+            } else {
+                Decoded { insn: Instruction::Unknown(w0), len: 2 }
             }
         }
         0xA => {
-            // MOV.L #imm32, ERd (7A 0r imm32) or ADD/CMP/SUB.L #imm32
-            match nib2 {
-                0x0 => {
-                    let imm = bus.read_long(pc + 2);
-                    Decoded {
-                        insn: Instruction::Mov(Size::Long, Operand::Imm32(imm), Operand::Reg32(nib3)),
-                        len: 6,
-                    }
-                }
-                0x1 => {
-                    let imm = bus.read_long(pc + 2);
-                    Decoded {
-                        insn: Instruction::Add(Size::Long, Operand::Imm32(imm), Operand::Reg32(nib3)),
-                        len: 6,
-                    }
-                }
-                0x2 => {
-                    let imm = bus.read_long(pc + 2);
-                    Decoded {
-                        insn: Instruction::Cmp(Size::Long, Operand::Imm32(imm), Operand::Reg32(nib3)),
-                        len: 6,
-                    }
-                }
-                0x3 => {
-                    let imm = bus.read_long(pc + 2);
-                    Decoded {
-                        insn: Instruction::Sub(Size::Long, Operand::Imm32(imm), Operand::Reg32(nib3)),
-                        len: 6,
-                    }
-                }
-                0x4 => {
-                    let imm = bus.read_long(pc + 2);
-                    Decoded {
-                        insn: Instruction::Or(Size::Long, Operand::Imm32(imm), Operand::Reg32(nib3)),
-                        len: 6,
-                    }
-                }
-                0x5 => {
-                    let imm = bus.read_long(pc + 2);
-                    Decoded {
-                        insn: Instruction::Xor(Size::Long, Operand::Imm32(imm), Operand::Reg32(nib3)),
-                        len: 6,
-                    }
-                }
-                0x6 => {
-                    let imm = bus.read_long(pc + 2);
-                    Decoded {
-                        insn: Instruction::And(Size::Long, Operand::Imm32(imm), Operand::Reg32(nib3)),
-                        len: 6,
-                    }
-                }
-                _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
+            // MOV/ADD/CMP/SUB/OR/XOR/AND.L #imm32, ERd (7A nr imm32)
+            let imm = bus.read_long(pc + 2);
+            let src = Operand::Imm32(imm);
+            let dst = Operand::Reg32(nib3);
+            if let Some(insn) = decode_alu_op(nib2, Size::Long, src, dst) {
+                Decoded { insn, len: 6 }
+            } else {
+                Decoded { insn: Instruction::Unknown(w0), len: 2 }
             }
         }
         0xB => {
@@ -1869,33 +1731,17 @@ fn decode_group_7_bitop_mem(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, ni
     let bit_num = ((w1 >> 4) & 0xF) as u8;
     let _reg_or_zero = (w1 & 0xF) as u8;
 
+    // 7C/7D = @ERd (register indirect), 7E/7F = @aa:8 (absolute 8-bit)
     let target = match op_lo {
-        0xC => {
-            // 7C r0 xxxx — @ERd (bit ops via register indirect)
-            Operand::RegIndirect(nib2 & 0x7)
-        }
-        0xD => {
-            // 7D r0 xxxx — @ERd (bit ops via register indirect, write variant)
-            Operand::RegIndirect(nib2 & 0x7)
-        }
-        0xE => {
-            // 7E aa xxxx — @aa:8
-            let abs = ((nib2 as u8) << 4) | nib3;
-            Operand::Abs8(abs)
-        }
-        0xF => {
-            // 7F aa xxxx — @aa:8 (write variant)
-            let abs = ((nib2 as u8) << 4) | nib3;
-            Operand::Abs8(abs)
-        }
+        0xC | 0xD => Operand::RegIndirect(nib2 & 0x7),
+        0xE | 0xF => Operand::Abs8((nib2 << 4) | nib3),
         _ => unreachable!(),
     };
 
     let bit = Operand::Imm8(bit_num & 0x7);
 
     let insn = match bit_op {
-        0x63 => Instruction::Btst(bit, target),
-        0x73 => Instruction::Btst(bit, target),
+        0x63 | 0x73 => Instruction::Btst(bit, target),
         0x60 => Instruction::Bset(Operand::Reg8(bit_num), target),
         0x70 => Instruction::Bset(bit, target),
         0x61 => Instruction::Bnot(Operand::Reg8(bit_num), target),
@@ -1938,8 +1784,8 @@ pub fn disassemble(insn: &Instruction) -> String {
 
         Instruction::Neg(size, op) => format!("NEG.{} {}", size_str(size), operand_str(op)),
         Instruction::Not(size, op) => format!("NOT.{} {}", size_str(size), operand_str(op)),
-        Instruction::Inc(size, op) => format!("INC.{} {}", size_str(size), operand_str(op)),
-        Instruction::Dec(size, op) => format!("DEC.{} {}", size_str(size), operand_str(op)),
+        Instruction::Inc(size, op, amt) => format!("INC.{} #{}, {}", size_str(size), amt, operand_str(op)),
+        Instruction::Dec(size, op, amt) => format!("DEC.{} #{}, {}", size_str(size), amt, operand_str(op)),
 
         Instruction::Addx(src, dst) => format!("ADDX {}, {}", operand_str(src), operand_str(dst)),
         Instruction::Subx(src, dst) => format!("SUBX {}, {}", operand_str(src), operand_str(dst)),

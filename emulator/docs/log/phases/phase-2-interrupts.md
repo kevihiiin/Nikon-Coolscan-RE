@@ -1,5 +1,5 @@
 # Phase 2: Interrupts — Attempt Log
 
-**Status**: Not Started
+**Status**: Partially Complete (timer interrupts working, context switch working from Phase 1)
 
 ---

@@ -6,7 +6,7 @@
 
 pub struct Watchdog {
     pub enabled: bool,
-    pub counter: u16,
+    pub counter: u32,
     pub fed: bool,
 }
 

@@ -8,7 +8,7 @@ pub struct Config {
     pub adapter: AdapterType,
     pub trace: bool,
     pub max_instructions: u64,
-    pub tcp_port: u16,
+    pub _tcp_port: u16,
     pub watchdog: bool,
 }
 
@@ -69,7 +69,7 @@ impl Config {
             adapter,
             trace,
             max_instructions,
-            tcp_port,
+            _tcp_port: tcp_port,
             watchdog,
         }
     }

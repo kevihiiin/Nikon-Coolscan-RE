@@ -84,7 +84,7 @@ pub struct MemoryBus {
     /// Port 7 override value (for adapter detection).
     /// Address 0xFFFF8E is shared between Port 7 GPIO and ITU4 TIER.
     /// This field provides the Port 7 read value without corrupting the timer register.
-    pub port7_override: u8,
+    pub port7_override: Option<u8>,
 
     /// Trace callback — if set, called on every memory access.
     pub trace_enabled: bool,
@@ -106,7 +106,7 @@ impl MemoryBus {
             asic_regs: [0x00; 0x1000],
             isp1581_regs: [0x00; 256],
             usb_code_watchpoint: false,
-            port7_override: 0,
+            port7_override: None,
             trace_enabled: false,
             unmapped_reads: 0,
             unmapped_writes: 0,
@@ -243,8 +243,8 @@ impl MemoryBus {
         let offset = (addr - 0xFFFF00) as usize;
         // Port 7 (0xFFFF8E) shares address with ITU4 TIER.
         // Port 7 value is stored in port7_override; return it for reads.
-        if offset == 0x8E && self.port7_override != 0 {
-            return self.port7_override;
+        if offset == 0x8E && self.port7_override.is_some() {
+            return self.port7_override.unwrap();
         }
         self.onchip_io[offset]
     }

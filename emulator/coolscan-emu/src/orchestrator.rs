@@ -3,7 +3,7 @@
 use h8300h_core::cpu::Cpu;
 use h8300h_core::decode;
 use h8300h_core::execute;
-use h8300h_core::interrupt::{InterruptController, Priority, vectors};
+use h8300h_core::interrupt::{InterruptController, vectors};
 use h8300h_core::memory::MemoryBus;
 
 use peripherals::asic::Asic;
@@ -39,7 +39,7 @@ impl Emulator {
 
         // Set Port 7 override for adapter detection reads.
         // Address 0xFFFF8E is shared with ITU4 TIER, so we use a separate field.
-        bus.port7_override = peripherals.gpio.port_7_input;
+        bus.port7_override = Some(peripherals.gpio.port_7_input);
 
         // Pre-install trampolines in on-chip RAM.
         // The firmware normally installs these during cold boot (0x0204C4-0x0205F7),
@@ -251,58 +251,15 @@ impl Emulator {
             // Tick peripherals
             self.check_peripherals();
 
-            // Log milestones
-            match self.cpu.pc {
-                0x020334 if last_milestone_pc < 0x020334 => {
-                    log::info!("MILESTONE: Reached main entry point (0x020334) after {} instructions", i);
-                    last_milestone_pc = self.cpu.pc;
-                }
-                0x020374 if last_milestone_pc < 0x020374 => {
-                    log::info!("MILESTONE: Past I/O init table (0x020374) after {} instructions", i);
-                    // Dump timer registers after init
-                    log::info!("  TSTR(0x60)=0x{:02X}", self.bus.onchip_io[0x60]);
-                    for t in 0..5u8 {
-                        let base: usize = match t {
-                            0 => 0x64, 1 => 0x6E, 2 => 0x78, 3 => 0x82, 4 => 0x8C, _ => 0,
-                        };
-                        let tcr = self.bus.onchip_io[base];
-                        let tier = self.bus.onchip_io[base + 2];
-                        let gra = ((self.bus.onchip_io[base + 6] as u16) << 8)
-                            | self.bus.onchip_io[base + 7] as u16;
-                        if tcr != 0 || tier != 0 {
-                            log::info!("  ITU{}: TCR=0x{:02X} TIER=0x{:02X} GRA=0x{:04X}", t, tcr, tier, gra);
-                        }
+            // Log milestones (table-driven to avoid repetitive match arms)
+            self.log_milestone(last_milestone_pc, i);
+            if self.cpu.pc > last_milestone_pc {
+                // Update to prevent re-logging (only advances forward)
+                for &(addr, _) in &Self::MILESTONES {
+                    if self.cpu.pc == addr && last_milestone_pc < addr {
+                        last_milestone_pc = addr;
                     }
-                    log::info!("  Port7(0x8E)=0x{:02X}", self.bus.onchip_io[0x8E]);
-                    last_milestone_pc = self.cpu.pc;
                 }
-                0x020796 if last_milestone_pc < 0x020796 => {
-                    log::info!(
-                        "MILESTONE: Delay loop setup (0x020796) after {} instructions. ER3={:08X} ER4={:08X}",
-                        i, self.cpu.read_er(3), self.cpu.read_er(4)
-                    );
-                    last_milestone_pc = self.cpu.pc;
-                }
-                0x0207A4 if last_milestone_pc < 0x0207A4 => {
-                    log::info!(
-                        "MILESTONE: First delay loop iteration (0x0207A4). ER4={:08X}",
-                        self.cpu.read_er(4)
-                    );
-                    last_milestone_pc = self.cpu.pc;
-                }
-                0x0205FC if last_milestone_pc < 0x0205FC => {
-                    log::info!("MILESTONE: Past trampoline install (0x0205FC) after {} instructions", i);
-                    last_milestone_pc = self.cpu.pc;
-                }
-                0x020608 if last_milestone_pc < 0x020608 => {
-                    log::info!("MILESTONE: Interrupts enabled (ANDC #0x7F at 0x020608) after {} instructions. CCR={:02X}", i, self.cpu.ccr);
-                    last_milestone_pc = self.cpu.pc;
-                }
-                0x0207F2 if last_milestone_pc < 0x0207F2 => {
-                    log::info!("MILESTONE: Reached Context A main loop (0x0207F2) after {} instructions", i);
-                    last_milestone_pc = self.cpu.pc;
-                }
-                _ => {}
             }
         }
 
@@ -313,6 +270,9 @@ impl Emulator {
         self.dump_state();
     }
 
+    /// ITU base addresses in on-chip I/O space (ITU0-ITU4).
+    const ITU_BASES: [usize; 5] = [0x64, 0x6E, 0x78, 0x82, 0x8C];
+
     /// Sync peripheral models with memory bus state.
     /// Called after every instruction to propagate I/O register writes to models
     /// and model outputs back to the bus.
@@ -320,39 +280,29 @@ impl Emulator {
         // --- Timer sync ---
         // The firmware writes timer registers (0xFFFF60-0xFFFF95) via the memory bus.
         // We sync key registers to the timer model each cycle.
-        // TSTR (0xFFFF60) — timer start bits
         let tstr = self.bus.onchip_io[0x60];
         if tstr != self.peripherals.timers.tstr {
             self.peripherals.timers.tstr = tstr;
         }
         // Sync per-timer registers when that timer's TSTR bit is set
-        for timer_idx in 0..5u8 {
-            if tstr & (1 << timer_idx) != 0 {
-                let base: usize = match timer_idx {
-                    0 => 0x64,
-                    1 => 0x6E,
-                    2 => 0x78,
-                    3 => 0x82,
-                    4 => 0x8C,
-                    _ => unreachable!(),
-                };
-                let t = &mut self.peripherals.timers.timers[timer_idx as usize];
+        for (i, &base) in Self::ITU_BASES.iter().enumerate() {
+            if tstr & (1 << i) != 0 {
+                let t = &mut self.peripherals.timers.timers[i];
                 t.tcr = self.bus.onchip_io[base];
                 t.tior = self.bus.onchip_io[base + 1];
                 // TIER at base+2: skip for ITU4 (0x8E conflicts with Port 7 GPIO)
-                if timer_idx != 4 {
+                if i != 4 {
                     t.tier = self.bus.onchip_io[base + 2];
                 }
-                // GRA = big-endian 16-bit at base+6..base+7
+                // GRA/GRB = big-endian 16-bit
                 t.gra = ((self.bus.onchip_io[base + 6] as u16) << 8)
                     | self.bus.onchip_io[base + 7] as u16;
                 t.grb = ((self.bus.onchip_io[base + 8] as u16) << 8)
                     | self.bus.onchip_io[base + 9] as u16;
                 // Sync TSR: firmware clears flags by writing 0 to bits.
-                // Read bus TSR and AND with model TSR (bus clear takes effect).
                 let bus_tsr = self.bus.onchip_io[base + 3];
                 t.tsr &= bus_tsr;
-                // Write back TCNT (model increments it)
+                // Write back model state to bus
                 self.bus.onchip_io[base + 3] = t.tsr;
                 self.bus.onchip_io[base + 4] = (t.tcnt >> 8) as u8;
                 self.bus.onchip_io[base + 5] = t.tcnt as u8;
@@ -390,15 +340,16 @@ impl Emulator {
     fn check_peripherals(&mut self) {
         // Timer interrupts
         let timer_irqs = self.peripherals.timers.tick();
-        for vec in timer_irqs {
+        for vec in timer_irqs.into_iter().flatten() {
             if vec == vectors::IMIA4 && !self.irq.has_pending() {
-                log::debug!("ITU4 compare-match → Vec 40 queued (CCR.I={})", self.cpu.interrupt_masked() as u8);
+                log::debug!("ITU4 compare-match -> Vec 40 queued (CCR.I={})", self.cpu.interrupt_masked() as u8);
             }
-            self.irq.assert_interrupt(vec, match vec {
+            let priority = match vec {
                 vectors::IMIA4 => vectors::PRIORITY_LOW,
                 vectors::IMIA2 | vectors::IMIA3 => vectors::PRIORITY_MEDIUM,
                 _ => vectors::PRIORITY_MEDIUM,
-            });
+            };
+            self.irq.assert_interrupt(vec, priority);
         }
 
         // ISP1581 USB interrupt
@@ -416,6 +367,53 @@ impl Emulator {
             self.asic.ccd_trigger_pending = false;
             self.irq.assert_interrupt(vectors::VEC49, vectors::PRIORITY_MEDIUM);
         }
+    }
+
+    /// Boot milestone addresses and their descriptions.
+    const MILESTONES: [(u32, &'static str); 7] = [
+        (0x020334, "Reached main entry point"),
+        (0x020374, "Past I/O init table"),
+        (0x020796, "Delay loop setup"),
+        (0x0207A4, "First delay loop iteration"),
+        (0x0205FC, "Past trampoline install"),
+        (0x020608, "Interrupts enabled"),
+        (0x0207F2, "Reached Context A main loop"),
+    ];
+
+    /// Log a boot milestone if the PC matches one we haven't seen yet.
+    fn log_milestone(&self, last_milestone_pc: u32, insn_count: u64) {
+        let pc = self.cpu.pc;
+        for &(addr, desc) in &Self::MILESTONES {
+            if pc == addr && last_milestone_pc < addr {
+                log::info!("MILESTONE: {} (0x{:06X}) after {} instructions", desc, addr, insn_count);
+                // Extra diagnostics for specific milestones
+                if addr == 0x020374 {
+                    self.dump_timer_state();
+                } else if addr == 0x020796 {
+                    log::info!("  ER3={:08X} ER4={:08X}", self.cpu.read_er(3), self.cpu.read_er(4));
+                } else if addr == 0x0207A4 {
+                    log::info!("  ER4={:08X}", self.cpu.read_er(4));
+                } else if addr == 0x020608 {
+                    log::info!("  CCR={:02X}", self.cpu.ccr);
+                }
+                break;
+            }
+        }
+    }
+
+    /// Dump timer register state (used at I/O init milestone).
+    fn dump_timer_state(&self) {
+        log::info!("  TSTR(0x60)=0x{:02X}", self.bus.onchip_io[0x60]);
+        for (i, &base) in Self::ITU_BASES.iter().enumerate() {
+            let tcr = self.bus.onchip_io[base];
+            let tier = self.bus.onchip_io[base + 2];
+            let gra = ((self.bus.onchip_io[base + 6] as u16) << 8)
+                | self.bus.onchip_io[base + 7] as u16;
+            if tcr != 0 || tier != 0 {
+                log::info!("  ITU{}: TCR=0x{:02X} TIER=0x{:02X} GRA=0x{:04X}", i, tcr, tier, gra);
+            }
+        }
+        log::info!("  Port7(0x8E)=0x{:02X}", self.bus.onchip_io[0x8E]);
     }
 
     fn dump_state(&self) {

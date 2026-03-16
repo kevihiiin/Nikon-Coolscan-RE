@@ -3,8 +3,6 @@
 /// Loads the actual LS-50 firmware binary (512KB) and runs it on an
 /// emulated H8/3003 CPU with virtual peripherals.
 
-use std::path::PathBuf;
-
 mod config;
 mod orchestrator;
 

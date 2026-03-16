@@ -121,14 +121,9 @@ impl Isp1581 {
         !self.ep2_in_fifo.is_empty()
     }
 
-    /// Check and clear IRQ pending flag.
-    pub fn take_irq(&mut self) -> bool {
-        if self.irq_pending {
-            // Don't clear here — firmware must write-back to clear IRQ status
-            true
-        } else {
-            false
-        }
+    /// Check IRQ pending flag (firmware must write-back to clear IRQ status).
+    pub fn take_irq(&self) -> bool {
+        self.irq_pending
     }
 }
 
@@ -146,7 +141,7 @@ mod tests {
     fn test_host_send_cdb() {
         let mut isp = Isp1581::new();
         // Host sends 6-byte TUR CDB padded to 32 bytes
-        let mut cdb = vec![0x00; 32]; // TUR = all zeros
+        let cdb = vec![0x00; 32]; // TUR = all zeros
         isp.host_send_ep1(&cdb);
         assert!(isp.irq_pending);
         assert_eq!(isp.irq_status & IRQ_EP_EVENT, IRQ_EP_EVENT);

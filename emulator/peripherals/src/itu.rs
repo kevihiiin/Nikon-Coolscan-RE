@@ -40,14 +40,14 @@ impl Timer {
     }
 
     /// Get the prescaler divisor from TCR bits 2-0.
+    /// H8/3003 ITU clock select: 000=φ/1, 001=φ/2, 010=φ/4, 011=φ/8, 1xx=external.
     fn prescaler(&self) -> u32 {
         match self.tcr & 0x07 {
-            0 => 0,    // Internal clock / 1 (but bit patterns vary by timer)
-            1 => 1,    // φ/1
-            2 => 2,    // φ/2
-            3 => 4,    // φ/4
-            4 => 8,    // φ/8
-            _ => 1,    // External clock sources — treat as /1
+            0 => 1,    // φ/1 (internal clock, no division)
+            1 => 2,    // φ/2
+            2 => 4,    // φ/4
+            3 => 8,    // φ/8
+            _ => 0,    // External clock sources — not emulated, timer stopped
         }
     }
 
@@ -99,6 +99,9 @@ impl Default for Timer {
     }
 }
 
+/// Interrupt vectors for each timer's compare-match A (ITU0-ITU4).
+const IMIA_VECTORS: [u8; 5] = [24, 28, ITU2_IMIA_VEC, ITU3_IMIA_VEC, ITU4_IMIA_VEC];
+
 pub struct TimerUnit {
     pub tstr: u8,  // Timer start register (bit n = ITUn running)
     pub timers: [Timer; 5],
@@ -108,33 +111,18 @@ impl TimerUnit {
     pub fn new() -> Self {
         Self {
             tstr: 0,
-            timers: [
-                Timer::new(),
-                Timer::new(),
-                Timer::new(),
-                Timer::new(),
-                Timer::new(),
-            ],
+            timers: core::array::from_fn(|_| Timer::new()),
         }
     }
 
-    /// Tick all running timers. Returns list of interrupt vectors to fire.
-    pub fn tick(&mut self) -> Vec<u8> {
-        let mut irqs = Vec::new();
+    /// Tick all running timers. Returns interrupt vectors to fire (up to 5).
+    /// Uses a fixed-size array to avoid heap allocation on every tick.
+    pub fn tick(&mut self) -> [Option<u8>; 5] {
+        let mut irqs = [None; 5];
 
         for i in 0..5 {
-            if self.tstr & (1 << i) != 0 {
-                if self.timers[i].tick() {
-                    let vec = match i {
-                        0 => 24, // IMIA0
-                        1 => 28, // IMIA1
-                        2 => ITU2_IMIA_VEC,
-                        3 => ITU3_IMIA_VEC,
-                        4 => ITU4_IMIA_VEC,
-                        _ => unreachable!(),
-                    };
-                    irqs.push(vec);
-                }
+            if self.tstr & (1 << i) != 0 && self.timers[i].tick() {
+                irqs[i] = Some(IMIA_VECTORS[i]);
             }
         }
 

@@ -1,6 +1,6 @@
 # Phase 1: CPU Core — Attempt Log
 
-**Status**: In Progress — firmware executing 50M+ instructions stably
+**Status**: COMPLETE — all instructions decode, firmware boots to 0x020334 and beyond
 **Started**: 2026-03-16
 
 ---
@@ -102,3 +102,40 @@
 - Zero unmapped reads, 2 unmapped writes (to BSC area during early init)
 **Confidence**: High
 **Next**: Check if main loop (0x0207F2) is reached, begin USB bridge work
+
+## Attempt 9 — 2026-03-16 — Timer/I/O Routing Fix
+
+**Target**: Get ITU4 system tick timer interrupts firing
+**Result**: SUCCESS
+- Root cause: on-chip I/O reads/writes went to flat array, peripheral models never saw them
+- Added timer register sync in orchestrator (TSTR, TCR, TIER, GRA, TCNT, TSR)
+- Fixed Port 7 / ITU4 TIER address conflict at 0xFFFF8E: Port 7 uses dedicated port7_override
+- Fixed TSR sync: firmware flag clears now propagate to model (was overwriting bus with model value)
+- Fixed GRA/TCR sync: JIT-configured values now written to bus so sync doesn't overwrite them
+- Added OR.L/XOR.L/AND.L decoding (01F0 64/65/66 prefix)
+**Confidence**: Verified (ITU4 Vec 40 interrupts fire, ISR at 0x010A16 executes)
+
+## Attempt 10 — 2026-03-16 — 78-Prefix MOV.B Decode
+
+**Target**: Fix unknown bit_op 0x50 at 0x0106EA
+**Result**: SUCCESS
+- Root cause: 78+6A with mode_lo ≠ 0 is 8-byte MOV.B with 24-bit displacement, not 10-byte bit op
+- Format: 78 rr 6A [mode][reg] d23 d15 d7 pad = 8 bytes
+- mode_lo = 0: 10-byte bit operation (BSET/BCLR/BTST/etc)
+- mode_lo ≠ 0: 8-byte MOV.B (reg is the byte register number)
+- All 78-prefix variants now decode correctly
+- **Zero unknown instruction warnings** in 1.8M instructions of flash code
+**Confidence**: Verified
+
+## Phase 1 COMPLETE — Summary
+
+Phase 1 milestone: "Firmware boots to 0x020334. All instructions decode and execute without panics."
+
+**Achieved**:
+- Firmware boots from 0x000100, reaches 0x020334 at instruction 8
+- All H8/300H instructions used by the firmware are properly decoded
+- Zero unknown instruction warnings through 1.8M instructions of flash code
+- Context switching, timer interrupts, trampoline install all working
+- 47 unit tests passing, zero compiler warnings
+
+**Remaining issue (Phase 3)**: USB fast-path code at 0x40115C reaches uninitialized RAM at 0x404F62 (instruction ~1.8M). This requires ISP1581 bridge implementation to resolve.

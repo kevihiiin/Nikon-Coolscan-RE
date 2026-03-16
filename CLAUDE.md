@@ -190,7 +190,7 @@ emulator/
 ### Emulator Key Constants
 
 - Context A stack: 0x410000 | Context B stack: 0x40D000
-- Stack guards: A < 0x40F000 warn | B < 0x408000 warn
+- Stack guards (planned): A < 0x40F000 warn | B < 0x408000 warn
 - SP save watchpoint: 0x400766-0x40076D
 
 ### Emulator Logging

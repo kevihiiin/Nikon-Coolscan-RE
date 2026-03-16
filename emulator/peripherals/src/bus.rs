@@ -31,12 +31,13 @@ impl PeripheralBus {
     pub fn read_io(&mut self, addr: u32) -> (u8, bool) {
         let offset = (addr & 0xFF) as u8;
         match offset {
-            // Timer registers: 0x60-0x9F
-            0x60..=0x9F => {
+            // Timer registers: ITU0-ITU2 (0x60-0x7F), ITU3-ITU4 (0x82-0x95)
+            // Note: 0x80-0x8F are GPIO, not timers
+            0x60..=0x7F | 0x82..=0x95 => {
                 let val = self.timers.read(offset);
                 (val, true)
             }
-            // GPIO ports
+            // GPIO ports: 0x80-0x8F, 0xA2-0xA3, 0xC7-0xC8
             0x80..=0x8F | 0xA2..=0xA3 | 0xC7..=0xC8 => {
                 let val = self.gpio.read(offset);
                 (val, true)
@@ -57,10 +58,12 @@ impl PeripheralBus {
     pub fn write_io(&mut self, addr: u32, val: u8) -> bool {
         let offset = (addr & 0xFF) as u8;
         match offset {
-            0x60..=0x9F => {
+            // Timer registers: ITU0-ITU2 (0x60-0x7F), ITU3-ITU4 (0x82-0x95)
+            0x60..=0x7F | 0x82..=0x95 => {
                 self.timers.write(offset, val);
                 true
             }
+            // GPIO ports: 0x80-0x8F, 0xA2-0xA3, 0xC7-0xC8
             0x80..=0x8F | 0xA2..=0xA3 | 0xC7..=0xC8 => {
                 self.gpio.write(offset, val);
                 true

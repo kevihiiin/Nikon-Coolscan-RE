@@ -37,7 +37,7 @@
 8. ANDC #0x7F at 0x020608 → interrupts enabled (insn 1.15M)
 9. **Stable execution at 50M+ instructions** — both contexts active
 
-### Trampoline table (13 entries, pre-installed):
+### Trampoline table (12 entries, pre-installed):
 
 | On-chip RAM | Handler | Vector | Purpose |
 |-------------|---------|--------|---------|

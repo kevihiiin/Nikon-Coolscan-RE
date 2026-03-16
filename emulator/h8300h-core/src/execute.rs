@@ -55,12 +55,12 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
             exec_neg(cpu, bus, *size, op);
             next_pc
         }
-        Instruction::Inc(size, op) => {
-            exec_inc(cpu, *size, op);
+        Instruction::Inc(size, op, amt) => {
+            exec_inc(cpu, *size, op, *amt as u32);
             next_pc
         }
-        Instruction::Dec(size, op) => {
-            exec_dec(cpu, *size, op);
+        Instruction::Dec(size, op, amt) => {
+            exec_dec(cpu, *size, op, *amt as u32);
             next_pc
         }
         Instruction::Addx(src, dst) => {
@@ -121,8 +121,10 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
                 // Result: remainder in upper byte, quotient in lower byte of Rd
                 let result = ((remainder & 0xFF) << 8) | (quotient & 0xFF);
                 write_operand_w(cpu, bus, dst, result);
-                cpu.set_flag(CCR_N, quotient & 0x80 != 0);
-                cpu.set_flag(CCR_Z, quotient == 0);
+                // Flags from truncated 8-bit quotient (not the full u16 quotient)
+                let q8 = (quotient & 0xFF) as u8;
+                cpu.set_flag(CCR_N, q8 & 0x80 != 0);
+                cpu.set_flag(CCR_Z, q8 == 0);
             }
             next_pc
         }
@@ -136,8 +138,10 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
                 let remainder = dividend % divisor;
                 let result = ((remainder & 0xFFFF) << 16) | (quotient & 0xFFFF);
                 write_operand_l(cpu, bus, dst, result);
-                cpu.set_flag(CCR_N, quotient & 0x8000 != 0);
-                cpu.set_flag(CCR_Z, quotient == 0);
+                // Flags from truncated 16-bit quotient
+                let q16 = (quotient & 0xFFFF) as u16;
+                cpu.set_flag(CCR_N, q16 & 0x8000 != 0);
+                cpu.set_flag(CCR_Z, q16 == 0);
             }
             next_pc
         }
@@ -202,29 +206,12 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
             next_pc
         }
         Instruction::Not(size, op) => {
-            match size {
-                Size::Byte => {
-                    let val = read_operand_b(cpu, bus, op);
-                    let result = !val;
-                    write_operand_b(cpu, bus, op, result);
-                    cpu.update_nz_b(result);
-                    cpu.set_flag(CCR_V, false);
-                }
-                Size::Word => {
-                    let val = read_operand_w(cpu, bus, op);
-                    let result = !val;
-                    write_operand_w(cpu, bus, op, result);
-                    cpu.update_nz_w(result);
-                    cpu.set_flag(CCR_V, false);
-                }
-                Size::Long => {
-                    let val = read_operand_l(cpu, bus, op);
-                    let result = !val;
-                    write_operand_l(cpu, bus, op, result);
-                    cpu.update_nz_l(result);
-                    cpu.set_flag(CCR_V, false);
-                }
-            }
+            let p = size_params(*size);
+            let val = read_sized(cpu, bus, *size, op);
+            let result = !val & p.mask;
+            write_sized(cpu, bus, *size, op, result);
+            update_nz(cpu, *size, result);
+            cpu.set_flag(CCR_V, false);
             next_pc
         }
 
@@ -425,238 +412,161 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
     }
 }
 
+// --- Size-parameterized helpers ---
+// These eliminate the Byte/Word/Long repetition in arithmetic operations
+// by widening all values to u32 and using size-dependent masks.
+
+/// Masks and bit positions for each operand size.
+struct SizeParams {
+    /// Bitmask for the operand width (0xFF, 0xFFFF, or 0xFFFF_FFFF).
+    mask: u32,
+    /// MSB position (0x80, 0x8000, or 0x8000_0000).
+    msb: u32,
+    /// Half-carry mask (0xF, 0xFFF, or 0xFFF_FFFF).
+    half_mask: u32,
+}
+
+const BYTE_PARAMS: SizeParams = SizeParams { mask: 0xFF, msb: 0x80, half_mask: 0xF };
+const WORD_PARAMS: SizeParams = SizeParams { mask: 0xFFFF, msb: 0x8000, half_mask: 0xFFF };
+const LONG_PARAMS: SizeParams = SizeParams { mask: 0xFFFF_FFFF, msb: 0x8000_0000, half_mask: 0xFFF_FFFF };
+
+fn size_params(size: Size) -> &'static SizeParams {
+    match size {
+        Size::Byte => &BYTE_PARAMS,
+        Size::Word => &WORD_PARAMS,
+        Size::Long => &LONG_PARAMS,
+    }
+}
+
+/// Read an operand as u32 (widened from the appropriate size).
+fn read_sized(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, op: &Operand) -> u32 {
+    match size {
+        Size::Byte => read_operand_b(cpu, bus, op) as u32,
+        Size::Word => read_operand_w(cpu, bus, op) as u32,
+        Size::Long => read_operand_l(cpu, bus, op),
+    }
+}
+
+/// Write a u32 value truncated to the appropriate size.
+fn write_sized(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, op: &Operand, val: u32) {
+    match size {
+        Size::Byte => write_operand_b(cpu, bus, op, val as u8),
+        Size::Word => write_operand_w(cpu, bus, op, val as u16),
+        Size::Long => write_operand_l(cpu, bus, op, val),
+    }
+}
+
+/// Update N and Z flags for the given size.
+fn update_nz(cpu: &mut Cpu, size: Size, result: u32) {
+    let p = size_params(size);
+    cpu.set_flag(CCR_N, result & p.msb != 0);
+    cpu.set_flag(CCR_Z, result & p.mask == 0);
+}
+
 // --- Helper functions ---
 
 fn exec_mov(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, src: &Operand, dst: &Operand) {
-    match size {
-        Size::Byte => {
-            let val = read_operand_b(cpu, bus, src);
-            write_operand_b(cpu, bus, dst, val);
-            cpu.update_nz_b(val);
-            cpu.set_flag(CCR_V, false);
-        }
-        Size::Word => {
-            let val = read_operand_w(cpu, bus, src);
-            write_operand_w(cpu, bus, dst, val);
-            cpu.update_nz_w(val);
-            cpu.set_flag(CCR_V, false);
-        }
-        Size::Long => {
-            let val = read_operand_l(cpu, bus, src);
-            write_operand_l(cpu, bus, dst, val);
-            cpu.update_nz_l(val);
-            cpu.set_flag(CCR_V, false);
-        }
-    }
+    let val = read_sized(cpu, bus, size, src);
+    write_sized(cpu, bus, size, dst, val);
+    update_nz(cpu, size, val);
+    cpu.set_flag(CCR_V, false);
 }
 
 fn exec_add(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, src: &Operand, dst: &Operand) {
-    match size {
-        Size::Byte => {
-            let s = read_operand_b(cpu, bus, src);
-            let d = read_operand_b(cpu, bus, dst);
-            let (result, carry) = d.overflowing_add(s);
-            let half = (d & 0xF) + (s & 0xF) > 0xF;
-            let overflow = (!(s ^ d) & (s ^ result)) & 0x80 != 0;
-            write_operand_b(cpu, bus, dst, result);
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, carry);
-        }
-        Size::Word => {
-            let s = read_operand_w(cpu, bus, src);
-            let d = read_operand_w(cpu, bus, dst);
-            let (result, carry) = d.overflowing_add(s);
-            let half = (d & 0xFFF) + (s & 0xFFF) > 0xFFF;
-            let overflow = (!(s ^ d) & (s ^ result)) & 0x8000 != 0;
-            write_operand_w(cpu, bus, dst, result);
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, carry);
-        }
-        Size::Long => {
-            let s = read_operand_l(cpu, bus, src);
-            let d = read_operand_l(cpu, bus, dst);
-            let (result, carry) = d.overflowing_add(s);
-            let half = (d & 0xFFF_FFFF) + (s & 0xFFF_FFFF) > 0xFFF_FFFF;
-            let overflow = (!(s ^ d) & (s ^ result)) & 0x8000_0000 != 0;
-            write_operand_l(cpu, bus, dst, result);
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, carry);
-        }
-    }
+    let p = size_params(size);
+    let s = read_sized(cpu, bus, size, src);
+    let d = read_sized(cpu, bus, size, dst);
+    let sum = d.wrapping_add(s) & p.mask;
+    let carry = (d & p.mask) > (sum);  // unsigned overflow
+    let half = (d & p.half_mask) + (s & p.half_mask) > p.half_mask;
+    let overflow = (!(s ^ d) & (s ^ sum)) & p.msb != 0;
+    write_sized(cpu, bus, size, dst, sum);
+    update_nz(cpu, size, sum);
+    cpu.set_flag(CCR_H, half);
+    cpu.set_flag(CCR_V, overflow);
+    cpu.set_flag(CCR_C, carry);
 }
 
 fn exec_sub(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, src: &Operand, dst: &Operand) {
-    match size {
-        Size::Byte => {
-            let s = read_operand_b(cpu, bus, src);
-            let d = read_operand_b(cpu, bus, dst);
-            let (result, borrow) = d.overflowing_sub(s);
-            let half = (d & 0xF) < (s & 0xF);
-            let overflow = ((s ^ d) & !(s ^ result)) & 0x80 != 0;
-            write_operand_b(cpu, bus, dst, result);
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, borrow);
-        }
-        Size::Word => {
-            let s = read_operand_w(cpu, bus, src);
-            let d = read_operand_w(cpu, bus, dst);
-            let (result, borrow) = d.overflowing_sub(s);
-            let half = (d & 0xFFF) < (s & 0xFFF);
-            let overflow = ((s ^ d) & !(s ^ result)) & 0x8000 != 0;
-            write_operand_w(cpu, bus, dst, result);
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, borrow);
-        }
-        Size::Long => {
-            let s = read_operand_l(cpu, bus, src);
-            let d = read_operand_l(cpu, bus, dst);
-            let (result, borrow) = d.overflowing_sub(s);
-            let half = (d & 0xFFF_FFFF) < (s & 0xFFF_FFFF);
-            let overflow = ((s ^ d) & !(s ^ result)) & 0x8000_0000 != 0;
-            write_operand_l(cpu, bus, dst, result);
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, borrow);
-        }
-    }
+    sub_internal(cpu, bus, size, src, dst, true);
 }
 
 fn exec_cmp(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, src: &Operand, dst: &Operand) {
     // CMP is SUB without storing the result
-    match size {
-        Size::Byte => {
-            let s = read_operand_b(cpu, bus, src);
-            let d = read_operand_b(cpu, bus, dst);
-            let (result, borrow) = d.overflowing_sub(s);
-            let half = (d & 0xF) < (s & 0xF);
-            let overflow = ((s ^ d) & !(s ^ result)) & 0x80 != 0;
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, borrow);
-        }
-        Size::Word => {
-            let s = read_operand_w(cpu, bus, src);
-            let d = read_operand_w(cpu, bus, dst);
-            let (result, borrow) = d.overflowing_sub(s);
-            let half = (d & 0xFFF) < (s & 0xFFF);
-            let overflow = ((s ^ d) & !(s ^ result)) & 0x8000 != 0;
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, borrow);
-        }
-        Size::Long => {
-            let s = read_operand_l(cpu, bus, src);
-            let d = read_operand_l(cpu, bus, dst);
-            let (result, borrow) = d.overflowing_sub(s);
-            let half = (d & 0xFFF_FFFF) < (s & 0xFFF_FFFF);
-            let overflow = ((s ^ d) & !(s ^ result)) & 0x8000_0000 != 0;
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_H, half);
-            cpu.set_flag(CCR_V, overflow);
-            cpu.set_flag(CCR_C, borrow);
-        }
+    sub_internal(cpu, bus, size, src, dst, false);
+}
+
+/// Shared implementation for SUB and CMP (CMP = SUB without writeback).
+fn sub_internal(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, src: &Operand, dst: &Operand, store: bool) {
+    let p = size_params(size);
+    let s = read_sized(cpu, bus, size, src);
+    let d = read_sized(cpu, bus, size, dst);
+    let result = d.wrapping_sub(s) & p.mask;
+    let borrow = (d & p.mask) < (s & p.mask);
+    let half = (d & p.half_mask) < (s & p.half_mask);
+    let overflow = ((s ^ d) & !(s ^ result)) & p.msb != 0;
+    if store {
+        write_sized(cpu, bus, size, dst, result);
     }
+    update_nz(cpu, size, result);
+    cpu.set_flag(CCR_H, half);
+    cpu.set_flag(CCR_V, overflow);
+    cpu.set_flag(CCR_C, borrow);
 }
 
 fn exec_neg(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, op: &Operand) {
+    let p = size_params(size);
+    let val = read_sized(cpu, bus, size, op);
+    let result = (0u32).wrapping_sub(val) & p.mask;
+    write_sized(cpu, bus, size, op, result);
+    update_nz(cpu, size, result);
+    cpu.set_flag(CCR_V, val == p.msb);
+    cpu.set_flag(CCR_C, val != 0);
+    cpu.set_flag(CCR_H, (val & p.half_mask) != 0);
+}
+
+fn exec_inc(cpu: &mut Cpu, size: Size, op: &Operand, amount: u32) {
+    let p = size_params(size);
+    let r = extract_reg(op);
+    let val = read_reg_sized(cpu, size, r);
+    let result = val.wrapping_add(amount) & p.mask;
+    write_reg_sized(cpu, size, r, result);
+    update_nz(cpu, size, result);
+    // Overflow: sign bit changed from 0→1 (positive became negative)
+    // For #1: val == msb-1. For #2: val == msb-1 or msb-2.
+    let prev_sign = val & p.msb;
+    let new_sign = result & p.msb;
+    cpu.set_flag(CCR_V, prev_sign == 0 && new_sign != 0);
+}
+
+fn exec_dec(cpu: &mut Cpu, size: Size, op: &Operand, amount: u32) {
+    let p = size_params(size);
+    let r = extract_reg(op);
+    let val = read_reg_sized(cpu, size, r);
+    let result = val.wrapping_sub(amount) & p.mask;
+    write_reg_sized(cpu, size, r, result);
+    update_nz(cpu, size, result);
+    // Overflow: sign bit changed from 1→0 (negative became positive)
+    let prev_sign = val & p.msb;
+    let new_sign = result & p.msb;
+    cpu.set_flag(CCR_V, prev_sign != 0 && new_sign == 0);
+}
+
+/// Read a register value widened to u32, dispatching by size.
+fn read_reg_sized(cpu: &Cpu, size: Size, r: u8) -> u32 {
     match size {
-        Size::Byte => {
-            let val = read_operand_b(cpu, bus, op);
-            let result = (0u8).wrapping_sub(val);
-            write_operand_b(cpu, bus, op, result);
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_V, val == 0x80);
-            cpu.set_flag(CCR_C, val != 0);
-            cpu.set_flag(CCR_H, (val & 0xF) != 0);
-        }
-        Size::Word => {
-            let val = read_operand_w(cpu, bus, op);
-            let result = (0u16).wrapping_sub(val);
-            write_operand_w(cpu, bus, op, result);
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_V, val == 0x8000);
-            cpu.set_flag(CCR_C, val != 0);
-            cpu.set_flag(CCR_H, (val & 0xFFF) != 0);
-        }
-        Size::Long => {
-            let val = read_operand_l(cpu, bus, op);
-            let result = (0u32).wrapping_sub(val);
-            write_operand_l(cpu, bus, op, result);
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_V, val == 0x8000_0000);
-            cpu.set_flag(CCR_C, val != 0);
-            cpu.set_flag(CCR_H, (val & 0xFFF_FFFF) != 0);
-        }
+        Size::Byte => cpu.read_r8(r) as u32,
+        Size::Word => cpu.read_r16(r) as u32,
+        Size::Long => cpu.read_er(r),
     }
 }
 
-fn exec_inc(cpu: &mut Cpu, size: Size, op: &Operand) {
+/// Write a u32 value to a register, truncating by size.
+fn write_reg_sized(cpu: &mut Cpu, size: Size, r: u8, val: u32) {
     match size {
-        Size::Byte => {
-            let val = cpu.read_r8(extract_reg(op));
-            let result = val.wrapping_add(1);
-            cpu.write_r8(extract_reg(op), result);
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_V, val == 0x7F);
-        }
-        Size::Word => {
-            let r = extract_reg(op);
-            let val = cpu.read_r16(r);
-            let result = val.wrapping_add(1);
-            cpu.write_r16(r, result);
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_V, val == 0x7FFF);
-        }
-        Size::Long => {
-            let r = extract_reg(op);
-            let val = cpu.read_er(r);
-            let result = val.wrapping_add(1);
-            cpu.write_er(r, result);
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_V, val == 0x7FFF_FFFF);
-        }
-    }
-}
-
-fn exec_dec(cpu: &mut Cpu, size: Size, op: &Operand) {
-    match size {
-        Size::Byte => {
-            let r = extract_reg(op);
-            let val = cpu.read_r8(r);
-            let result = val.wrapping_sub(1);
-            cpu.write_r8(r, result);
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_V, val == 0x80);
-        }
-        Size::Word => {
-            let r = extract_reg(op);
-            let val = cpu.read_r16(r);
-            let result = val.wrapping_sub(1);
-            cpu.write_r16(r, result);
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_V, val == 0x8000);
-        }
-        Size::Long => {
-            let r = extract_reg(op);
-            let val = cpu.read_er(r);
-            let result = val.wrapping_sub(1);
-            cpu.write_er(r, result);
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_V, val == 0x8000_0000);
-        }
+        Size::Byte => cpu.write_r8(r, val as u8),
+        Size::Word => cpu.write_r16(r, val as u16),
+        Size::Long => cpu.write_er(r, val),
     }
 }
 
@@ -748,192 +658,66 @@ fn exec_das(cpu: &mut Cpu, op: &Operand) {
 enum LogicOp { And, Or, Xor }
 
 fn exec_logic(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, src: &Operand, dst: &Operand, op: LogicOp) {
-    match size {
-        Size::Byte => {
-            let s = read_operand_b(cpu, bus, src);
-            let d = read_operand_b(cpu, bus, dst);
-            let result = match op {
-                LogicOp::And => d & s,
-                LogicOp::Or => d | s,
-                LogicOp::Xor => d ^ s,
-            };
-            write_operand_b(cpu, bus, dst, result);
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_V, false);
-        }
-        Size::Word => {
-            let s = read_operand_w(cpu, bus, src);
-            let d = read_operand_w(cpu, bus, dst);
-            let result = match op {
-                LogicOp::And => d & s,
-                LogicOp::Or => d | s,
-                LogicOp::Xor => d ^ s,
-            };
-            write_operand_w(cpu, bus, dst, result);
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_V, false);
-        }
-        Size::Long => {
-            let s = read_operand_l(cpu, bus, src);
-            let d = read_operand_l(cpu, bus, dst);
-            let result = match op {
-                LogicOp::And => d & s,
-                LogicOp::Or => d | s,
-                LogicOp::Xor => d ^ s,
-            };
-            write_operand_l(cpu, bus, dst, result);
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_V, false);
-        }
-    }
+    let s = read_sized(cpu, bus, size, src);
+    let d = read_sized(cpu, bus, size, dst);
+    let result = match op {
+        LogicOp::And => d & s,
+        LogicOp::Or => d | s,
+        LogicOp::Xor => d ^ s,
+    };
+    write_sized(cpu, bus, size, dst, result);
+    update_nz(cpu, size, result);
+    cpu.set_flag(CCR_V, false);
 }
 
 enum ShiftOp { Shal, Shar, Shll, Shlr, Rotl, Rotr, Rotxl, Rotxr }
 
 fn exec_shift(cpu: &mut Cpu, bus: &mut MemoryBus, size: Size, op: &Operand, shift: ShiftOp) {
-    match size {
-        Size::Byte => {
-            let val = read_operand_b(cpu, bus, op);
-            let (result, carry) = shift_byte(val, cpu.carry(), &shift);
-            write_operand_b(cpu, bus, op, result);
-            cpu.update_nz_b(result);
-            cpu.set_flag(CCR_C, carry);
-            // V = N xor C for arithmetic shifts
-            match shift {
-                ShiftOp::Shal | ShiftOp::Shar => {
-                    cpu.set_flag(CCR_V, cpu.negative() ^ cpu.carry());
-                }
-                _ => cpu.set_flag(CCR_V, false),
-            }
-        }
-        Size::Word => {
-            let val = read_operand_w(cpu, bus, op);
-            let (result, carry) = shift_word(val, cpu.carry(), &shift);
-            write_operand_w(cpu, bus, op, result);
-            cpu.update_nz_w(result);
-            cpu.set_flag(CCR_C, carry);
-            match shift {
-                ShiftOp::Shal | ShiftOp::Shar => {
-                    cpu.set_flag(CCR_V, cpu.negative() ^ cpu.carry());
-                }
-                _ => cpu.set_flag(CCR_V, false),
-            }
-        }
-        Size::Long => {
-            let val = read_operand_l(cpu, bus, op);
-            let (result, carry) = shift_long(val, cpu.carry(), &shift);
-            write_operand_l(cpu, bus, op, result);
-            cpu.update_nz_l(result);
-            cpu.set_flag(CCR_C, carry);
-            match shift {
-                ShiftOp::Shal | ShiftOp::Shar => {
-                    cpu.set_flag(CCR_V, cpu.negative() ^ cpu.carry());
-                }
-                _ => cpu.set_flag(CCR_V, false),
-            }
-        }
-    }
+    let p = size_params(size);
+    let val = read_sized(cpu, bus, size, op);
+    let bits = match size { Size::Byte => 8, Size::Word => 16, Size::Long => 32 };
+    let (result, carry) = shift_value(val, bits, p.mask, cpu.carry(), &shift);
+    write_sized(cpu, bus, size, op, result);
+    update_nz(cpu, size, result);
+    cpu.set_flag(CCR_C, carry);
+    // V = N xor C for arithmetic shifts, 0 otherwise
+    let is_arith = matches!(shift, ShiftOp::Shal | ShiftOp::Shar);
+    cpu.set_flag(CCR_V, if is_arith { cpu.negative() ^ cpu.carry() } else { false });
 }
 
-fn shift_byte(val: u8, old_c: bool, op: &ShiftOp) -> (u8, bool) {
+/// Size-generic shift/rotate operating on u32, parameterized by bit width and mask.
+fn shift_value(val: u32, bits: u32, mask: u32, old_c: bool, op: &ShiftOp) -> (u32, bool) {
+    let msb = 1u32 << (bits - 1);
     match op {
         ShiftOp::Shal | ShiftOp::Shll => {
-            let carry = val & 0x80 != 0;
-            (val << 1, carry)
+            let carry = val & msb != 0;
+            ((val << 1) & mask, carry)
         }
         ShiftOp::Shar => {
-            let carry = val & 0x01 != 0;
-            ((val as i8 >> 1) as u8, carry) // arithmetic: sign-extend
+            let carry = val & 1 != 0;
+            // Arithmetic right shift: sign-extend from the MSB
+            let sign = if val & msb != 0 { msb } else { 0 };
+            (((val >> 1) | sign) & mask, carry)
         }
         ShiftOp::Shlr => {
-            let carry = val & 0x01 != 0;
-            (val >> 1, carry)
+            let carry = val & 1 != 0;
+            ((val >> 1) & mask, carry)
         }
         ShiftOp::Rotl => {
-            let carry = val & 0x80 != 0;
-            let result = (val << 1) | (carry as u8);
-            (result, carry)
+            let carry = val & msb != 0;
+            (((val << 1) | carry as u32) & mask, carry)
         }
         ShiftOp::Rotr => {
-            let carry = val & 0x01 != 0;
-            let result = (val >> 1) | ((carry as u8) << 7);
-            (result, carry)
+            let carry = val & 1 != 0;
+            (((val >> 1) | ((carry as u32) << (bits - 1))) & mask, carry)
         }
         ShiftOp::Rotxl => {
-            let carry = val & 0x80 != 0;
-            let result = (val << 1) | (old_c as u8);
-            (result, carry)
+            let carry = val & msb != 0;
+            (((val << 1) | old_c as u32) & mask, carry)
         }
         ShiftOp::Rotxr => {
-            let carry = val & 0x01 != 0;
-            let result = (val >> 1) | ((old_c as u8) << 7);
-            (result, carry)
-        }
-    }
-}
-
-fn shift_word(val: u16, old_c: bool, op: &ShiftOp) -> (u16, bool) {
-    match op {
-        ShiftOp::Shal | ShiftOp::Shll => {
-            let carry = val & 0x8000 != 0;
-            (val << 1, carry)
-        }
-        ShiftOp::Shar => {
-            let carry = val & 0x0001 != 0;
-            ((val as i16 >> 1) as u16, carry)
-        }
-        ShiftOp::Shlr => {
-            let carry = val & 0x0001 != 0;
-            (val >> 1, carry)
-        }
-        ShiftOp::Rotl => {
-            let carry = val & 0x8000 != 0;
-            ((val << 1) | (carry as u16), carry)
-        }
-        ShiftOp::Rotr => {
-            let carry = val & 0x0001 != 0;
-            ((val >> 1) | ((carry as u16) << 15), carry)
-        }
-        ShiftOp::Rotxl => {
-            let carry = val & 0x8000 != 0;
-            ((val << 1) | (old_c as u16), carry)
-        }
-        ShiftOp::Rotxr => {
-            let carry = val & 0x0001 != 0;
-            ((val >> 1) | ((old_c as u16) << 15), carry)
-        }
-    }
-}
-
-fn shift_long(val: u32, old_c: bool, op: &ShiftOp) -> (u32, bool) {
-    match op {
-        ShiftOp::Shal | ShiftOp::Shll => {
-            let carry = val & 0x8000_0000 != 0;
-            (val << 1, carry)
-        }
-        ShiftOp::Shar => {
-            let carry = val & 0x0000_0001 != 0;
-            ((val as i32 >> 1) as u32, carry)
-        }
-        ShiftOp::Shlr => {
-            let carry = val & 0x0000_0001 != 0;
-            (val >> 1, carry)
-        }
-        ShiftOp::Rotl => {
-            let carry = val & 0x8000_0000 != 0;
-            ((val << 1) | (carry as u32), carry)
-        }
-        ShiftOp::Rotr => {
-            let carry = val & 0x0000_0001 != 0;
-            ((val >> 1) | ((carry as u32) << 31), carry)
-        }
-        ShiftOp::Rotxl => {
-            let carry = val & 0x8000_0000 != 0;
-            ((val << 1) | (old_c as u32), carry)
-        }
-        ShiftOp::Rotxr => {
-            let carry = val & 0x0000_0001 != 0;
-            ((val >> 1) | ((old_c as u32) << 31), carry)
+            let carry = val & 1 != 0;
+            (((val >> 1) | ((old_c as u32) << (bits - 1))) & mask, carry)
         }
     }
 }

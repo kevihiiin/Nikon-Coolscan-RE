@@ -51,12 +51,22 @@
 - Discovered at 0x0108B8: `0100 7880 6BA7 0040 0766` = MOV.L ER7, @(0x400766, ER0)
 - byte 3 = 0x80: bits 6-4 → base_reg = 0 (ER0). Bit 7 purpose unclear.
 
-### Added: 78+6A prefix — bit operations on @(d:24, ERn) (10-byte instruction)
-- Format: 78 [r]0 6A [mode]x [d23:16] [d15:0_hi] [d15:0_lo] [pad] [bitop] [bitnib]
+### Added: 78+6A prefix — two formats distinguished by mode byte low nibble
+
+**Format 1: mode_lo = 0 → 10-byte bit operation on @(d:24, ERn)**
+- 78 [r]0 6A [2|A]0 d23 d15_hi d15_lo pad bitop bitnib = 10 bytes
 - Displacement: bytes 4-6, bit_op: byte 7, bit_nib: byte 8
 - Handles: BTST, BSET, BCLR, BNOT, BST, BIST, BLD, BILD, BAND, BOR, BXOR, BIAND, BIOR, BIXOR
-- Unknown bit_op 0x50 at 0x0106EA treated as NOP (4 occurrences in boot)
-- The 'x' in mode byte (e.g. A8 vs A0) may indicate addressing sub-mode — needs further research
+- Example: 78 00 6A 20 00 40 10 67 A8 08 = BIST #0, @(0x004010, ER0)
+
+**Format 2: mode_lo ≠ 0 → 8-byte MOV.B with 24-bit displacement**
+- 78 [r]0 6A [2|A][reg] d23 d15 d7 pad = 8 bytes
+- mode_hi 2 = read (MOV.B @(d:24, ERn), Rn), A = write (MOV.B Rn, @(d:24, ERn))
+- reg = byte register number (8 = R0L, etc.)
+- Example: 78 50 6A A8 00 40 4E 50 = MOV.B R0L, @(0x00404E, ER5)
+- Previously mistakenly decoded as 10-byte bit op, giving unknown bit_op 0x50
+
+**Key insight**: mode_lo distinguishes the two formats. This resolved the last unknown instruction in flash code.
 
 ### Added: 78+6B prefix — MOV.L @(d:24, ERn) without 0100 prefix (8-byte instruction)
 - Format: 78 [r]0 6B [2|A]s [pad] [d23:16] [d15:8] [d7:0]
