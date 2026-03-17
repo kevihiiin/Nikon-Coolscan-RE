@@ -1,6 +1,6 @@
 # Phase 3: USB — Attempt Log
 
-**Status**: In Progress — TCP bridge functional, BLOCKED by context switch crash at ~2.78M instructions
+**Status**: In Progress — Exception frame bug FIXED, firmware reaches main loop
 
 ---
 
@@ -173,3 +173,40 @@ Without these, USB state and context scheduling are not properly configured.
 
 **Recommended next step**: Add instruction trace at ~2,784,600 to observe the exact
 failure mechanism — which context switch goes wrong and what stack data it reads.
+
+## 2026-03-17 — Exception Frame Fix (RESOLVED)
+
+**Root cause**: H8/300H Advanced Mode uses 4-byte packed exception frames,
+not 6-byte separate CCR+PC frames.
+
+**H8/300H Programming Manual p.159, section 2.2.51 RTE**:
+The Advanced Mode stack diagram shows CCR and PC packed into one longword:
+```
+[byte 0] CCR (8 bits)
+[byte 1] PC bits 23:16
+[byte 2] PC bits 15:8
+[byte 3] PC bits 7:0
+```
+
+**Our bug**: TRAPA pushed 6 bytes (CCR as word, PC as long), RTE popped 6 bytes.
+Firmware's context init at 0x0107EC correctly built 32-byte frames (7×4 regs + 4 packed).
+Our RTE tried to pop 34 bytes from a 32-byte frame → read 2 bytes past the frame.
+
+**For entry_point 0x000207F2 at stack_top 0x410000**:
+- Stored at 0x40FFFC as packed long: 00 02 07 F2
+- Our (wrong) RTE read: CCR=0x0002 (word), PC from 0x40FFFE = 0x07F20000
+- Masked to 24 bits: PC=0xF20000 → unmapped → crash
+
+**Fix**:
+- execute.rs: `TRAPA` pushes `(CCR<<24)|PC` as 4-byte long; `RTE` unpacks
+- interrupt.rs: same 4-byte packed frame for hardware interrupts
+- orchestrator.rs: JIT Context B frame: 34→32 bytes
+
+**Context init templates found** in firmware flash at 0x0107CC:
+| Template | Flag | Context A Entry | Context B Entry |
+|----------|------|----------------|----------------|
+| 0x0107CC | =0   | 0x0207F2 (main loop) | 0x029B16 |
+| 0x0107DC | ≠0   | 0x010C46 (warm entry) | 0x029B16 |
+
+**Result**: firmware reaches 0x0207F2 (Context A main loop) at instruction 2,783,761.
+Stable to 5M+ instructions. PC at 5M = 0x0109E4 (scheduler area).

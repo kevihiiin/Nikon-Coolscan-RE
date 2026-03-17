@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 3 — USB (IN PROGRESS, blocked by context switch crash)
-**Status**: Phase 1+2 complete. TCP bridge functional, CDB injection works, but firmware crashes at ~2.78M instructions during context switch — never reaches SCSI dispatcher
+**Current Phase**: 3 — USB (IN PROGRESS)
+**Status**: Phase 1+2 complete. Exception frame bug FIXED — firmware reaches main loop (0x0207F2). TCP bridge functional. Next: verify SCSI dispatch works.
 **Last Updated**: 2026-03-17
 
 ---
@@ -274,11 +274,41 @@
 4. **Pre-initialize all USB state + warm-boot flag**: Set 0x400772=1, zero
    0x407D00-0x407DFF, configure ISP1581 registers, then jump to main loop
 
-**Status**: UNRESOLVED — recommended next step is option 1 (trace) to identify
-exact failure mechanism before choosing fix approach.
+**Status**: RESOLVED — root cause was H8/300H exception frame format.
+
+## Session 5 — 2026-03-17 (continued)
+
+**Goals**: Diagnose and fix context switch crash at ~2.78M instructions
+
+**Root cause found and fixed**: H8/300H Advanced Mode exception frame is 4 bytes
+(packed [CCR:8|PC:24] as single longword), not 6 bytes (CCR word + PC long).
+
+**Diagnosis path**:
+1. Added context switch tracing: every CTX entry logged with idx, SP, flags
+2. Key finding #1: **Zero B→A switches** — idx always 0x0000, context never toggles
+3. Key finding #2: flags 0x400772=0x01, 0x400001=0x01 prevent actual swap
+4. Key finding #3: firmware's OWN init at 0x0107EC builds 32-byte frames
+   (7 regs × 4 + 1 entry_point × 4), but our RTE expected 34-byte frames
+5. Verified from H8/300H Programming Manual p.159: Advanced Mode stack diagram
+   shows CCR packed in upper byte of PC longword
+
+**The fix**:
+- execute.rs: TRAPA pushes (CCR<<24)|PC as single 4-byte long, RTE unpacks
+- interrupt.rs: interrupt service uses same 4-byte packed frame
+- orchestrator.rs: JIT Context B frame reduced from 34 to 32 bytes
+- Tests updated: SP change from -6 to -4 for TRAPA/interrupt
+
+**Result**: firmware reaches Context A main loop (0x0207F2) at instruction 2,783,761.
+Runs stable to 5M+ instructions. The context init at 0x0107EC now correctly
+initializes both contexts using its template at 0x0107CC:
+- Context A: stack_top=0x410000, entry=0x0207F2
+- Context B: stack_top=0x40D000, entry=0x029B16
+
+**Two init templates discovered** at 0x0107CC and 0x0107DC:
+- Template 1 (flag=0, first boot): A→0x0207F2, B→0x029B16
+- Template 2 (flag≠0, warm boot): A→0x010C46, B→0x029B16
 
 **Next Steps**:
-- Add instruction trace output starting at ~2,784,600
-- Trace should show: PC, instruction, SP, all register values for ~100 instructions
-- Look for: when does SP drift to 0x410002? Is it gradual or sudden?
-- Check: is the context save area (0x400764-0x40076D) getting overwritten?
+- Verify SCSI command dispatch at 0x020AE2 is reachable from main loop
+- Test CDB injection via TCP bridge now that firmware is in main loop
+- Check if context switching now actually toggles (flags may clear in main loop)
