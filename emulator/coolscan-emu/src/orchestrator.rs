@@ -28,6 +28,8 @@ pub struct Emulator {
     last_ctx_b_sp: u32,
     /// Count of context switches observed (for debugging).
     ctx_switch_count: u64,
+    /// Set of one-shot milestones already logged (by address).
+    milestones_seen: std::collections::HashSet<u32>,
     /// TCP listener for the bridge (non-blocking).
     tcp_listener: Option<TcpListener>,
     /// Connected TCP client stream.
@@ -127,6 +129,7 @@ impl Emulator {
             last_ctx_a_sp: 0,
             last_ctx_b_sp: 0,
             ctx_switch_count: 0,
+            milestones_seen: std::collections::HashSet::new(),
             tcp_listener,
             tcp_client: None,
             pending_cdb: None,
@@ -139,8 +142,6 @@ impl Emulator {
 
     /// Run the emulator for up to max_instructions.
     pub fn run(&mut self, max_instructions: u64) {
-        let mut last_milestone_pc = 0u32;
-
         for i in 0..max_instructions {
             if self.cpu.sleeping {
                 // Check for pending interrupts to wake up
@@ -156,13 +157,13 @@ impl Emulator {
             // Decode
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);
 
-            if self.trace || i > 2_780_000 {
+            if self.trace {
                 let disasm = decode::disassemble(&decoded.insn);
-                log::info!(
-                    "[{:06X}] {:16}  ; ER0={:08X} ER1={:08X} SP={:08X} CCR={:02X} (insn {})",
+                log::trace!(
+                    "[{:06X}] {:16}  ; ER0={:08X} ER1={:08X} SP={:08X} CCR={:02X}",
                     self.cpu.pc, disasm,
                     self.cpu.read_er(0), self.cpu.read_er(1),
-                    self.cpu.sp(), self.cpu.ccr, i
+                    self.cpu.sp(), self.cpu.ccr
                 );
             }
 
@@ -254,6 +255,22 @@ impl Emulator {
                     self.bus.flash_write_long(0x012EC6, 0x00000000); // NOP the USB setup call
                     log::info!("JIT: NOPed USB fast-path calls at 0x012EC6 and 0x012ECE");
 
+                    // NOP all three blocking init calls in the main loop.
+                    // These poll ISP1581 status and never return because our ISP1581 model
+                    // doesn't provide the expected USB enumeration state.
+                    // Direct RAM CDB injection bypasses USB entirely.
+                    //
+                    // 0x02080E: JSR @0x010D22 (shared module init — has USB polling inside)
+                    self.bus.flash_write_long(0x02080E, 0x00000000); // NOP+NOP
+                    // 0x020820: JSR @0x01233A (USB configure with timeout=50)
+                    self.bus.flash_write_long(0x020820, 0x00000000); // NOP+NOP
+                    // 0x020824: JSR @0x0126EE (USB endpoint enable)
+                    self.bus.flash_write_long(0x020824, 0x00000000); // NOP+NOP
+                    log::info!("JIT: NOPed main loop USB init calls (0x02080E, 0x020820, 0x020824)");
+
+                    // Pre-set USB state: set later in the main loop NOP section.
+                    // (Setting here gets overwritten by context init at 0x0107EC.)
+
                     log::info!(
                         "JIT context init: Context B SP=0x{:06X}, entry=0x029B16",
                         frame_sp
@@ -276,12 +293,12 @@ impl Emulator {
                 let flag_772 = self.bus.read_byte(0x400772);
                 let flag_001 = self.bus.read_byte(0x400001);
 
-                // Log first 10, then every 1000th, and near crash (>2.7M)
-                if self.ctx_switch_count <= 10 || self.ctx_switch_count % 1000 == 0 || i > 2_700_000 {
+                // Log first 10, then every 10000th
+                if self.ctx_switch_count <= 10 || self.ctx_switch_count % 10000 == 0 {
                     log::info!(
-                        "CTX#{} {} at insn {} | SP={:06X} idx={:04X} A_SP={:06X} B_SP={:06X} flags=[772={:02X} 001={:02X}]",
+                        "CTX#{} {} at insn {} | SP={:06X} idx={:04X} A_SP={:06X} B_SP={:06X}",
                         self.ctx_switch_count, switching_to, i,
-                        current_sp, ctx_idx, ctx_a_sp, ctx_b_sp, flag_772, flag_001
+                        current_sp, ctx_idx, ctx_a_sp, ctx_b_sp
                     );
                 }
 
@@ -379,16 +396,46 @@ impl Emulator {
                 self.poll_tcp();
             }
 
-            // Log milestones (table-driven to avoid repetitive match arms)
-            self.log_milestone(last_milestone_pc, i);
-            if self.cpu.pc > last_milestone_pc {
-                // Update to prevent re-logging (only advances forward)
-                for &(addr, _) in &Self::MILESTONES {
-                    if self.cpu.pc == addr && last_milestone_pc < addr {
-                        last_milestone_pc = addr;
-                    }
-                }
+            // One-shot: when main loop entry is first reached, set USB state
+            // variables so the firmware skips USB reconnect/reset paths.
+            // Must be done here (not in JIT) because context init at 0x0107EC
+            // overwrites RAM set during JIT.
+            if pre_exec_pc == 0x0207F2 && !self.milestones_seen.contains(&0xDEAD0001) {
+                self.milestones_seen.insert(0xDEAD0001); // marker for "done"
+                self.bus.write_byte(0x407DC7, 0x02); // USB session = configured
+                self.bus.write_byte(0x407DC3, 0x01); // USB connection = connected
+                self.bus.write_byte(0x400084, 0x00); // Clear USB bus reset flag
+                self.bus.write_byte(0x400085, 0x00); // Clear USB re-init flag
+                self.bus.write_byte(0x400086, 0x00); // Clear USB status flag
+                log::info!("MAIN LOOP INIT: Set USB state vars (session=02, cleared reset flags)");
             }
+
+            // Log key main loop addresses to trace execution flow
+            if pre_exec_pc == 0x013C70 {
+                let pending = self.bus.read_byte(0x400082);
+                log::info!(
+                    "SCSI: cmd_pending check at insn {} — pending={:02X}, CDB[0]={:02X}",
+                    i, pending, self.bus.read_byte(0x4007DE)
+                );
+            }
+            // One-shot log when main loop reaches the polling section after USB check
+            if pre_exec_pc == 0x02083C && !self.milestones_seen.contains(&0x02083C) {
+                self.milestones_seen.insert(0x02083C);
+                log::info!("MAIN LOOP: reached scan state check (0x02083C) at insn {}", i);
+                log::info!("  USB state 0x407DC7={:02X}, flag 0x400084={:02X}, flag 0x400085={:02X}, flag 0x400086={:02X}",
+                    self.bus.read_byte(0x407DC7),
+                    self.bus.read_byte(0x400084),
+                    self.bus.read_byte(0x400085),
+                    self.bus.read_byte(0x400086));
+            }
+            // Log USB bus reset handler call
+            if pre_exec_pc == 0x013A20 && !self.milestones_seen.contains(&0x013A20) {
+                self.milestones_seen.insert(0x013A20);
+                log::info!("MAIN LOOP: entered USB bus reset handler (0x013A20) at insn {}", i);
+            }
+
+            // Log milestones (one-shot, any address order)
+            self.log_milestone(i);
         }
 
         log::info!(
@@ -498,7 +545,7 @@ impl Emulator {
     }
 
     /// Boot milestone addresses and their descriptions.
-    const MILESTONES: [(u32, &'static str); 7] = [
+    const MILESTONES: [(u32, &'static str); 12] = [
         (0x020334, "Reached main entry point"),
         (0x020374, "Past I/O init table"),
         (0x020796, "Delay loop setup"),
@@ -506,21 +553,22 @@ impl Emulator {
         (0x0205FC, "Past trampoline install"),
         (0x020608, "Interrupts enabled"),
         (0x0207F2, "Reached Context A main loop"),
+        (0x020AE2, "SCSI dispatcher entered"),
+        (0x010D22, "Main loop: shared module init"),
+        (0x01233A, "Main loop: USB configure"),
+        (0x0126EE, "Main loop: USB endpoint enable"),
+        (0x013C70, "Main loop: cmd_pending check"),
     ];
 
     /// Log a boot milestone if the PC matches one we haven't seen yet.
-    fn log_milestone(&self, last_milestone_pc: u32, insn_count: u64) {
+    fn log_milestone(&mut self, insn_count: u64) {
         let pc = self.cpu.pc;
         for &(addr, desc) in &Self::MILESTONES {
-            if pc == addr && last_milestone_pc < addr {
+            if pc == addr && !self.milestones_seen.contains(&addr) {
+                self.milestones_seen.insert(addr);
                 log::info!("MILESTONE: {} (0x{:06X}) after {} instructions", desc, addr, insn_count);
-                // Extra diagnostics for specific milestones
                 if addr == 0x020374 {
                     self.dump_timer_state();
-                } else if addr == 0x020796 {
-                    log::info!("  ER3={:08X} ER4={:08X}", self.cpu.read_er(3), self.cpu.read_er(4));
-                } else if addr == 0x0207A4 {
-                    log::info!("  ER4={:08X}", self.cpu.read_er(4));
                 } else if addr == 0x020608 {
                     log::info!("  CCR={:02X}", self.cpu.ccr);
                 }
@@ -613,28 +661,27 @@ impl Emulator {
     fn handle_tcp_message(&mut self, msg_type: u8, payload: &[u8]) {
         match msg_type {
             0x01 => {
-                // CDB — inject into BOTH ISP1581 FIFO AND directly into RAM
-                let mut cdb = vec![0u8; 32];
-                let copy_len = payload.len().min(32);
-                cdb[..copy_len].copy_from_slice(&payload[..copy_len]);
-                log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}...]",
-                    cdb[0], cdb[1], cdb[2], cdb[3], cdb[4], cdb[5]);
+                // CDB — inject directly into firmware RAM (bypass USB transport)
+                log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}]",
+                    payload.get(0).copied().unwrap_or(0),
+                    payload.get(1).copied().unwrap_or(0),
+                    payload.get(2).copied().unwrap_or(0),
+                    payload.get(3).copied().unwrap_or(0),
+                    payload.get(4).copied().unwrap_or(0),
+                    payload.get(5).copied().unwrap_or(0));
 
-                // Inject into ISP1581 FIFO (for when USB path works)
-                self.bus.isp1581_inject(&cdb);
-
-                // ALSO inject directly into firmware RAM (bypass USB transport)
-                // CDB buffer at 0x4007DE (16 bytes from KB docs)
-                for (i, &b) in payload.iter().enumerate().take(16) {
-                    self.bus.write_byte(0x4007DE + i as u32, b);
+                // Write CDB to firmware buffer at 0x4007DE (16 bytes)
+                for (j, &b) in payload.iter().enumerate().take(16) {
+                    self.bus.write_byte(0x4007DE + j as u32, b);
                 }
-                // Set SCSI opcode at expected location
-                // The firmware reads the opcode from the CDB buffer
+                // Set SCSI opcode byte at 0x4007B6 (firmware reads opcode from here)
+                if !payload.is_empty() {
+                    self.bus.write_byte(0x4007B6, payload[0]);
+                }
                 // Set cmd_pending flag at 0x400082
                 self.bus.write_byte(0x400082, 0x01);
-                // Set USB connection state to "ready" at 0x407DC7
-                self.bus.write_byte(0x407DC7, 0x02);
-                log::info!("TCP: CDB injected to RAM 0x4007DE, cmd_pending=1");
+                log::info!("TCP: CDB injected to RAM 0x4007DE, cmd_pending=1, opcode=0x{:02X}",
+                    payload.get(0).copied().unwrap_or(0));
             }
             0x02 => {
                 // Phase query — for now, read the firmware's phase byte from RAM
