@@ -299,9 +299,6 @@ def send_mode_select(sock, mode_data):
     print(f"\n=== MODE SELECT ({len(mode_data)} bytes) ===")
     hex_dump(mode_data)
 
-    # Inject the data-out payload first
-    inject_data_out(sock, mode_data)
-
     cdb = bytes([
         0x15,
         0x10,  # PF=1 (page format)
@@ -312,7 +309,11 @@ def send_mode_select(sock, mode_data):
     ])
     send_frame(sock, 0x01, cdb)
 
+    # Data-out commands are handled synchronously by the emulator
+    # Wait for completion then check sense
     done, sk, asc, has_data, auto_data = wait_completion(sock)
+    # Drain any auto-pushed data
+    recv_all_frames(sock, timeout=0.3)
     sense_sk, sense_asc, sense_ascq = query_sense(sock)
     if sense_sk is not None:
         if sense_sk == 0:
@@ -326,9 +327,6 @@ def send_set_window(sock, window_data):
     """SET WINDOW (opcode 0x24) — data-out command (80 bytes typical)."""
     print(f"\n=== SET WINDOW ({len(window_data)} bytes) ===")
 
-    # Inject data-out payload
-    inject_data_out(sock, window_data)
-
     xfer_len = len(window_data)
     cdb = bytes([
         0x24,
@@ -341,6 +339,7 @@ def send_set_window(sock, window_data):
     send_frame(sock, 0x01, cdb)
 
     done, sk, asc, has_data, auto_data = wait_completion(sock)
+    recv_all_frames(sock, timeout=0.3)
     sense_sk, sense_asc, sense_ascq = query_sense(sock)
     if sense_sk is not None:
         if sense_sk == 0:
