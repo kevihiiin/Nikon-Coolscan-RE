@@ -59,6 +59,11 @@ impl InterruptController {
             return false;
         }
 
+        // Debug: log if IRQ1 is pending and we're about to service
+        if self.pending.iter().any(|p| p.vector == 13) {
+            log::info!("IRQ1 about to be serviced! CCR.I=0, PC=0x{:06X}", cpu.pc);
+        }
+
         // If sleeping, any interrupt wakes up
         if cpu.sleeping && !self.pending.is_empty() {
             cpu.sleeping = false;
@@ -67,6 +72,10 @@ impl InterruptController {
         // Take the highest-priority pending interrupt
         if let Some(irq) = self.pending.first().copied() {
             self.pending.remove(0);
+            // Always log USB IRQ1 servicing for debugging
+            if irq.vector == 13 {
+                log::info!("IRQ1 SERVICED: vec=13 → handler from vector table");
+            }
 
             // Push CCR (as 16-bit, zero-extended) and PC
             let sp = cpu.sp() - 6;

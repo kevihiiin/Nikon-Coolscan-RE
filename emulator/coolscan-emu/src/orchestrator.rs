@@ -228,10 +228,12 @@ impl Emulator {
                     self.bus.onchip_io[0x60] |= 0x10;     // Mirror TSTR to bus
                     log::info!("JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)");
 
-                    // Note: USB fast-path code (flash 0x124BA → RAM 0x4010A0, 414 bytes)
-                    // is copied by the firmware itself during init. The firmware patches
-                    // addresses during copy, so pre-copying from flash gives wrong bytes.
-                    // We let the firmware handle its own copy.
+                    // Set USB initialization flag at RAM 0x400084.
+                    // The firmware's IRQ1 handler checks this; if 0, USB processing is skipped.
+                    // Also set related USB state flags that the firmware expects.
+                    self.bus.write_byte(0x400084, 0x01); // USB initialized
+                    self.bus.write_byte(0x400082, 0x00); // cmd_pending = 0 (no command yet)
+                    log::info!("JIT: Set USB init flag at 0x400084");
 
                     log::info!(
                         "JIT context init: Context B SP=0x{:06X}, entry=0x029B16",
@@ -386,9 +388,9 @@ impl Emulator {
             self.irq.assert_interrupt(vec, priority);
         }
 
-        // ISP1581 USB interrupt
         // ISP1581 USB interrupt — check via bus accessor
         if self.bus.isp1581_has_irq() {
+            log::debug!("ISP1581 IRQ1 asserted (CCR.I={})", self.cpu.interrupt_masked() as u8);
             self.irq.assert_interrupt(vectors::IRQ1, vectors::PRIORITY_HIGH);
         }
 

@@ -42,7 +42,9 @@ pub struct Isp1581 {
 
 impl Isp1581 {
     pub fn new() -> Self {
-        Self {
+        // Initialize with USB connected (SOFTCT bit in Mode register)
+        // The firmware checks this to determine if USB is active.
+        let mut isp = Self {
             irq_status: 0,
             mode: 0,
             dma_config: 0,
@@ -52,7 +54,11 @@ impl Isp1581 {
             ep1_out_fifo: VecDeque::new(),
             ep2_in_fifo: VecDeque::new(),
             irq_pending: false,
-        }
+        };
+        // Set SOFTCT bit (bit 4) in Mode register to indicate USB connected.
+        // Without this, firmware skips all USB processing.
+        isp.mode = 0x0010; // SOFTCT = 1 (connected)
+        isp
     }
 
     /// Read a register (called by memory bus for addresses 0x600000-0x6000FF).
@@ -139,15 +145,11 @@ impl Default for Isp1581 {
 /// Byte reads return the high or low byte of the word at the aligned address.
 impl h8300h_core::memory::MmioDevice for Isp1581 {
     fn read_byte(&mut self, offset: u32) -> u8 {
-        // ISP1581 is 16-bit; byte reads should go through read_word.
-        // But for non-FIFO registers, just return from the word value.
         let word_offset = offset & !1;
         let word = Isp1581::read_word(self, word_offset);
-        if offset & 1 == 0 {
-            (word >> 8) as u8
-        } else {
-            word as u8
-        }
+        let byte = if offset & 1 == 0 { (word >> 8) as u8 } else { word as u8 };
+        log::trace!("ISP1581 read_byte [0x{:02X}] = 0x{:02X} (word 0x{:04X})", offset, byte, word);
+        byte
     }
 
     fn write_byte(&mut self, offset: u32, val: u8) {
@@ -164,10 +166,15 @@ impl h8300h_core::memory::MmioDevice for Isp1581 {
     }
 
     fn read_word(&mut self, offset: u32) -> u16 {
-        Isp1581::read_word(self, offset)
+        let val = Isp1581::read_word(self, offset);
+        if offset != 0x20 || val != 0 { // Don't spam Data Port zero reads
+            log::trace!("ISP1581 read  [0x{:02X}] = 0x{:04X}", offset, val);
+        }
+        val
     }
 
     fn write_word(&mut self, offset: u32, val: u16) {
+        log::trace!("ISP1581 write [0x{:02X}] = 0x{:04X}", offset, val);
         Isp1581::write_word(self, offset, val);
     }
 
