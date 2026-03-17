@@ -10,6 +10,7 @@ pub struct Config {
     pub max_instructions: u64,
     pub _tcp_port: u16,
     pub watchdog: bool,
+    pub gadget: bool,
 }
 
 impl Config {
@@ -28,6 +29,7 @@ impl Config {
         let mut max_instructions = 10_000_000;
         let mut tcp_port = 6581;
         let mut watchdog = false;
+        let mut gadget = false;
 
         let mut i = 2;
         while i < args.len() {
@@ -60,6 +62,10 @@ impl Config {
                     watchdog = true;
                     i += 1;
                 }
+                "--gadget" => {
+                    gadget = true;
+                    i += 1;
+                }
                 _ => i += 1,
             }
         }
@@ -71,6 +77,7 @@ impl Config {
             max_instructions,
             _tcp_port: tcp_port,
             watchdog,
+            gadget,
         }
     }
 }
