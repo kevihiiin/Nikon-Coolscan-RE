@@ -283,28 +283,35 @@ impl Emulator {
     /// status that our model doesn't provide. Direct RAM CDB injection
     /// bypasses USB entirely, so we NOP all these calls.
     fn apply_flash_nop_patches(&mut self) {
-        // USB fast-path calls in timer ISR path
-        let fast_path_patches: &[(u32, &str)] = &[
-            (0x012EC6, "USB setup call (JSR @0x01350A)"),
-            (0x012ECE, "USB fast-path call (JSR @0x013506)"),
+        // Each entry: (flash address, expected original bytes, description)
+        // Expected bytes are JSR @aa:24 instructions (opcode 5E, 4 bytes total).
+        // If the firmware has different bytes, it's a different version and
+        // patching would corrupt random code — skip with a warning.
+        let patches: &[(u32, u32, &str)] = &[
+            // USB fast-path calls in timer ISR path
+            (0x012EC6, 0x5E01350A, "USB setup call (JSR @0x01350A)"),
+            (0x012ECE, 0x5E013506, "USB fast-path call (JSR @0x013506)"),
+            // Main loop USB init calls (block on ISP1581 enumeration state)
+            (0x02080E, 0x5E010D22, "shared module init (JSR @0x010D22)"),
+            (0x020820, 0x5E01233A, "USB configure (JSR @0x01233A)"),
+            (0x020824, 0x5E0126EE, "USB endpoint enable (JSR @0x0126EE)"),
         ];
-        for &(addr, desc) in fast_path_patches {
+
+        let mut patched = 0;
+        for &(addr, expected, desc) in patches {
+            let actual = self.bus.read_long(addr);
+            if actual != expected {
+                log::warn!(
+                    "JIT: SKIP patch {} at 0x{:06X}: found 0x{:08X}, expected 0x{:08X} (wrong firmware version?)",
+                    desc, addr, actual, expected
+                );
+                continue;
+            }
             self.bus.flash_write_long(addr, 0x00000000);
-            log::debug!("JIT: NOPed {} at 0x{:06X}", desc, addr);
+            patched += 1;
         }
 
-        // Main loop USB init calls (block on ISP1581 enumeration state)
-        let init_patches: &[(u32, &str)] = &[
-            (0x02080E, "shared module init (JSR @0x010D22)"),
-            (0x020820, "USB configure (JSR @0x01233A)"),
-            (0x020824, "USB endpoint enable (JSR @0x0126EE)"),
-        ];
-        for &(addr, desc) in init_patches {
-            self.bus.flash_write_long(addr, 0x00000000);
-            log::debug!("JIT: NOPed {} at 0x{:06X}", desc, addr);
-        }
-
-        log::info!("JIT: NOPed 5 USB calls in flash (fast-path + main loop init)");
+        log::info!("JIT: NOPed {}/{} USB calls in flash", patched, patches.len());
     }
 
     // --- Context switch tracing ---
