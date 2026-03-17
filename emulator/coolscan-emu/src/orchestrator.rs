@@ -22,6 +22,12 @@ pub struct Emulator {
     pub peripherals: PeripheralBus,
     trace: bool,
     context_initialized: bool,
+    /// Context switch tracing: last known good context save area values.
+    last_ctx_index: u16,
+    last_ctx_a_sp: u32,
+    last_ctx_b_sp: u32,
+    /// Count of context switches observed (for debugging).
+    ctx_switch_count: u64,
     /// TCP listener for the bridge (non-blocking).
     tcp_listener: Option<TcpListener>,
     /// Connected TCP client stream.
@@ -117,6 +123,10 @@ impl Emulator {
             peripherals,
             trace: config.trace,
             context_initialized: false,
+            last_ctx_index: 0,
+            last_ctx_a_sp: 0,
+            last_ctx_b_sp: 0,
+            ctx_switch_count: 0,
             tcp_listener,
             tcp_client: None,
             pending_cdb: None,
@@ -146,13 +156,13 @@ impl Emulator {
             // Decode
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);
 
-            if self.trace {
+            if self.trace || i > 2_780_000 {
                 let disasm = decode::disassemble(&decoded.insn);
-                log::trace!(
-                    "[{:06X}] {:16}  ; ER0={:08X} ER1={:08X} SP={:08X} CCR={:02X}",
+                log::info!(
+                    "[{:06X}] {:16}  ; ER0={:08X} ER1={:08X} SP={:08X} CCR={:02X} (insn {})",
                     self.cpu.pc, disasm,
                     self.cpu.read_er(0), self.cpu.read_er(1),
-                    self.cpu.sp(), self.cpu.ccr
+                    self.cpu.sp(), self.cpu.ccr, i
                 );
             }
 
@@ -188,18 +198,16 @@ impl Emulator {
                     // Context B entry: 0x029B16 (from our KB).
                     let ctx_b_sp = 0x0040D000u32;
                     // Build a fake stack frame at ctx_b_sp for RTE:
-                    // [SP+0] = CCR (as word, 0x0000 = interrupts enabled)
-                    // [SP+2] = return PC (0x029B16 = Context B entry point)
+                    // H8/300H Advanced Mode: exception frame = [CCR:8|PC:24] packed longword
                     // Plus register save area (7 regs * 4 bytes = 28 bytes)
-                    // Total frame = 6 (RTE) + 28 (registers) = 34 bytes
-                    let frame_sp = ctx_b_sp - 34;
+                    // Total frame = 4 (RTE) + 28 (registers) = 32 bytes
+                    let frame_sp = ctx_b_sp - 32;
                     // Write saved registers (all 0)
                     for j in 0..7 {
                         self.bus.write_long(frame_sp + j * 4, 0);
                     }
-                    // Write RTE frame at end of saved registers
-                    self.bus.write_word(frame_sp + 28, 0x0000); // CCR
-                    self.bus.write_long(frame_sp + 30, 0x029B16); // PC = Context B entry
+                    // Write packed RTE frame: [CCR=0x00][PC=0x029B16]
+                    self.bus.write_long(frame_sp + 28, 0x00029B16);
                     // Store context B's SP in save area
                     self.bus.write_long(0x40076A, frame_sp);
                     // Context A index = 0 (current)
@@ -250,6 +258,79 @@ impl Emulator {
                         "JIT context init: Context B SP=0x{:06X}, entry=0x029B16",
                         frame_sp
                     );
+                }
+            }
+
+            // --- Context switch tracing ---
+            // Monitor every entry to the context switch handler (0x010876)
+            // and validate the context save area isn't corrupted.
+            let pre_exec_pc = self.cpu.pc;
+            if pre_exec_pc == 0x010876 {
+                self.ctx_switch_count += 1;
+                let ctx_idx = self.bus.read_word(0x400764);
+                let ctx_a_sp = self.bus.read_long(0x400766);
+                let ctx_b_sp = self.bus.read_long(0x40076A);
+                let current_sp = self.cpu.sp();
+                let switching_to = if ctx_idx == 0 { "A→B" } else { "B→A" };
+                // Read the flags that control whether context swap actually happens
+                let flag_772 = self.bus.read_byte(0x400772);
+                let flag_001 = self.bus.read_byte(0x400001);
+
+                // Log first 10, then every 1000th, and near crash (>2.7M)
+                if self.ctx_switch_count <= 10 || self.ctx_switch_count % 1000 == 0 || i > 2_700_000 {
+                    log::info!(
+                        "CTX#{} {} at insn {} | SP={:06X} idx={:04X} A_SP={:06X} B_SP={:06X} flags=[772={:02X} 001={:02X}]",
+                        self.ctx_switch_count, switching_to, i,
+                        current_sp, ctx_idx, ctx_a_sp, ctx_b_sp, flag_772, flag_001
+                    );
+                }
+
+                // Check for anomalies
+                let a_sp_valid = (0x40E000..=0x410000).contains(&ctx_a_sp) || ctx_a_sp == 0;
+                let b_sp_valid = (0x40C000..=0x40D000).contains(&ctx_b_sp) || ctx_b_sp == 0;
+                if !a_sp_valid || !b_sp_valid {
+                    log::error!(
+                        "CTX ANOMALY at switch #{}, insn {}: A_SP={:06X} (valid={}) B_SP={:06X} (valid={})",
+                        self.ctx_switch_count, i, ctx_a_sp, a_sp_valid, ctx_b_sp, b_sp_valid
+                    );
+                    log::error!("  Current SP={:06X}, CCR={:02X}", current_sp, self.cpu.ccr);
+                    log::error!("  ER0={:08X} ER1={:08X} ER2={:08X} ER3={:08X}",
+                        self.cpu.read_er(0), self.cpu.read_er(1),
+                        self.cpu.read_er(2), self.cpu.read_er(3));
+                    log::error!("  ER4={:08X} ER5={:08X} ER6={:08X}",
+                        self.cpu.read_er(4), self.cpu.read_er(5), self.cpu.read_er(6));
+                    // Dump the stack area that will be popped
+                    let target_sp = if ctx_idx == 0 { ctx_b_sp } else { ctx_a_sp };
+                    log::error!("  Target stack (SP={:06X}) dump:", target_sp);
+                    for j in 0..10 {
+                        let addr = target_sp + j * 4;
+                        let val = self.bus.read_long(addr);
+                        log::error!("    [{:06X}] = {:08X}", addr, val);
+                    }
+                }
+
+                self.last_ctx_index = ctx_idx;
+                self.last_ctx_a_sp = ctx_a_sp;
+                self.last_ctx_b_sp = ctx_b_sp;
+            }
+
+            // Also monitor writes to the context save area (0x400764-0x40076D)
+            // by checking after each instruction if the values changed unexpectedly
+            if i > 0 && i % 10000 == 0 {
+                let ctx_idx = self.bus.read_word(0x400764);
+                let ctx_a_sp = self.bus.read_long(0x400766);
+                let ctx_b_sp = self.bus.read_long(0x40076A);
+                if ctx_a_sp != self.last_ctx_a_sp || ctx_b_sp != self.last_ctx_b_sp {
+                    if pre_exec_pc != 0x010876 && !(0x010876..=0x010900).contains(&pre_exec_pc) {
+                        log::warn!(
+                            "CTX SAVE AREA CHANGED outside handler! insn {} PC={:06X} idx={:04X} A_SP={:06X}→{:06X} B_SP={:06X}→{:06X}",
+                            i, pre_exec_pc, ctx_idx,
+                            self.last_ctx_a_sp, ctx_a_sp,
+                            self.last_ctx_b_sp, ctx_b_sp
+                        );
+                    }
+                    self.last_ctx_a_sp = ctx_a_sp;
+                    self.last_ctx_b_sp = ctx_b_sp;
                 }
             }
 

@@ -77,11 +77,11 @@ impl InterruptController {
                 log::info!("IRQ1 SERVICED: vec=13 → handler from vector table");
             }
 
-            // Push CCR (as 16-bit, zero-extended) and PC
-            let sp = cpu.sp() - 6;
+            // H8/300H Advanced Mode: push [CCR:8][PC:24] as single longword
+            let frame = ((cpu.ccr as u32) << 24) | (cpu.pc & 0x00FF_FFFF);
+            let sp = cpu.sp() - 4;
             cpu.set_sp(sp);
-            bus.write_word(sp, cpu.ccr as u16);
-            bus.write_long(sp + 2, cpu.pc);
+            bus.write_long(sp, frame);
 
             // Set I flag to mask further interrupts
             cpu.set_flag(CCR_I, true);
@@ -179,7 +179,7 @@ mod tests {
         assert!(ic.check_and_service(&mut cpu, &mut bus));
         assert_eq!(cpu.pc, 0x014E00);
         assert!(cpu.interrupt_masked());
-        assert_eq!(cpu.sp(), 0x410000 - 6);
+        assert_eq!(cpu.sp(), 0x410000 - 4);
     }
 
     #[test]

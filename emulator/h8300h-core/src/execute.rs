@@ -342,19 +342,20 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
             addr & 0x00FF_FFFF
         }
         Instruction::Rte => {
+            // H8/300H Advanced Mode: exception frame is a single longword
+            // [CCR:8][PC:24] packed into 4 bytes (see Programming Manual p.159)
             let sp = cpu.sp();
-            let ccr_val = bus.read_word(sp);
-            cpu.ccr = ccr_val as u8;
-            let addr = bus.read_long(sp + 2);
-            cpu.set_sp(sp + 6);
-            addr & 0x00FF_FFFF
+            let frame = bus.read_long(sp);
+            cpu.ccr = (frame >> 24) as u8;
+            cpu.set_sp(sp + 4);
+            frame & 0x00FF_FFFF
         }
         Instruction::Trapa(vec_num) => {
-            // Push CCR (as word, zero-extended) and PC onto stack
-            let sp = cpu.sp() - 6;
+            // H8/300H Advanced Mode: push [CCR:8][PC:24] as single longword
+            let frame = ((cpu.ccr as u32) << 24) | (next_pc & 0x00FF_FFFF);
+            let sp = cpu.sp() - 4;
             cpu.set_sp(sp);
-            bus.write_word(sp, cpu.ccr as u16);
-            bus.write_long(sp + 2, next_pc);
+            bus.write_long(sp, frame);
             // Set I flag to mask interrupts
             cpu.set_flag(CCR_I, true);
             // Load PC from vector table: address = (8 + vec_num) * 4
@@ -1098,7 +1099,7 @@ mod tests {
         let new_pc = execute(&mut cpu, &mut bus, &insn, 0x1000, 2);
         assert_eq!(new_pc, 0x00FFFD10);
         assert!(cpu.interrupt_masked());
-        assert_eq!(cpu.sp(), 0x410000 - 6);
+        assert_eq!(cpu.sp(), 0x410000 - 4);
     }
 
     #[test]
