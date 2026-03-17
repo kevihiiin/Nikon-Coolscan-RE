@@ -391,9 +391,11 @@ def run_init_sequence(sock):
     print("COOLSCAN EMULATOR — PHASE 4 SCSI INIT SEQUENCE TEST")
     print("=" * 60)
 
-    # 1. TEST UNIT READY — skip in emulator (always ready, handler causes crash)
-    print("\n=== TEST UNIT READY ===")
-    print("  Skipped (emulator always ready, TUR handler has side effects)")
+    # 1. TEST UNIT READY
+    tur_ok = send_tur(sock)
+    if not tur_ok:
+        print("\nTUR failed — scanner not ready, aborting sequence")
+        return
 
     # 2. INQUIRY (standard)
     inq_data = send_inquiry(sock)

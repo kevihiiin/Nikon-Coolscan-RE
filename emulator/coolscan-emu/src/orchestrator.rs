@@ -36,6 +36,8 @@ pub struct Emulator {
     /// Flag: a CDB was injected and needs the dispatch path to process it.
     /// Set during CDB injection, cleared after the dispatcher consumes it.
     cdb_injected: bool,
+    /// Saved CPU state for direct handler invocation.
+    saved_regs: Option<([u32; 8], u8)>, // (ER0-ER7, CCR)
 }
 
 impl Emulator {
@@ -123,6 +125,7 @@ impl Emulator {
             tcp_listener,
             tcp_client: None,
             cdb_injected: false,
+            saved_regs: None,
         }
     }
 
@@ -141,6 +144,13 @@ impl Emulator {
             }
 
             self.irq.check_and_service(&mut self.cpu, &mut self.bus);
+
+            // Direct handler return sentinel: intercept before decode.
+            // Used for TUR (direct emulation, no firmware handler).
+            // For other commands, the firmware dispatcher path is used.
+            if self.cpu.pc == 0x07FFFE {
+                self.handle_handler_return();
+            }
 
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);
 
@@ -311,14 +321,32 @@ impl Emulator {
         // Note: The dispatch code at 0x020D9E also calls 0x01374A for exec_mode 0x01
         // commands (TUR, RESERVE). That call must remain working.
         let handler_response_mgr_calls: &[(u32, u32, &str)] = &[
-            // Dispatch-level USB state setup for exec_mode 0x01 (TUR etc.)
-            (0x020D9E, 0x5E01374A, "dispatch USB state setup (exec_mode=1)"),
-            // Handler-internal USB response manager calls for data-in/out commands
+            // ALL dispatch-level USB response manager calls (JSR @0x01374A)
+            // in the dispatch code at 0x020A00-0x020E00.
+            // Each of these blocks in ISP1581 yield-poll loop without real USB.
+            (0x020B22, 0x5E01374A, "dispatch response mgr (0x020B22)"),
+            (0x020B3A, 0x5E01374A, "dispatch response mgr (0x020B3A)"),
+            (0x020B8C, 0x5E01374A, "dispatch response mgr (0x020B8C)"),
+            (0x020BA2, 0x5E01374A, "dispatch response mgr (0x020BA2)"),
+            (0x020C62, 0x5E01374A, "dispatch response mgr (0x020C62)"),
+            (0x020C84, 0x5E01374A, "dispatch response mgr (0x020C84)"),
+            (0x020D26, 0x5E01374A, "dispatch response mgr (0x020D26)"),
+            (0x020D40, 0x5E01374A, "dispatch response mgr (0x020D40)"),
+            (0x020D5A, 0x5E01374A, "dispatch response mgr (0x020D5A)"),
+            (0x020D74, 0x5E01374A, "dispatch response mgr (0x020D74)"),
+            (0x020D9E, 0x5E01374A, "dispatch response mgr (0x020D9E)"),
+            // Handler-internal USB response manager calls (JSR @0x01374A)
             (0x026042, 0x5E01374A, "INQUIRY response manager"),
             (0x02209E, 0x5E01374A, "MODE SENSE response manager"),
             (0x021932, 0x5E01374A, "REQUEST SENSE response manager"),
             (0x0219CA, 0x5E01374A, "MODE SELECT response manager"),
             (0x026EC6, 0x5E01374A, "SET WINDOW response manager"),
+            // Handler-internal USB data transfer calls (JSR @0x014090)
+            (0x02604A, 0x5E014090, "INQUIRY data transfer"),
+            (0x02193A, 0x5E014090, "REQUEST SENSE data transfer"),
+            (0x0220A8, 0x5E014090, "MODE SENSE data transfer"),
+            (0x023D22, 0x5E014090, "RECEIVE DIAG data transfer"),
+            (0x0279AE, 0x5E014090, "GET WINDOW data transfer"),
         ];
 
         for &(addr, expected, desc) in handler_response_mgr_calls {
@@ -403,6 +431,65 @@ impl Emulator {
         self.last_ctx_b_sp = ctx_b_sp;
     }
 
+    // --- Direct SCSI handler return ---
+
+    /// Handle return from a directly-invoked SCSI handler.
+    /// Called when PC hits sentinel 0x07FFFE (pushed as return address).
+    fn handle_handler_return(&mut self) {
+        let opcode = self.bus.read_byte(0x4007B6);
+        let exec_mode = self.bus.read_byte(0x40049B);
+        log::info!("HANDLER RETURN: opcode=0x{:02X} mode=0x{:02X} sense=0x{:04X}",
+            opcode, exec_mode, self.bus.read_word(0x4007B0));
+
+        // For data-in commands (exec_mode 0x03), read response from RAM
+        if exec_mode == 0x03 {
+            let (buf_addr, max_len) = match opcode {
+                0x12 => (0x4008A2u32, 36usize), // INQUIRY
+                _ => (0u32, 0usize),
+            };
+            if buf_addr > 0 && max_len > 0 {
+                let alloc_len = self.bus.read_byte(0x4007E2) as usize; // CDB[4]
+                let xfer_len = alloc_len.min(max_len);
+                if xfer_len > 0 {
+                    let mut data = vec![0u8; xfer_len];
+                    for j in 0..xfer_len {
+                        data[j] = self.bus.read_byte(buf_addr + j as u32);
+                    }
+                    // INQUIRY: fill standard fields + vendor/product from flash
+                    if opcode == 0x12 && xfer_len >= 36 {
+                        data[0] = 0x06; data[1] = 0x00; data[2] = 0x02;
+                        data[3] = 0x02; data[4] = 0x1F;
+                        let inq_bytes: Vec<u8> = (0..28).map(|j| {
+                            self.bus.read_byte(0x0170D6 + j)
+                        }).collect();
+                        if inq_bytes.iter().all(|&b| (0x20..=0x7E).contains(&b) || b == 0xFF)
+                            && inq_bytes[0] != 0xFF {
+                            data[8..36].copy_from_slice(&inq_bytes);
+                        } else {
+                            data[8..16].copy_from_slice(b"Nikon   ");
+                            data[16..32].copy_from_slice(b"LS-50 ED        ");
+                            data[32..36].copy_from_slice(b"1.02");
+                        }
+                    }
+                    log::info!("SCSI RESPONSE: opcode=0x{:02X} {} bytes", opcode, xfer_len);
+                    self.bus.isp1581_push_to_host(&data);
+                }
+            }
+        }
+
+        // Restore all registers + CCR (handlers clobber everything)
+        if let Some((regs, ccr)) = self.saved_regs.take() {
+            for r in 0..8 { // ER0-ER7 (restore SP too for safety)
+                self.cpu.write_er(r as u8, regs[r]);
+            }
+            self.cpu.ccr = ccr;
+            log::info!("  Restored registers: SP=0x{:06X} CCR=0x{:02X}", regs[7], ccr);
+        }
+
+        // Return to the main loop idle point (0x013C70).
+        self.cpu.pc = 0x013C70;
+    }
+
     // --- One-shot runtime actions ---
 
     /// Handle address-triggered one-shot actions and logging.
@@ -431,19 +518,35 @@ impl Emulator {
         }
 
 
-        // SCSI response data intercept and cleanup.
-        // At 0x020DB4 (the JSR @0x016436 cleanup after the handler call),
-        // clear the CDB byte count to prevent side effects, and for
-        // data-in handlers, read the response from RAM and push to EP2 IN.
-        // JIT CDB byte count: set 0x400088=6 ONLY when we injected a CDB.
-        // The dispatcher runs on every main loop iteration. We only want
-        // to set 0x400088 when there's an actual injected command to process.
+        // SCSI command dispatch: two strategies based on opcode.
+        //
+        // TUR (0x00): Emulated directly — the firmware handler accesses
+        // scanner state that corrupts the context switch, so we skip it.
+        //
+        // Other opcodes: Let the firmware dispatcher handle them via JIT
+        // 0x400088 injection. Handler-internal USB response manager calls
+        // are NOPed (see apply_flash_nop_patches). Response data is
+        // intercepted at the dispatch return point (0x020DB4).
+        if pc == 0x013C70 && self.cdb_injected {
+            let opcode = self.bus.read_byte(0x4007B6);
+            if opcode == 0x00 {
+                self.cdb_injected = false;
+                self.bus.write_word(0x4007B0, 0x0000);
+                log::info!("DIRECT: TUR → GOOD (sense 00/00/00)");
+            }
+            // Other opcodes: cdb_injected stays true → 0x400088 set at 0x020AE2
+        }
+
+        // JIT 0x400088: set CDB byte count at dispatcher entry so the
+        // command ready check passes. Clear immediately at opcode lookup
+        // to prevent the firmware from processing 0x400088 as queue data.
         if pc == 0x020AE2 && self.cdb_injected {
             self.bus.write_word(0x400088, 0x0006);
         }
         if pc == 0x020B48 {
-            // Clear after the command ready check consumed the value
-            self.bus.write_word(0x400088, 0x0000);
+            if self.bus.read_word(0x400088) == 0x0006 {
+                self.bus.write_word(0x400088, 0x0000);
+            }
             self.cdb_injected = false;
         }
 
@@ -531,7 +634,7 @@ impl Emulator {
 
     /// Check whether a PC value is within a valid code region.
     fn is_valid_pc(pc: u32) -> bool {
-        (0x000100..=0x07FFFF).contains(&pc)       // Flash
+        (0x000100..=0x07FFFF).contains(&pc)       // Flash (includes 0x07FFFE sentinel)
             || (0x400000..=0x41FFFF).contains(&pc) // RAM
             || (0xFFFB80..=0xFFFEFF).contains(&pc) // On-chip RAM (trampolines)
     }
