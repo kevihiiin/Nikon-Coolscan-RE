@@ -133,6 +133,62 @@ impl Default for Isp1581 {
     }
 }
 
+/// MmioDevice implementation for ISP1581.
+/// The ISP1581 is 16-bit, so byte accesses are decomposed into word operations.
+/// The firmware always accesses ISP1581 registers as 16-bit words.
+/// Byte reads return the high or low byte of the word at the aligned address.
+impl h8300h_core::memory::MmioDevice for Isp1581 {
+    fn read_byte(&mut self, offset: u32) -> u8 {
+        // ISP1581 is 16-bit; byte reads should go through read_word.
+        // But for non-FIFO registers, just return from the word value.
+        let word_offset = offset & !1;
+        let word = Isp1581::read_word(self, word_offset);
+        if offset & 1 == 0 {
+            (word >> 8) as u8
+        } else {
+            word as u8
+        }
+    }
+
+    fn write_byte(&mut self, offset: u32, val: u8) {
+        // ISP1581 writes are always 16-bit from firmware.
+        // For byte writes, reconstruct the word.
+        let word_offset = offset & !1;
+        let old_word = Isp1581::read_word(self, word_offset);
+        let new_word = if offset & 1 == 0 {
+            (old_word & 0x00FF) | ((val as u16) << 8)
+        } else {
+            (old_word & 0xFF00) | val as u16
+        };
+        Isp1581::write_word(self, word_offset, new_word);
+    }
+
+    fn read_word(&mut self, offset: u32) -> u16 {
+        Isp1581::read_word(self, offset)
+    }
+
+    fn write_word(&mut self, offset: u32, val: u16) {
+        Isp1581::write_word(self, offset, val);
+    }
+
+    fn inject_host_data(&mut self, data: &[u8]) -> bool {
+        self.host_send_ep1(data);
+        true // IRQ should fire
+    }
+
+    fn drain_device_data(&mut self, max: usize) -> Vec<u8> {
+        self.host_recv_ep2(max)
+    }
+
+    fn has_irq(&self) -> bool {
+        self.irq_pending
+    }
+
+    fn has_data_for_host(&self) -> bool {
+        self.ep2_has_data()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

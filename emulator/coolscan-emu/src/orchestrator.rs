@@ -10,6 +10,8 @@ use peripherals::asic::Asic;
 use peripherals::isp1581::Isp1581;
 use peripherals::bus::PeripheralBus;
 
+use std::net::TcpListener;
+
 use crate::config::Config;
 
 pub struct Emulator {
@@ -17,10 +19,15 @@ pub struct Emulator {
     pub bus: MemoryBus,
     pub irq: InterruptController,
     pub asic: Asic,
-    pub isp1581: Isp1581,
     pub peripherals: PeripheralBus,
     trace: bool,
     context_initialized: bool,
+    /// TCP listener for the bridge (non-blocking).
+    tcp_listener: Option<TcpListener>,
+    /// Connected TCP client stream.
+    tcp_client: Option<std::net::TcpStream>,
+    /// Pending CDB to inject when firmware is ready.
+    pending_cdb: Option<Vec<u8>>,
 }
 
 impl Emulator {
@@ -38,8 +45,11 @@ impl Emulator {
         peripherals.watchdog.enabled = config.watchdog;
 
         // Set Port 7 override for adapter detection reads.
-        // Address 0xFFFF8E is shared with ITU4 TIER, so we use a separate field.
         bus.port7_override = Some(peripherals.gpio.port_7_input);
+
+        // Install ISP1581 device model into the memory bus for behavioral I/O.
+        bus.isp1581_device = Some(Box::new(Isp1581::new()));
+        log::info!("ISP1581 device model installed in memory bus");
 
         // Pre-install trampolines in on-chip RAM.
         // The firmware normally installs these during cold boot (0x0204C4-0x0205F7),
@@ -82,15 +92,34 @@ impl Emulator {
         // Context system will be initialized just before the first TRAPA.
         // We can't do it at startup because the RAM test overwrites 0x400000-0x420000.
 
+        // Set up TCP listener if port configured
+        let tcp_listener = if config._tcp_port > 0 {
+            match TcpListener::bind(format!("127.0.0.1:{}", config._tcp_port)) {
+                Ok(listener) => {
+                    listener.set_nonblocking(true).ok();
+                    log::info!("TCP bridge listening on port {}", config._tcp_port);
+                    Some(listener)
+                }
+                Err(e) => {
+                    log::warn!("Failed to bind TCP port {}: {}", config._tcp_port, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Self {
             cpu,
             bus,
             irq: InterruptController::new(),
             asic: Asic::new(),
-            isp1581: Isp1581::new(),
             peripherals,
             trace: config.trace,
             context_initialized: false,
+            tcp_listener,
+            tcp_client: None,
+            pending_cdb: None,
         }
     }
 
@@ -251,6 +280,11 @@ impl Emulator {
             // Tick peripherals
             self.check_peripherals();
 
+            // Poll TCP bridge every 1000 instructions
+            if i % 1000 == 0 {
+                self.poll_tcp();
+            }
+
             // Log milestones (table-driven to avoid repetitive match arms)
             self.log_milestone(last_milestone_pc, i);
             if self.cpu.pc > last_milestone_pc {
@@ -353,7 +387,8 @@ impl Emulator {
         }
 
         // ISP1581 USB interrupt
-        if self.isp1581.irq_pending {
+        // ISP1581 USB interrupt — check via bus accessor
+        if self.bus.isp1581_has_irq() {
             self.irq.assert_interrupt(vectors::IRQ1, vectors::PRIORITY_HIGH);
         }
 
@@ -430,5 +465,158 @@ impl Emulator {
         log::info!("Instructions executed: {}", self.cpu.cycle_count);
         log::info!("Unmapped reads: {}, writes: {}",
             self.bus.unmapped_reads, self.bus.unmapped_writes);
+    }
+
+    // --- TCP Bridge ---
+
+    /// Poll TCP bridge for new connections and incoming data.
+    /// Called periodically during emulation (every N instructions).
+    fn poll_tcp(&mut self) {
+        // Accept new connections
+        if self.tcp_client.is_none() {
+            if let Some(ref listener) = self.tcp_listener {
+                if let Ok((stream, addr)) = listener.accept() {
+                    stream.set_nonblocking(true).ok();
+                    log::info!("TCP client connected from {}", addr);
+                    self.tcp_client = Some(stream);
+                }
+            }
+        }
+
+        // Read from connected client
+        if let Some(ref mut stream) = self.tcp_client {
+            use std::io::Read;
+            let mut header = [0u8; 3]; // [len_hi, len_lo, type]
+            match stream.read_exact(&mut header) {
+                Ok(()) => {
+                    let payload_len = ((header[0] as usize) << 8) | header[1] as usize;
+                    let msg_type = header[2];
+                    let mut payload = vec![0u8; payload_len];
+                    if payload_len > 0 {
+                        if let Err(e) = stream.read_exact(&mut payload) {
+                            log::warn!("TCP read payload error: {}", e);
+                            return;
+                        }
+                    }
+                    self.handle_tcp_message(msg_type, &payload);
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // No data available — normal for non-blocking
+                }
+                Err(e) => {
+                    log::info!("TCP client disconnected: {}", e);
+                    self.tcp_client = None;
+                }
+            }
+        }
+
+        // Send responses back to client
+        if self.bus.isp1581_has_response() {
+            self.send_tcp_response();
+        }
+    }
+
+    /// Handle an incoming TCP message.
+    fn handle_tcp_message(&mut self, msg_type: u8, payload: &[u8]) {
+        match msg_type {
+            0x01 => {
+                // CDB — pad to 32 bytes and inject into ISP1581 EP1 FIFO
+                let mut cdb = vec![0u8; 32];
+                let copy_len = payload.len().min(32);
+                cdb[..copy_len].copy_from_slice(&payload[..copy_len]);
+                log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}...]",
+                    cdb[0], cdb[1], cdb[2], cdb[3], cdb[4], cdb[5]);
+                self.bus.isp1581_inject(&cdb);
+            }
+            0x02 => {
+                // Phase query — send 0xD0 on EP1
+                self.bus.isp1581_inject(&[0xD0]);
+            }
+            0x04 => {
+                // Sense query — send 0x06 on EP1
+                self.bus.isp1581_inject(&[0x06]);
+            }
+            _ => {
+                log::warn!("TCP: Unknown message type 0x{:02X}", msg_type);
+            }
+        }
+    }
+
+    /// Send pending response data back to the TCP client.
+    fn send_tcp_response(&mut self) {
+        let data = self.bus.isp1581_drain(1024);
+        if data.is_empty() {
+            return;
+        }
+        if let Some(ref mut stream) = self.tcp_client {
+            use std::io::Write;
+            // Determine response type based on data length
+            let msg_type = match data.len() {
+                1 => 0x81, // Phase byte
+                18 => 0x83, // Sense data
+                _ => 0x82, // Data in
+            };
+            let len = data.len() as u16;
+            let header = [(len >> 8) as u8, len as u8, msg_type];
+            if let Err(e) = stream.write_all(&header) {
+                log::warn!("TCP write header error: {}", e);
+                return;
+            }
+            if let Err(e) = stream.write_all(&data) {
+                log::warn!("TCP write data error: {}", e);
+            }
+        }
+    }
+
+    /// Inject a CDB directly (for testing without TCP).
+    pub fn inject_cdb(&mut self, cdb: &[u8]) {
+        let mut padded = vec![0u8; 32];
+        let copy_len = cdb.len().min(32);
+        padded[..copy_len].copy_from_slice(&cdb[..copy_len]);
+        self.bus.isp1581_inject(&padded);
+        log::info!("Injected CDB: {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}",
+            padded[0], padded[1], padded[2], padded[3], padded[4], padded[5]);
+    }
+
+    /// Wait for firmware to produce a response, then return it.
+    pub fn wait_response(&mut self, max_insns: u64) -> Vec<u8> {
+        for _ in 0..max_insns {
+            self.step_one();
+            if self.bus.isp1581_has_response() {
+                return self.bus.isp1581_drain(1024);
+            }
+        }
+        Vec::new() // Timeout
+    }
+
+    /// Execute one CPU instruction with full peripheral handling.
+    pub fn step_one(&mut self) {
+        if self.cpu.sleeping {
+            self.check_peripherals();
+            if !self.irq.has_pending() {
+                return;
+            }
+        }
+
+        self.irq.check_and_service(&mut self.cpu, &mut self.bus);
+
+        let decoded = decode::decode(&mut self.bus, self.cpu.pc);
+        if let decode::Instruction::Unknown(_) = &decoded.insn {
+            return;
+        }
+
+        let insn_pc = self.cpu.pc;
+        let new_pc = execute::execute(
+            &mut self.cpu,
+            &mut self.bus,
+            &decoded.insn,
+            insn_pc,
+            decoded.len,
+        );
+        self.cpu.pc = new_pc;
+        self.cpu.cycle_count += 1;
+
+        self.sync_peripherals();
+        self.check_peripherals();
     }
 }

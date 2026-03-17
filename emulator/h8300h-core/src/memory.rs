@@ -25,6 +25,18 @@ pub trait MmioDevice {
         self.write_byte(addr, (val >> 8) as u8);
         self.write_byte(addr + 1, val as u8);
     }
+
+    /// Inject host data into the device (for USB EP1 OUT). Returns true if IRQ should fire.
+    fn inject_host_data(&mut self, _data: &[u8]) -> bool { false }
+
+    /// Drain device data for host (for USB EP2 IN). Returns bytes available.
+    fn drain_device_data(&mut self, _max: usize) -> Vec<u8> { Vec::new() }
+
+    /// Check if device has pending interrupt.
+    fn has_irq(&self) -> bool { false }
+
+    /// Check if device has data ready for host.
+    fn has_data_for_host(&self) -> bool { false }
 }
 
 /// Memory region identifiers for address decode.
@@ -78,6 +90,14 @@ pub struct MemoryBus {
     /// ISP1581 register backing (0x600000-0x6000FF).
     isp1581_regs: [u8; 256],
 
+    /// ISP1581 device model for behavioral I/O.
+    /// When set, ISP1581 word reads/writes dispatch through this for FIFO side effects.
+    pub isp1581_device: Option<Box<dyn MmioDevice>>,
+
+    /// ISP1581 IRQ pending flag — set by the device model, read by the orchestrator.
+    /// This avoids needing shared ownership of the ISP1581 model.
+    pub isp1581_irq_pending: bool,
+
     /// USB fast-path code watchpoint (detect writes to 0x4010A0-0x40124E).
     pub usb_code_watchpoint: bool,
 
@@ -105,6 +125,8 @@ impl MemoryBus {
             onchip_io: [0x00; 256],
             asic_regs: [0x00; 0x1000],
             isp1581_regs: [0x00; 256],
+            isp1581_device: None,
+            isp1581_irq_pending: false,
             usb_code_watchpoint: false,
             port7_override: None,
             trace_enabled: false,
@@ -140,7 +162,13 @@ impl MemoryBus {
             MemoryRegion::OnChipRam => self.onchip_ram[(addr - 0xFFFB80) as usize],
             MemoryRegion::OnChipIo => self.read_onchip_io(addr),
             MemoryRegion::Asic => self.asic_regs[(addr - 0x200000) as usize],
-            MemoryRegion::Isp1581 => self.isp1581_regs[(addr - 0x600000) as usize],
+            MemoryRegion::Isp1581 => {
+                if let Some(ref mut dev) = self.isp1581_device {
+                    dev.read_byte(addr - 0x600000)
+                } else {
+                    self.isp1581_regs[(addr - 0x600000) as usize]
+                }
+            }
             MemoryRegion::Unmapped => {
                 self.unmapped_reads += 1;
                 if self.trace_enabled {
@@ -166,7 +194,13 @@ impl MemoryBus {
             MemoryRegion::OnChipRam => self.onchip_ram[(addr - 0xFFFB80) as usize] = val,
             MemoryRegion::OnChipIo => self.write_onchip_io(addr, val),
             MemoryRegion::Asic => self.asic_regs[(addr - 0x200000) as usize] = val,
-            MemoryRegion::Isp1581 => self.isp1581_regs[(addr - 0x600000) as usize] = val,
+            MemoryRegion::Isp1581 => {
+                if let Some(ref mut dev) = self.isp1581_device {
+                    dev.write_byte(addr - 0x600000, val);
+                } else {
+                    self.isp1581_regs[(addr - 0x600000) as usize] = val;
+                }
+            }
             MemoryRegion::Unmapped => {
                 self.unmapped_writes += 1;
                 if self.trace_enabled {
@@ -178,6 +212,13 @@ impl MemoryBus {
 
     /// Read a 16-bit word (big-endian) from the bus.
     pub fn read_word(&mut self, addr: u32) -> u16 {
+        let addr = addr & 0x00FF_FFFF;
+        // ISP1581 region: dispatch as word read (EP Data FIFO pops on word access)
+        if let MemoryRegion::Isp1581 = decode_address(addr) {
+            if let Some(ref mut dev) = self.isp1581_device {
+                return dev.read_word(addr - 0x600000);
+            }
+        }
         let hi = self.read_byte(addr) as u16;
         let lo = self.read_byte(addr + 1) as u16;
         (hi << 8) | lo
@@ -185,6 +226,14 @@ impl MemoryBus {
 
     /// Write a 16-bit word (big-endian) to the bus.
     pub fn write_word(&mut self, addr: u32, val: u16) {
+        let addr_masked = addr & 0x00FF_FFFF;
+        // ISP1581 region: dispatch as word write
+        if let MemoryRegion::Isp1581 = decode_address(addr_masked) {
+            if let Some(ref mut dev) = self.isp1581_device {
+                dev.write_word(addr_masked - 0x600000, val);
+                return;
+            }
+        }
         self.write_byte(addr, (val >> 8) as u8);
         self.write_byte(addr + 1, val as u8);
     }
@@ -236,6 +285,46 @@ impl MemoryBus {
 
     pub fn set_isp1581_reg(&mut self, offset: usize, val: u8) {
         self.isp1581_regs[offset] = val;
+    }
+
+    /// Inject host data into ISP1581 EP1 OUT FIFO. Returns true if IRQ should fire.
+    pub fn isp1581_inject(&mut self, data: &[u8]) -> bool {
+        if let Some(ref mut dev) = self.isp1581_device {
+            let fire_irq = dev.inject_host_data(data);
+            if fire_irq {
+                self.isp1581_irq_pending = true;
+            }
+            fire_irq
+        } else {
+            false
+        }
+    }
+
+    /// Drain ISP1581 EP2 IN FIFO (host reads this).
+    pub fn isp1581_drain(&mut self, max: usize) -> Vec<u8> {
+        if let Some(ref mut dev) = self.isp1581_device {
+            dev.drain_device_data(max)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Check if ISP1581 has data ready for host.
+    pub fn isp1581_has_response(&self) -> bool {
+        if let Some(ref dev) = self.isp1581_device {
+            dev.has_data_for_host()
+        } else {
+            false
+        }
+    }
+
+    /// Check if ISP1581 has pending IRQ.
+    pub fn isp1581_has_irq(&self) -> bool {
+        if let Some(ref dev) = self.isp1581_device {
+            dev.has_irq()
+        } else {
+            self.isp1581_irq_pending
+        }
     }
 
     /// Read on-chip I/O register (0xFFFF00-0xFFFFFF).
