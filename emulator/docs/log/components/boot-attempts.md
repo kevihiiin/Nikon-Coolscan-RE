@@ -65,3 +65,41 @@
 - 0x400764 = 0x0000 → Context A (SP at 0x400766)
 - 0x400764 = 0x0004 → Context B (SP at 0x40076A)
 - Toggle: ADDS #4 then AND.B #0x04 wraps 0→4→0
+
+## 2026-03-17 — USB Fast-Path Bypass
+
+**Problem**: Firmware copies 414 bytes from flash 0x124BA to RAM 0x4010A0 during init.
+Later (~2.1M instructions), it JSRs to this RAM code which polls a hardware register
+(bit 7 of @0x063621) that never clears in our emulation.
+
+**Attempt 1**: JIT copy the code to RAM before firmware does
+- FAILED: firmware init overwrites the RAM region after our copy
+
+**Attempt 2**: NOP the calling JSRs at flash 0x012EC6 and 0x012ECE
+- SUCCESS: 6 bytes each replaced with 3× NOP (0x0000)
+- Firmware skips USB fast-path entirely
+- Execution continues past 2.1M instruction mark
+
+## 2026-03-17 — Context Switch Crash at ~2.78M
+
+**Symptoms at crash point (instruction ~2,784,650):**
+- PC at 0x010874 (RTE in context switch handler)
+- SP = 0x00410002 → popping from past Context A stack top
+- ER0-ER6 all 0x00000000, CCR = 0x02
+- RTE pops CCR+PC from 0x410002 → garbage → PC = 0xF20000
+
+**Working theory**: Context B entry at 0x029B16 runs code that assumes
+initialization from 0x0207F2 (main loop entry) has been done. Without this
+init, Context B may:
+1. Dereference uninitialized pointers → write to context save area
+2. Call functions that corrupt stack beyond expected bounds
+3. Return from a function that was never properly called (mismatched stack)
+
+**KB finding (from firmware analysis)**: warm-boot flag at 0x400772 controls
+an alternate context entry at 0x10C46. Our JIT does not set this flag.
+Setting it might cause Context B to take a different (safer) init path.
+
+**USB state block (0x407D00-0x407DFF)**: not zeroed in our init. If Context B
+checks USB state that's non-zero garbage, it may enter unexpected paths.
+
+**Status**: UNRESOLVED — next step is instruction trace around crash point

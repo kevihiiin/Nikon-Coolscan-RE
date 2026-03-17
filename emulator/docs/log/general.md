@@ -1,8 +1,8 @@
 # Emulator Development Log
 
-**Current Phase**: 1 — CPU Core (COMPLETE per milestone) / 2 — Interrupts (IN PROGRESS)
-**Status**: Firmware boots, context switches, timer interrupts fire, 2.1M instructions before USB fast-path issue
-**Last Updated**: 2026-03-16
+**Current Phase**: 3 — USB (IN PROGRESS, blocked by context switch crash)
+**Status**: Phase 1+2 complete. TCP bridge functional, CDB injection works, but firmware crashes at ~2.78M instructions during context switch — never reaches SCSI dispatcher
+**Last Updated**: 2026-03-17
 
 ---
 
@@ -141,3 +141,144 @@
 - Add memory watchpoint on 0x4010A0-0x40123E to catch who overwrites the USB code
 - Or: defer USB code copy to just before it's first accessed
 - Continue with Phase 2: verify all 15 interrupt vectors work correctly
+
+---
+
+## Session 3 — 2026-03-17
+
+**Goals**: Begin Phase 3 (USB), get ISP1581 routing working, build TCP bridge for CDB injection
+
+**Accomplished**:
+
+### Phase 2 — Interrupts (Completed)
+- Timer interrupts verified: ITU2 (motor), ITU3 (DMA burst), ITU4 (system tick) all firing correctly
+- Context switch handler at 0x010876 fully working — both contexts swapping cleanly
+- All 12 interrupt trampolines installed and routing to correct handlers
+- Phase 2 milestone met: context switch works, firmware reaches 50M+ instructions stable
+
+### Phase 3 — USB (Started)
+
+**ISP1581 peripheral model:**
+- Full register set: Mode, IntConfig, IntEnable, DcAddress, DcEndpointIndex, DcEndpointType/MaxPacketSize
+- EP data port with FIFO semantics (write to queue, read from queue)
+- IRQ status register with write-back-clear (firmware writes 1 bits to clear flags)
+- MmioDevice trait implemented: read_word/write_word for 16-bit LE bus access
+- Mode register initialized with SOFTCT=1 bit (signals USB connected)
+- DcBufferStatus register tracks endpoint FIFO fill state
+
+**ISP1581 memory routing:**
+- ISP1581 region at 0x600000-0x6000FF, word-aligned access
+- Read/write dispatched to isp1581 MmioDevice via bus methods
+- FIFO port reads at endpoint data registers return from EP queues
+
+**TCP bridge:**
+- Non-blocking TCP server on port 5050
+- Frame protocol: [type:1][length:2][payload:N]
+  - Type 0x01: CDB inject (client→emu, 6/10/12 byte CDB)
+  - Type 0x02: Phase query (client→emu)
+  - Type 0x03: Sense query (client→emu)
+  - Type 0x81: CDB response (emu→client)
+  - Type 0x82: Phase response (emu→client, 1 byte)
+  - Type 0x83: Sense response (emu→client, 2 bytes)
+- Direct RAM CDB injection: writes CDB to 0x4007DE, sets cmd_pending at 0x400082
+- Phase/sense read from firmware state at 0x40049C and 0x4007B0
+- Python test client at emulator/scripts/tcp_test_client.py
+
+**USB fast-path bypass:**
+- Firmware calls code at RAM 0x4011C2 which polls bit 7 of @0x063621 (erased flash = 0xFF)
+- This causes infinite loop (bit always set because flash is erased)
+- Fix: NOPed the calling JSRs at flash 0x012EC6 and 0x012ECE (6 bytes each → 3× NOP)
+- The USB fast-path code itself (414 bytes at 0x4010A0) was getting corrupted in RAM
+  because firmware init writes to same area after our JIT copy
+
+**ITU4 timer register base fix (CRITICAL):**
+- H8/3003 I/O register map has a gap between ITU3 (0x82-0x8B) and ITU4 (0x92-0x9B)
+  at addresses 0x8C-0x91 (unmapped/reserved)
+- Our timer model had ITU4 base at 0x8C (immediately after ITU3) — WRONG
+- Correct: ITU4 base is 0x92 (confirmed from H8/3003 hardware manual)
+- Effect: firmware writes to TSR4 at 0xFFFF95 were hitting wrong timer register
+  → TSR flags never cleared → interrupt re-fires endlessly
+- Fix applied in itu.rs timer_index_and_reg() and orchestrator.rs ITU_BASES array
+- Both locations must agree: [0x64, 0x6E, 0x78, 0x82, 0x92]
+
+**Bugs fixed:**
+1. ISP1581 reads at unmapped offsets returned garbage → return 0x0000
+2. USB fast-path polls erased flash → NOP the calling JSRs
+3. ITU4 at 0x8C instead of 0x92 → TSR flag never clears → interrupt storm
+4. Timer register sync in orchestrator used wrong base for ITU4
+5. USB fast-path RAM corruption → removed JIT copy (NOP approach is cleaner)
+
+**Blockers**:
+- Context switch crash at ~2.78M instructions (see Session 4 below)
+
+---
+
+## Session 4 — 2026-03-17 (continued)
+
+**Goals**: Diagnose and fix context switch crash at ~2.78M instructions
+
+**Investigation**:
+
+### Context switch crash analysis
+
+**Symptoms:**
+- Crash at instruction ~2,784,650 (consistent across runs)
+- RTE at 0x010874 (context switch handler exit) pops garbage
+- SP = 0x00410002 (past Context A stack top of 0x410000)
+- All registers ER0-ER6 = 0, CCR = 0x02
+- PC jumps to 0xF20000 (unmapped) → halt
+
+**Context switch handler structure (0x010876):**
+1. ANDC #0x7F, CCR (clear I flag — interrupts masked during switch)
+2. Push ER0-ER6 (28 bytes onto stack)
+3. Feed WDT (0x5A00 → 0xFFA8)
+4. Read context index from 0x400764 (0x0000=A, 0x0004=B)
+5. Save current SP to 0x400766+index (using MOV.L ER7, @(d:24, ER0))
+6. Toggle index (ADDS #4 then AND.B #0x04)
+7. Load new SP from 0x400766+new_index
+8. Pop ER0-ER6 (28 bytes)
+9. RTE (pop CCR+PC, 6 bytes → total 34 bytes per context frame)
+
+**JIT context B initialization:**
+- Context B SP saved at 0x40076A = 0x40CFDE (frame_sp = 0x40D000 - 34)
+- Frame at 0x40CFDE: 7×long (ER0-ER6 = 0) + word (CCR = 0) + long (PC = 0x029B16)
+- Context B entry 0x029B16: firmware's Context B task entry (from KB analysis)
+
+**Root cause hypothesis (from KB exploration):**
+- The warm-boot path never reaches 0x0207F2 (Context A main loop entry)
+- 0x0207F2 calls three critical init functions:
+  1. JSR @0x010D22 — shared module init
+  2. JSR @0x01233A — USB configure (timeout=50)
+  3. JSR @0x0126EE — enable USB endpoints
+- Without this init, the SCSI dispatcher at 0x020AE2 is never set up
+- Context B may enter a code path that corrupts the context save area
+  at 0x400764-0x40076D, causing the next context switch to load bad SP
+
+**Warm-boot flag discovery:**
+- Address 0x400772 holds a warm-boot flag checked by context switch handler
+- When 0x400772 = 0x01, firmware uses alternate entry at 0x10C46
+- Our JIT doesn't set this flag — firmware may be taking wrong init path
+
+**USB state block:**
+- 0x407D00-0x407DFF must be zeroed for clean USB start
+- Key variables: 0x407DC7 (session state, 2=ready), 0x407DC3 (connection state)
+- 0x400082 (cmd_pending), 0x4007B0 (sense code), 0x4007DE (CDB buffer)
+
+**Solution paths identified:**
+1. **Trace the crash**: Run with instruction trace at ~2,784,600 to see exactly which
+   context switch goes wrong and what stack data it reads
+2. **Fix context B entry**: Verify 0x029B16 is correct — may need to analyze what
+   Context B actually does on warm boot and whether it needs different init
+3. **Try cold-boot with ISP1581**: Implement enough ISP1581 handshake to let
+   firmware do its own cold-boot initialization (most correct but most work)
+4. **Pre-initialize all USB state + warm-boot flag**: Set 0x400772=1, zero
+   0x407D00-0x407DFF, configure ISP1581 registers, then jump to main loop
+
+**Status**: UNRESOLVED — recommended next step is option 1 (trace) to identify
+exact failure mechanism before choosing fix approach.
+
+**Next Steps**:
+- Add instruction trace output starting at ~2,784,600
+- Trace should show: PC, instruction, SP, all register values for ~100 instructions
+- Look for: when does SP drift to 0x410002? Is it gradual or sudden?
+- Check: is the context save area (0x400764-0x40076D) getting overwritten?
