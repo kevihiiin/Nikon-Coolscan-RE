@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 3 — USB (IN PROGRESS)
-**Status**: Phase 1+2 complete. Exception frame bug FIXED — firmware reaches main loop (0x0207F2). TCP bridge functional. Next: verify SCSI dispatch works.
+**Current Phase**: 3 — USB (COMPLETE)
+**Status**: Phase 1-3 complete. TUR response via TCP verified. USB gadget bridge implemented. Firmware reaches SCSI dispatcher (0x020AE2), processes TUR, returns sense 00/00/00 (GOOD).
 **Last Updated**: 2026-03-17
 
 ---
@@ -308,7 +308,40 @@ initializes both contexts using its template at 0x0107CC:
 - Template 1 (flag=0, first boot): A→0x0207F2, B→0x029B16
 - Template 2 (flag≠0, warm boot): A→0x010C46, B→0x029B16
 
+## Session 6 — 2026-03-17 (continued)
+
+**Goals**: Complete Phase 3 — get TUR working, build USB gadget bridge
+
+**Accomplished**:
+
+### TUR via TCP (VERIFIED)
+- NOPed 3 blocking USB init calls in main loop (0x02080E, 0x020820, 0x020824)
+- Pre-set USB state at main loop entry (0x407DC7=0x02, clear reset flags)
+- Set SCSI opcode byte at 0x4007B6 in TCP CDB injection
+- Fixed milestone system (HashSet instead of high-water-mark)
+- Result: firmware polls cmd_pending at 0x013C70 every ~173 instructions
+- On CDB inject: cmd_pending=1 → SCSI dispatcher at 0x020AE2 entered
+- TUR (opcode 0x00) returns sense 00/00/00 (GOOD status)
+
+### USB Gadget Bridge (IMPLEMENTED)
+- bridge/src/gadget.rs: Linux FunctionFS implementation
+- Creates USB gadget via configfs with Nikon LS-50 identifiers
+- EP1 OUT bulk + EP2 IN bulk, full-speed (64B) + high-speed (512B)
+- Auto-discovers UDC, implements UsbBridge trait
+- CLI: --gadget flag, graceful fallback if setup fails
+- Requires root + USB gadget kernel support
+
+### Phase 3 milestone: "TUR response via TCP + USB gadget" — COMPLETE
+
+**Key finding**: firmware's main loop has 3 blocking paths before cmd_pending check:
+1. JSR @0x010D22 (shared module init) — polls USB status internally
+2. JSR @0x01233A (USB configure with timeout) — infinite ISP1581 poll
+3. USB state check @0x407DC7 → reconnect path if not 0x02
+
+All 3 bypassed via NOP + pre-set RAM values. Direct RAM CDB injection
+(0x4007DE + 0x400082 flag) works without USB transport.
+
 **Next Steps**:
-- Verify SCSI command dispatch at 0x020AE2 is reachable from main loop
-- Test CDB injection via TCP bridge now that firmware is in main loop
-- Check if context switching now actually toggles (flags may clear in main loop)
+- Phase 4: Full SCSI command sequence (INQUIRY, MODE SENSE, etc.)
+- Test more opcodes via TCP bridge
+- Eventually: implement ISP1581 USB enumeration for full USB path
