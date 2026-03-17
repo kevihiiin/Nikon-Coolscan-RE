@@ -63,7 +63,19 @@ impl GadgetBridge {
 
     /// Set up the USB gadget via configfs and mount FunctionFS.
     /// Returns Ok(()) on success. Requires root or appropriate permissions.
+    /// On failure, cleans up any partial state created before the error.
     pub fn setup(&mut self) -> Result<(), String> {
+        match self.setup_inner() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::error!("Gadget setup failed: {e}. Cleaning up partial state.");
+                self.teardown();
+                Err(e)
+            }
+        }
+    }
+
+    fn setup_inner(&mut self) -> Result<(), String> {
         // Step 1: Create gadget directory
         let gp = &self.gadget_path;
         fs::create_dir_all(gp).map_err(|e| format!("create gadget dir: {e}"))?;
@@ -108,7 +120,7 @@ impl GadgetBridge {
         let mount_status = std::process::Command::new("mount")
             .args([
                 "-t", "functionfs", "coolscan",
-                self.ffs_path.to_str().unwrap(),
+                &self.ffs_path.to_string_lossy(),
             ])
             .status()
             .map_err(|e| format!("mount ffs: {e}"))?;
@@ -161,37 +173,54 @@ impl GadgetBridge {
         Ok(())
     }
 
-    /// Tear down the USB gadget.
+    /// Tear down the USB gadget. Best-effort: logs errors but continues cleanup.
     pub fn teardown(&mut self) {
         // Unbind UDC
         if let Some(ref udc) = self.udc {
-            let _ = write_file(&self.gadget_path.join("UDC"), "");
-            log::info!("Unbound UDC {udc}");
+            if let Err(e) = write_file(&self.gadget_path.join("UDC"), "") {
+                log::warn!("teardown: failed to unbind UDC {udc}: {e}");
+            }
         }
+        self.udc = None;
 
-        // Close endpoints
+        // Close endpoints (must happen before umount)
         self.ep0 = None;
         self.ep1_out = None;
         self.ep2_in = None;
 
         // Unmount FunctionFS
-        let _ = std::process::Command::new("umount")
-            .arg(self.ffs_path.to_str().unwrap())
-            .status();
+        let ffs = self.ffs_path.to_string_lossy().to_string();
+        match std::process::Command::new("umount").arg(&ffs).status() {
+            Ok(s) if !s.success() => log::warn!("teardown: umount {ffs} exited {s}"),
+            Err(e) => log::warn!("teardown: umount {ffs} failed: {e}"),
+            _ => {}
+        }
 
-        // Remove config link
-        let link = self.gadget_path.join("configs/c.1/ffs.coolscan");
-        let _ = fs::remove_file(&link);
-
-        // Remove gadget dirs (in reverse order)
-        let _ = fs::remove_dir_all(self.gadget_path.join("configs/c.1/strings/0x409"));
-        let _ = fs::remove_dir(self.gadget_path.join("configs/c.1"));
-        let _ = fs::remove_dir_all(self.gadget_path.join("strings/0x409"));
-        let _ = fs::remove_dir(self.gadget_path.join("functions/ffs.coolscan"));
-        let _ = fs::remove_dir(&self.gadget_path);
+        // Remove config link and dirs (best-effort, log failures)
+        let removals: &[&str] = &[
+            "configs/c.1/ffs.coolscan",
+            "configs/c.1/strings/0x409",
+            "configs/c.1",
+            "strings/0x409",
+            "functions/ffs.coolscan",
+        ];
+        for sub in removals {
+            let p = self.gadget_path.join(sub);
+            if p.exists() {
+                let r = if p.is_dir() { fs::remove_dir_all(&p) } else { fs::remove_file(&p) };
+                if let Err(e) = r {
+                    log::warn!("teardown: remove {}: {e}", p.display());
+                }
+            }
+        }
+        if self.gadget_path.exists() {
+            if let Err(e) = fs::remove_dir(&self.gadget_path) {
+                log::warn!("teardown: remove gadget dir: {e}");
+            }
+        }
 
         self.connected = false;
-        log::info!("USB gadget torn down");
+        log::info!("USB gadget teardown complete");
     }
 }
 
@@ -200,8 +229,17 @@ impl UsbBridge for GadgetBridge {
         if let Some(ref mut ep1) = self.ep1_out {
             let mut buf = [0u8; 512]; // Max packet size for USB 2.0 bulk
             match ep1.read(&mut buf) {
-                Ok(n) if n > 0 => Some(buf[..n].to_vec()),
-                _ => None,
+                Ok(0) => {
+                    log::info!("EP1 OUT: EOF (host disconnected)");
+                    self.connected = false;
+                    None
+                }
+                Ok(n) => Some(buf[..n].to_vec()),
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => None,
+                Err(e) => {
+                    log::warn!("EP1 OUT read error: {e}");
+                    None
+                }
             }
         } else {
             None
@@ -212,6 +250,7 @@ impl UsbBridge for GadgetBridge {
         if let Some(ref mut ep2) = self.ep2_in {
             if let Err(e) = ep2.write_all(data) {
                 log::warn!("EP2 IN write error: {e}");
+                self.connected = false;
             }
         }
     }
@@ -277,13 +316,19 @@ fn build_ffs_descriptors() -> Vec<u8> {
         0,    // bInterval
     ]);
 
-    // --- High-speed descriptors ---
-    // Interface descriptor (same as full-speed)
-    buf.extend_from_slice(&[9, 4, 0, 0, 2, 0xFF, 0xFF, 0xFF, 1]);
-    // EP1 OUT bulk (512 byte packets for high-speed)
-    buf.extend_from_slice(&[7, 5, 0x01, 0x02, 0, 2, 0]); // wMaxPacketSize = 512
-    // EP2 IN bulk
-    buf.extend_from_slice(&[7, 5, 0x82, 0x02, 0, 2, 0]); // wMaxPacketSize = 512
+    // --- High-speed descriptors (same layout, larger packet size) ---
+    // Interface descriptor
+    buf.extend_from_slice(&[
+        9, 4, 0, 0, 2, 0xFF, 0xFF, 0xFF, 1,
+    ]);
+    // EP1 OUT bulk (wMaxPacketSize = 512 for high-speed)
+    buf.extend_from_slice(&[
+        7, 5, 0x01, 0x02, 0x00, 0x02, 0, // 0x0200 = 512 LE
+    ]);
+    // EP2 IN bulk (wMaxPacketSize = 512 for high-speed)
+    buf.extend_from_slice(&[
+        7, 5, 0x82, 0x02, 0x00, 0x02, 0, // 0x0200 = 512 LE
+    ]);
 
     // Fill in total length
     let total_len = buf.len() as u32;

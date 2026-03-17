@@ -3,7 +3,7 @@
 /// Interrupt behavior:
 ///   - Between each instruction, check for pending interrupts
 ///   - If CCR.I = 0 (interrupts enabled), service the highest-priority pending interrupt
-///   - On service: push CCR+PC (6 bytes), load PC from vector table, set CCR.I = 1
+///   - On service: push [CCR:8|PC:24] packed longword (4 bytes), load PC from vector table, set CCR.I = 1
 ///   - TRAPA is synchronous (handled in executor, not here)
 ///   - No interrupt nesting (all ISRs set I=1 on entry)
 ///

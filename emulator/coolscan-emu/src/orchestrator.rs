@@ -23,7 +23,6 @@ pub struct Emulator {
     trace: bool,
     context_initialized: bool,
     /// Context switch tracing: last known good context save area values.
-    last_ctx_index: u16,
     last_ctx_a_sp: u32,
     last_ctx_b_sp: u32,
     /// Count of context switches observed (for debugging).
@@ -34,8 +33,6 @@ pub struct Emulator {
     tcp_listener: Option<TcpListener>,
     /// Connected TCP client stream.
     tcp_client: Option<std::net::TcpStream>,
-    /// Pending CDB to inject when firmware is ready.
-    pending_cdb: Option<Vec<u8>>,
 }
 
 impl Emulator {
@@ -86,25 +83,16 @@ impl Emulator {
         }
         log::info!("Pre-installed {} trampolines in on-chip RAM", trampolines.len());
 
-        // Pre-copy USB fast-path code from flash to RAM.
-        // The firmware normally does this during init but our warm-boot path skips it.
-        // Source: flash 0x124BA, Dest: RAM 0x4010A0, Size: 414 bytes.
-        // Entry point: 0x40115C (offset 0xBC into the block).
-        // This MUST happen before the RAM test to survive, but the RAM test only
-        // writes 0x55AA patterns and then verifies — it doesn't zero the area.
-        // Actually, the RAM test DOES overwrite this area. But the firmware re-copies
-        // later during init. For warm boot, we copy AFTER the JIT context init
-        // (which happens after RAM test) to ensure persistence.
-        // We'll do the actual copy in the JIT init block.
-
-        // Context system will be initialized just before the first TRAPA.
-        // We can't do it at startup because the RAM test overwrites 0x400000-0x420000.
+        // Context system and flash NOP patches are applied JIT (just before first TRAPA #0)
+        // because the RAM test overwrites 0x400000-0x420000 during early boot.
 
         // Set up TCP listener if port configured
         let tcp_listener = if config._tcp_port > 0 {
             match TcpListener::bind(format!("127.0.0.1:{}", config._tcp_port)) {
                 Ok(listener) => {
-                    listener.set_nonblocking(true).ok();
+                    if let Err(e) = listener.set_nonblocking(true) {
+                        log::error!("Failed to set TCP listener non-blocking: {}. Emulator may hang.", e);
+                    }
                     log::info!("TCP bridge listening on port {}", config._tcp_port);
                     Some(listener)
                 }
@@ -125,14 +113,12 @@ impl Emulator {
             peripherals,
             trace: config.trace,
             context_initialized: false,
-            last_ctx_index: 0,
             last_ctx_a_sp: 0,
             last_ctx_b_sp: 0,
             ctx_switch_count: 0,
             milestones_seen: std::collections::HashSet::new(),
             tcp_listener,
             tcp_client: None,
-            pending_cdb: None,
         }
     }
 
@@ -144,17 +130,14 @@ impl Emulator {
     pub fn run(&mut self, max_instructions: u64) {
         for i in 0..max_instructions {
             if self.cpu.sleeping {
-                // Check for pending interrupts to wake up
                 self.check_peripherals();
                 if !self.irq.has_pending() {
                     continue;
                 }
             }
 
-            // Check and service interrupts
             self.irq.check_and_service(&mut self.cpu, &mut self.bus);
 
-            // Decode
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);
 
             if self.trace {
@@ -167,188 +150,33 @@ impl Emulator {
                 );
             }
 
-            // Handle unknown instructions
             if let decode::Instruction::Unknown(w) = &decoded.insn {
                 log::error!(
                     "HALT: Unknown instruction 0x{:04X} at PC=0x{:06X} after {} instructions",
                     w, self.cpu.pc, i
                 );
-                // Dump stack to find return addresses
-                let sp = self.cpu.sp();
-                log::error!("Stack dump (SP=0x{:06X}):", sp);
-                for j in 0..8 {
-                    let addr = sp + j * 4;
-                    let val = self.bus.read_long(addr);
-                    log::error!("  [{:06X}] = 0x{:08X}", addr, val);
-                }
+                self.dump_stack();
                 self.dump_state();
                 return;
             }
 
-            // Just-in-time context initialization before first TRAPA.
-            // The context switch handler at 0x010876 reads context state from RAM
-            // at 0x400764 (index) and 0x400766/0x40076A (saved SPs).
-            // We initialize these just before the first context switch because
-            // the RAM test (which runs earlier) would overwrite startup values.
+            // JIT init: context system + flash patches, triggered before first TRAPA #0.
             if !self.context_initialized {
                 if let decode::Instruction::Trapa(0) = &decoded.insn {
-                    self.context_initialized = true;
-                    // Context B needs a valid stack with a return frame.
-                    // Set up context B SP at 0x40076A pointing to a stack
-                    // with a minimal frame that RTE will pop (CCR + PC).
-                    // Context B entry: 0x029B16 (from our KB).
-                    let ctx_b_sp = 0x0040D000u32;
-                    // Build a fake stack frame at ctx_b_sp for RTE:
-                    // H8/300H Advanced Mode: exception frame = [CCR:8|PC:24] packed longword
-                    // Plus register save area (7 regs * 4 bytes = 28 bytes)
-                    // Total frame = 4 (RTE) + 28 (registers) = 32 bytes
-                    let frame_sp = ctx_b_sp - 32;
-                    // Write saved registers (all 0)
-                    for j in 0..7 {
-                        self.bus.write_long(frame_sp + j * 4, 0);
-                    }
-                    // Write packed RTE frame: [CCR=0x00][PC=0x029B16]
-                    self.bus.write_long(frame_sp + 28, 0x00029B16);
-                    // Store context B's SP in save area
-                    self.bus.write_long(0x40076A, frame_sp);
-                    // Context A index = 0 (current)
-                    self.bus.write_word(0x400764, 0x0000);
-                    // Pre-start ITU4 (system tick timer) via model directly.
-                    // Warm-boot path skips timer start code. Without ITU4 running,
-                    // the system tick at 0x40076E never increments and the firmware
-                    // hangs in a polling loop at 0x0352B0 waiting for time to advance.
-                    // Configure via timer model to avoid I/O address conflicts
-                    // (0xFFFF8E is shared between Port 7 and ITU4 TIER).
-                    // Configure ITU4 in BOTH model AND bus so sync doesn't overwrite.
-                    // ITU4 base in onchip_io: 0x92 (NOT 0x8C — there's a gap after ITU3)
-                    {
-                        let t4 = &mut self.peripherals.timers.timers[4];
-                        t4.tcr = 0xA3;   // Internal clock φ/8, clear on GRA match
-                        t4.tier = 0x01;   // IMIEA enabled (compare-match A interrupt)
-                        t4.gra = 0x2000;  // Compare value — fires every 8192 timer ticks (~32K insns)
-                        t4.tcnt = 0;
-                    }
-                    // Mirror to bus (ITU4 base = 0x92)
-                    self.bus.onchip_io[0x92] = 0xA3; // TCR4
-                    // 0x94 = TIER4 (no longer conflicts with Port 7!)
-                    self.bus.onchip_io[0x94] = 0x01; // TIER4: IMIEA enabled
-                    self.bus.onchip_io[0x98] = 0x20; // GRA4H
-                    self.bus.onchip_io[0x99] = 0x00; // GRA4L → GRA = 0x2000
-                    self.peripherals.timers.tstr |= 0x10; // Start ITU4 (bit 4)
-                    self.bus.onchip_io[0x60] |= 0x10;     // Mirror TSTR to bus
-                    log::info!("JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)");
-
-                    // DO NOT set USB init flag at 0x400084 — the USB fast-path code
-                    // has wrong patched addresses (points to flash 0x063621 instead of
-                    // ISP1581 at 0x600000+). Setting 0x400084=1 causes the timer ISR
-                    // to call USB code which loops forever on a flash read.
-                    // Instead, leave 0x400084=0 so USB code is skipped.
-                    // CDB injection uses direct RAM write to 0x4007DE + cmd_pending.
-                    // Patch the USB fast-path calls in flash to NOPs.
-                    // The USB fast-path code in RAM has wrong ISP1581 addresses
-                    // (patched to 0x063621 → erased flash, causes infinite loop).
-                    // We NOP out the two JSR calls that enter the fast-path:
-                    // 0x012ECE: JSR @0x013506 → NOP+NOP (4 bytes)
-                    // 0x012ED0: (continuation)
-                    self.bus.flash_write_long(0x012ECE, 0x00000000); // NOP the JSR to USB fast-path
-                    // Also NOP the second USB call at 0x012EC6 (JSR @0x01350A)
-                    self.bus.flash_write_long(0x012EC6, 0x00000000); // NOP the USB setup call
-                    log::info!("JIT: NOPed USB fast-path calls at 0x012EC6 and 0x012ECE");
-
-                    // NOP all three blocking init calls in the main loop.
-                    // These poll ISP1581 status and never return because our ISP1581 model
-                    // doesn't provide the expected USB enumeration state.
-                    // Direct RAM CDB injection bypasses USB entirely.
-                    //
-                    // 0x02080E: JSR @0x010D22 (shared module init — has USB polling inside)
-                    self.bus.flash_write_long(0x02080E, 0x00000000); // NOP+NOP
-                    // 0x020820: JSR @0x01233A (USB configure with timeout=50)
-                    self.bus.flash_write_long(0x020820, 0x00000000); // NOP+NOP
-                    // 0x020824: JSR @0x0126EE (USB endpoint enable)
-                    self.bus.flash_write_long(0x020824, 0x00000000); // NOP+NOP
-                    log::info!("JIT: NOPed main loop USB init calls (0x02080E, 0x020820, 0x020824)");
-
-                    // Pre-set USB state: set later in the main loop NOP section.
-                    // (Setting here gets overwritten by context init at 0x0107EC.)
-
-                    log::info!(
-                        "JIT context init: Context B SP=0x{:06X}, entry=0x029B16",
-                        frame_sp
-                    );
+                    self.jit_context_init();
+                    self.apply_flash_nop_patches();
                 }
             }
 
-            // --- Context switch tracing ---
-            // Monitor every entry to the context switch handler (0x010876)
-            // and validate the context save area isn't corrupted.
             let pre_exec_pc = self.cpu.pc;
+
+            // Context switch tracing (entry to handler at 0x010876)
             if pre_exec_pc == 0x010876 {
-                self.ctx_switch_count += 1;
-                let ctx_idx = self.bus.read_word(0x400764);
-                let ctx_a_sp = self.bus.read_long(0x400766);
-                let ctx_b_sp = self.bus.read_long(0x40076A);
-                let current_sp = self.cpu.sp();
-                let switching_to = if ctx_idx == 0 { "A→B" } else { "B→A" };
-                // Read the flags that control whether context swap actually happens
-                let flag_772 = self.bus.read_byte(0x400772);
-                let flag_001 = self.bus.read_byte(0x400001);
-
-                // Log first 10, then every 10000th
-                if self.ctx_switch_count <= 10 || self.ctx_switch_count % 10000 == 0 {
-                    log::info!(
-                        "CTX#{} {} at insn {} | SP={:06X} idx={:04X} A_SP={:06X} B_SP={:06X}",
-                        self.ctx_switch_count, switching_to, i,
-                        current_sp, ctx_idx, ctx_a_sp, ctx_b_sp
-                    );
-                }
-
-                // Check for anomalies
-                let a_sp_valid = (0x40E000..=0x410000).contains(&ctx_a_sp) || ctx_a_sp == 0;
-                let b_sp_valid = (0x40C000..=0x40D000).contains(&ctx_b_sp) || ctx_b_sp == 0;
-                if !a_sp_valid || !b_sp_valid {
-                    log::error!(
-                        "CTX ANOMALY at switch #{}, insn {}: A_SP={:06X} (valid={}) B_SP={:06X} (valid={})",
-                        self.ctx_switch_count, i, ctx_a_sp, a_sp_valid, ctx_b_sp, b_sp_valid
-                    );
-                    log::error!("  Current SP={:06X}, CCR={:02X}", current_sp, self.cpu.ccr);
-                    log::error!("  ER0={:08X} ER1={:08X} ER2={:08X} ER3={:08X}",
-                        self.cpu.read_er(0), self.cpu.read_er(1),
-                        self.cpu.read_er(2), self.cpu.read_er(3));
-                    log::error!("  ER4={:08X} ER5={:08X} ER6={:08X}",
-                        self.cpu.read_er(4), self.cpu.read_er(5), self.cpu.read_er(6));
-                    // Dump the stack area that will be popped
-                    let target_sp = if ctx_idx == 0 { ctx_b_sp } else { ctx_a_sp };
-                    log::error!("  Target stack (SP={:06X}) dump:", target_sp);
-                    for j in 0..10 {
-                        let addr = target_sp + j * 4;
-                        let val = self.bus.read_long(addr);
-                        log::error!("    [{:06X}] = {:08X}", addr, val);
-                    }
-                }
-
-                self.last_ctx_index = ctx_idx;
-                self.last_ctx_a_sp = ctx_a_sp;
-                self.last_ctx_b_sp = ctx_b_sp;
+                self.trace_context_switch(i);
             }
-
-            // Also monitor writes to the context save area (0x400764-0x40076D)
-            // by checking after each instruction if the values changed unexpectedly
+            // Periodic save area integrity check
             if i > 0 && i % 10000 == 0 {
-                let ctx_idx = self.bus.read_word(0x400764);
-                let ctx_a_sp = self.bus.read_long(0x400766);
-                let ctx_b_sp = self.bus.read_long(0x40076A);
-                if ctx_a_sp != self.last_ctx_a_sp || ctx_b_sp != self.last_ctx_b_sp {
-                    if pre_exec_pc != 0x010876 && !(0x010876..=0x010900).contains(&pre_exec_pc) {
-                        log::warn!(
-                            "CTX SAVE AREA CHANGED outside handler! insn {} PC={:06X} idx={:04X} A_SP={:06X}→{:06X} B_SP={:06X}→{:06X}",
-                            i, pre_exec_pc, ctx_idx,
-                            self.last_ctx_a_sp, ctx_a_sp,
-                            self.last_ctx_b_sp, ctx_b_sp
-                        );
-                    }
-                    self.last_ctx_a_sp = ctx_a_sp;
-                    self.last_ctx_b_sp = ctx_b_sp;
-                }
+                self.check_context_save_area(i, pre_exec_pc);
             }
 
             // Execute
@@ -361,13 +189,7 @@ impl Emulator {
                 decoded.len,
             );
 
-            // Sanity checks — PC should only be in valid code regions:
-            // Flash: 0x000100-0x07FFFF, RAM: 0x400000-0x41FFFF,
-            // On-chip RAM: 0xFFFB80-0xFFFEFF (trampolines)
-            let pc_valid = (0x000100..=0x07FFFF).contains(&new_pc)
-                || (0x400000..=0x41FFFF).contains(&new_pc)
-                || (0xFFFB80..=0xFFFEFF).contains(&new_pc);
-            if !pc_valid {
+            if !Self::is_valid_pc(new_pc) {
                 log::error!(
                     "HALT: PC went out of range to 0x{:06X} after executing {:?} at 0x{:06X} (insn #{})",
                     new_pc, decode::disassemble(&decoded.insn), insn_pc, i
@@ -385,56 +207,14 @@ impl Emulator {
             self.cpu.pc = new_pc;
             self.cpu.cycle_count += 1;
 
-            // Sync peripheral writes (on-chip I/O written by CPU goes to peripherals)
             self.sync_peripherals();
-
-            // Tick peripherals
             self.check_peripherals();
 
-            // Poll TCP bridge every 1000 instructions
             if i % 1000 == 0 {
                 self.poll_tcp();
             }
 
-            // One-shot: when main loop entry is first reached, set USB state
-            // variables so the firmware skips USB reconnect/reset paths.
-            // Must be done here (not in JIT) because context init at 0x0107EC
-            // overwrites RAM set during JIT.
-            if pre_exec_pc == 0x0207F2 && !self.milestones_seen.contains(&0xDEAD0001) {
-                self.milestones_seen.insert(0xDEAD0001); // marker for "done"
-                self.bus.write_byte(0x407DC7, 0x02); // USB session = configured
-                self.bus.write_byte(0x407DC3, 0x01); // USB connection = connected
-                self.bus.write_byte(0x400084, 0x00); // Clear USB bus reset flag
-                self.bus.write_byte(0x400085, 0x00); // Clear USB re-init flag
-                self.bus.write_byte(0x400086, 0x00); // Clear USB status flag
-                log::info!("MAIN LOOP INIT: Set USB state vars (session=02, cleared reset flags)");
-            }
-
-            // Log key main loop addresses to trace execution flow
-            if pre_exec_pc == 0x013C70 {
-                let pending = self.bus.read_byte(0x400082);
-                log::info!(
-                    "SCSI: cmd_pending check at insn {} — pending={:02X}, CDB[0]={:02X}",
-                    i, pending, self.bus.read_byte(0x4007DE)
-                );
-            }
-            // One-shot log when main loop reaches the polling section after USB check
-            if pre_exec_pc == 0x02083C && !self.milestones_seen.contains(&0x02083C) {
-                self.milestones_seen.insert(0x02083C);
-                log::info!("MAIN LOOP: reached scan state check (0x02083C) at insn {}", i);
-                log::info!("  USB state 0x407DC7={:02X}, flag 0x400084={:02X}, flag 0x400085={:02X}, flag 0x400086={:02X}",
-                    self.bus.read_byte(0x407DC7),
-                    self.bus.read_byte(0x400084),
-                    self.bus.read_byte(0x400085),
-                    self.bus.read_byte(0x400086));
-            }
-            // Log USB bus reset handler call
-            if pre_exec_pc == 0x013A20 && !self.milestones_seen.contains(&0x013A20) {
-                self.milestones_seen.insert(0x013A20);
-                log::info!("MAIN LOOP: entered USB bus reset handler (0x013A20) at insn {}", i);
-            }
-
-            // Log milestones (one-shot, any address order)
+            self.handle_oneshot_actions(pre_exec_pc, i);
             self.log_milestone(i);
         }
 
@@ -443,6 +223,195 @@ impl Emulator {
             max_instructions, self.cpu.pc
         );
         self.dump_state();
+    }
+
+    // --- JIT initialization (deferred until first TRAPA #0) ---
+
+    /// Initialize the context switch system in RAM.
+    ///
+    /// The context switch handler at 0x010876 reads context state from RAM
+    /// at 0x400764 (index) and 0x400766/0x40076A (saved SPs).
+    /// We defer this until the first TRAPA because the RAM test (which runs
+    /// earlier) would overwrite any values set at startup.
+    fn jit_context_init(&mut self) {
+        self.context_initialized = true;
+
+        // Context B stack frame for RTE:
+        // H8/300H Advanced Mode: exception frame = [CCR:8|PC:24] packed longword
+        // Plus register save area (7 regs * 4 bytes = 28 bytes)
+        // Total frame = 4 (RTE) + 28 (registers) = 32 bytes
+        let ctx_b_sp: u32 = 0x0040D000;
+        let frame_sp = ctx_b_sp - 32;
+
+        // Write saved registers (all 0)
+        for j in 0..7 {
+            self.bus.write_long(frame_sp + j * 4, 0);
+        }
+        // Write packed RTE frame: [CCR=0x00][PC=0x029B16] (Context B entry)
+        self.bus.write_long(frame_sp + 28, 0x00029B16);
+        self.bus.write_long(0x40076A, frame_sp);   // Context B saved SP
+        self.bus.write_word(0x400764, 0x0000);      // Context A is current (index 0)
+
+        // Start ITU4 system tick timer.
+        // Warm-boot path skips the timer start code. Without ITU4 running,
+        // the system tick at 0x40076E never increments and the firmware
+        // hangs in a polling loop at 0x0352B0.
+        // Configure in BOTH model AND bus so sync doesn't overwrite.
+        // ITU4 base in onchip_io: 0x92 (NOT 0x8C -- there's a gap after ITU3).
+        {
+            let t4 = &mut self.peripherals.timers.timers[4];
+            t4.tcr = 0xA3;    // Internal clock phi/8, clear on GRA match
+            t4.tier = 0x01;    // IMIEA enabled (compare-match A interrupt)
+            t4.gra = 0x2000;   // fires every 8192 timer ticks (~32K insns)
+            t4.tcnt = 0;
+        }
+        self.bus.onchip_io[0x92] = 0xA3;          // TCR4
+        self.bus.onchip_io[0x94] = 0x01;          // TIER4: IMIEA enabled
+        self.bus.onchip_io[0x98] = 0x20;          // GRA4H
+        self.bus.onchip_io[0x99] = 0x00;          // GRA4L -> GRA = 0x2000
+        self.peripherals.timers.tstr |= 0x10;     // Start ITU4 (bit 4)
+        self.bus.onchip_io[0x60] |= 0x10;         // Mirror TSTR to bus
+
+        log::info!("JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)");
+        log::info!("JIT context init: Context B SP=0x{:06X}, entry=0x029B16", frame_sp);
+    }
+
+    /// NOP out USB-related JSR calls in flash that would hang the emulator.
+    ///
+    /// The USB fast-path code in RAM has wrong ISP1581 addresses (patched to
+    /// 0x063621 -> erased flash). The main loop USB init calls poll ISP1581
+    /// status that our model doesn't provide. Direct RAM CDB injection
+    /// bypasses USB entirely, so we NOP all these calls.
+    fn apply_flash_nop_patches(&mut self) {
+        // USB fast-path calls in timer ISR path
+        let fast_path_patches: &[(u32, &str)] = &[
+            (0x012EC6, "USB setup call (JSR @0x01350A)"),
+            (0x012ECE, "USB fast-path call (JSR @0x013506)"),
+        ];
+        for &(addr, desc) in fast_path_patches {
+            self.bus.flash_write_long(addr, 0x00000000);
+            log::debug!("JIT: NOPed {} at 0x{:06X}", desc, addr);
+        }
+
+        // Main loop USB init calls (block on ISP1581 enumeration state)
+        let init_patches: &[(u32, &str)] = &[
+            (0x02080E, "shared module init (JSR @0x010D22)"),
+            (0x020820, "USB configure (JSR @0x01233A)"),
+            (0x020824, "USB endpoint enable (JSR @0x0126EE)"),
+        ];
+        for &(addr, desc) in init_patches {
+            self.bus.flash_write_long(addr, 0x00000000);
+            log::debug!("JIT: NOPed {} at 0x{:06X}", desc, addr);
+        }
+
+        log::info!("JIT: NOPed 5 USB calls in flash (fast-path + main loop init)");
+    }
+
+    // --- Context switch tracing ---
+
+    /// Log context switch entry and validate the context save area.
+    fn trace_context_switch(&mut self, insn_count: u64) {
+        self.ctx_switch_count += 1;
+        let ctx_idx = self.bus.read_word(0x400764);
+        let ctx_a_sp = self.bus.read_long(0x400766);
+        let ctx_b_sp = self.bus.read_long(0x40076A);
+        let switching_to = if ctx_idx == 0 { "A->B" } else { "B->A" };
+
+        // Log first 10 switches, then every 10000th
+        if self.ctx_switch_count <= 10 || self.ctx_switch_count % 10000 == 0 {
+            log::info!(
+                "CTX#{} {} at insn {} | SP={:06X} idx={:04X} A_SP={:06X} B_SP={:06X}",
+                self.ctx_switch_count, switching_to, insn_count,
+                self.cpu.sp(), ctx_idx, ctx_a_sp, ctx_b_sp
+            );
+        }
+
+        // Validate SP ranges
+        let a_sp_valid = (0x40E000..=0x410000).contains(&ctx_a_sp) || ctx_a_sp == 0;
+        let b_sp_valid = (0x40C000..=0x40D000).contains(&ctx_b_sp) || ctx_b_sp == 0;
+        if !a_sp_valid || !b_sp_valid {
+            log::error!(
+                "CTX ANOMALY at switch #{}, insn {}: A_SP={:06X} (valid={}) B_SP={:06X} (valid={})",
+                self.ctx_switch_count, insn_count, ctx_a_sp, a_sp_valid, ctx_b_sp, b_sp_valid
+            );
+            self.dump_registers_error();
+            let target_sp = if ctx_idx == 0 { ctx_b_sp } else { ctx_a_sp };
+            self.dump_memory_error("Target stack", target_sp, 10);
+        }
+
+        self.last_ctx_a_sp = ctx_a_sp;
+        self.last_ctx_b_sp = ctx_b_sp;
+    }
+
+    /// Periodically check whether the context save area changed outside the handler.
+    fn check_context_save_area(&mut self, insn_count: u64, pc: u32) {
+        let ctx_a_sp = self.bus.read_long(0x400766);
+        let ctx_b_sp = self.bus.read_long(0x40076A);
+        if ctx_a_sp == self.last_ctx_a_sp && ctx_b_sp == self.last_ctx_b_sp {
+            return;
+        }
+        // Only warn if we're outside the context switch handler
+        if pc != 0x010876 && !(0x010876..=0x010900).contains(&pc) {
+            let ctx_idx = self.bus.read_word(0x400764);
+            log::warn!(
+                "CTX SAVE AREA CHANGED outside handler! insn {} PC={:06X} idx={:04X} A_SP={:06X}->{:06X} B_SP={:06X}->{:06X}",
+                insn_count, pc, ctx_idx,
+                self.last_ctx_a_sp, ctx_a_sp,
+                self.last_ctx_b_sp, ctx_b_sp
+            );
+        }
+        self.last_ctx_a_sp = ctx_a_sp;
+        self.last_ctx_b_sp = ctx_b_sp;
+    }
+
+    // --- One-shot runtime actions ---
+
+    /// Handle address-triggered one-shot actions and logging.
+    fn handle_oneshot_actions(&mut self, pc: u32, insn_count: u64) {
+        // Set USB state when main loop is first reached.
+        // Must be done here (not in JIT) because context init at 0x0107EC
+        // overwrites RAM set during JIT.
+        if pc == 0x0207F2 && self.milestones_seen.insert(0xDEAD0001) {
+            self.bus.write_byte(0x407DC7, 0x02); // USB session = configured
+            self.bus.write_byte(0x407DC3, 0x01); // USB connection = connected
+            self.bus.write_byte(0x400084, 0x00); // Clear USB bus reset flag
+            self.bus.write_byte(0x400085, 0x00); // Clear USB re-init flag
+            self.bus.write_byte(0x400086, 0x00); // Clear USB status flag
+            log::info!("MAIN LOOP INIT: Set USB state vars (session=02, cleared reset flags)");
+        }
+
+        // Log SCSI cmd_pending check (repeating, not one-shot)
+        if pc == 0x013C70 {
+            let pending = self.bus.read_byte(0x400082);
+            log::info!(
+                "SCSI: cmd_pending check at insn {} -- pending={:02X}, CDB[0]={:02X}",
+                insn_count, pending, self.bus.read_byte(0x4007DE)
+            );
+        }
+
+        // One-shot: scan state check reached
+        if pc == 0x02083C && self.milestones_seen.insert(0x02083C) {
+            log::info!("MAIN LOOP: reached scan state check (0x02083C) at insn {}", insn_count);
+            log::info!("  USB state 0x407DC7={:02X}, flag 0x400084={:02X}, flag 0x400085={:02X}, flag 0x400086={:02X}",
+                self.bus.read_byte(0x407DC7),
+                self.bus.read_byte(0x400084),
+                self.bus.read_byte(0x400085),
+                self.bus.read_byte(0x400086));
+        }
+
+        // One-shot: USB bus reset handler entered
+        if pc == 0x013A20 && self.milestones_seen.insert(0x013A20) {
+            log::info!("MAIN LOOP: entered USB bus reset handler (0x013A20) at insn {}", insn_count);
+        }
+    }
+
+    // --- Validation helpers ---
+
+    /// Check whether a PC value is within a valid code region.
+    fn is_valid_pc(pc: u32) -> bool {
+        (0x000100..=0x07FFFF).contains(&pc)       // Flash
+            || (0x400000..=0x41FFFF).contains(&pc) // RAM
+            || (0xFFFB80..=0xFFFEFF).contains(&pc) // On-chip RAM (trampolines)
     }
 
     /// ITU base addresses in on-chip I/O space (ITU0-ITU4).
@@ -564,8 +533,7 @@ impl Emulator {
     fn log_milestone(&mut self, insn_count: u64) {
         let pc = self.cpu.pc;
         for &(addr, desc) in &Self::MILESTONES {
-            if pc == addr && !self.milestones_seen.contains(&addr) {
-                self.milestones_seen.insert(addr);
+            if pc == addr && self.milestones_seen.insert(addr) {
                 log::info!("MILESTONE: {} (0x{:06X}) after {} instructions", desc, addr, insn_count);
                 if addr == 0x020374 {
                     self.dump_timer_state();
@@ -608,6 +576,35 @@ impl Emulator {
             self.bus.unmapped_reads, self.bus.unmapped_writes);
     }
 
+    /// Dump the top 8 longwords on the stack (for crash diagnostics).
+    fn dump_stack(&mut self) {
+        let sp = self.cpu.sp();
+        log::error!("Stack dump (SP=0x{:06X}):", sp);
+        for j in 0..8 {
+            let addr = sp + j * 4;
+            log::error!("  [{:06X}] = 0x{:08X}", addr, self.bus.read_long(addr));
+        }
+    }
+
+    /// Dump all general registers at error level (for anomaly diagnostics).
+    fn dump_registers_error(&self) {
+        log::error!("  Current SP={:06X}, CCR={:02X}", self.cpu.sp(), self.cpu.ccr);
+        log::error!("  ER0={:08X} ER1={:08X} ER2={:08X} ER3={:08X}",
+            self.cpu.read_er(0), self.cpu.read_er(1),
+            self.cpu.read_er(2), self.cpu.read_er(3));
+        log::error!("  ER4={:08X} ER5={:08X} ER6={:08X}",
+            self.cpu.read_er(4), self.cpu.read_er(5), self.cpu.read_er(6));
+    }
+
+    /// Dump N longwords starting at an address (error level).
+    fn dump_memory_error(&mut self, label: &str, addr: u32, count: u32) {
+        log::error!("  {} (0x{:06X}) dump:", label, addr);
+        for j in 0..count {
+            let a = addr + j * 4;
+            log::error!("    [{:06X}] = {:08X}", a, self.bus.read_long(a));
+        }
+    }
+
     // --- TCP Bridge ---
 
     /// Poll TCP bridge for new connections and incoming data.
@@ -617,7 +614,9 @@ impl Emulator {
         if self.tcp_client.is_none() {
             if let Some(ref listener) = self.tcp_listener {
                 if let Ok((stream, addr)) = listener.accept() {
-                    stream.set_nonblocking(true).ok();
+                    if let Err(e) = stream.set_nonblocking(true) {
+                        log::error!("Failed to set TCP client non-blocking: {}. Emulator may hang.", e);
+                    }
                     log::info!("TCP client connected from {}", addr);
                     self.tcp_client = Some(stream);
                 }
@@ -632,10 +631,18 @@ impl Emulator {
                 Ok(()) => {
                     let payload_len = ((header[0] as usize) << 8) | header[1] as usize;
                     let msg_type = header[2];
+                    // Cap payload to prevent garbled frames from allocating huge buffers
+                    if payload_len > 4096 {
+                        log::error!("TCP: payload length {} exceeds max (4096). Disconnecting.", payload_len);
+                        self.tcp_client = None;
+                        return;
+                    }
                     let mut payload = vec![0u8; payload_len];
                     if payload_len > 0 {
                         if let Err(e) = stream.read_exact(&mut payload) {
-                            log::warn!("TCP read payload error: {}", e);
+                            // Partial read: stream is now desynchronized — must disconnect
+                            log::warn!("TCP read payload error: {}. Disconnecting.", e);
+                            self.tcp_client = None;
                             return;
                         }
                     }
@@ -684,36 +691,35 @@ impl Emulator {
                     payload.get(0).copied().unwrap_or(0));
             }
             0x02 => {
-                // Phase query — for now, read the firmware's phase byte from RAM
-                // The firmware writes the transfer phase to 0x40049C
+                // Phase query — read the firmware's phase byte from RAM
                 let phase = self.bus.read_byte(0x40049C);
                 log::info!("TCP: Phase query → phase=0x{:02X}", phase);
-                // Send phase byte back to client
                 if let Some(ref mut stream) = self.tcp_client {
                     use std::io::Write;
-                    let header = [0x00, 0x01, 0x81u8]; // 1 byte, type=phase
-                    let _ = stream.write_all(&header);
-                    let _ = stream.write_all(&[phase]);
+                    let mut resp = [0x00, 0x01, 0x81u8, 0x00]; // header + phase
+                    resp[3] = phase;
+                    if let Err(e) = stream.write_all(&resp) {
+                        log::warn!("TCP phase write error: {}. Disconnecting.", e);
+                        self.tcp_client = None;
+                    }
                 }
             }
             0x04 => {
                 // Sense query — read sense data from firmware RAM
-                // Sense code at 0x4007B0 (2 bytes)
                 let sense_code = self.bus.read_word(0x4007B0);
                 log::info!("TCP: Sense query → sense_code=0x{:04X}", sense_code);
-                // Build 18-byte sense response
-                let mut sense = [0u8; 18];
-                sense[0] = 0x70; // Response code (current errors)
-                sense[2] = ((sense_code >> 8) & 0x0F) as u8; // Sense key
-                sense[7] = 10; // Additional sense length
-                sense[12] = (sense_code & 0xFF) as u8; // ASC
-                sense[13] = 0; // ASCQ
-                // Send sense back to client
+                let mut buf = [0u8; 3 + 18]; // header + sense
+                buf[0] = 0x00; buf[1] = 18; buf[2] = 0x83; // header
+                buf[3] = 0x70; // Response code (current errors)
+                buf[5] = ((sense_code >> 8) & 0x0F) as u8; // Sense key
+                buf[10] = 10; // Additional sense length
+                buf[15] = (sense_code & 0xFF) as u8; // ASC
                 if let Some(ref mut stream) = self.tcp_client {
                     use std::io::Write;
-                    let header = [0x00, 18, 0x83u8]; // 18 bytes, type=sense
-                    let _ = stream.write_all(&header);
-                    let _ = stream.write_all(&sense);
+                    if let Err(e) = stream.write_all(&buf) {
+                        log::warn!("TCP sense write error: {}. Disconnecting.", e);
+                        self.tcp_client = None;
+                    }
                 }
             }
             _ => {
@@ -749,6 +755,7 @@ impl Emulator {
     }
 
     /// Inject a CDB directly (for testing without TCP).
+    #[allow(dead_code)]
     pub fn inject_cdb(&mut self, cdb: &[u8]) {
         let mut padded = vec![0u8; 32];
         let copy_len = cdb.len().min(32);
@@ -759,6 +766,7 @@ impl Emulator {
     }
 
     /// Wait for firmware to produce a response, then return it.
+    #[allow(dead_code)]
     pub fn wait_response(&mut self, max_insns: u64) -> Vec<u8> {
         for _ in 0..max_insns {
             self.step_one();
@@ -770,6 +778,7 @@ impl Emulator {
     }
 
     /// Execute one CPU instruction with full peripheral handling.
+    #[allow(dead_code)]
     pub fn step_one(&mut self) {
         if self.cpu.sleeping {
             self.check_peripherals();
