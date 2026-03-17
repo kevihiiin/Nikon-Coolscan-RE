@@ -36,8 +36,6 @@ pub struct Emulator {
     /// Flag: a CDB was injected and needs the dispatch path to process it.
     /// Set during CDB injection, cleared after the dispatcher consumes it.
     cdb_injected: bool,
-    /// Saved CPU state for direct handler invocation.
-    saved_regs: Option<([u32; 8], u8)>, // (ER0-ER7, CCR)
 }
 
 impl Emulator {
@@ -125,7 +123,6 @@ impl Emulator {
             tcp_listener,
             tcp_client: None,
             cdb_injected: false,
-            saved_regs: None,
         }
     }
 
@@ -144,13 +141,6 @@ impl Emulator {
             }
 
             self.irq.check_and_service(&mut self.cpu, &mut self.bus);
-
-            // Direct handler return sentinel: intercept before decode.
-            // Used for TUR (direct emulation, no firmware handler).
-            // For other commands, the firmware dispatcher path is used.
-            if self.cpu.pc == 0x07FFFE {
-                self.handle_handler_return();
-            }
 
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);
 
@@ -226,6 +216,7 @@ impl Emulator {
 
             if i % 1000 == 0 {
                 self.poll_tcp();
+                self.force_usb_session_state();
             }
 
             self.handle_oneshot_actions(pre_exec_pc, i);
@@ -297,10 +288,21 @@ impl Emulator {
     /// status that our model doesn't provide. Direct RAM CDB injection
     /// bypasses USB entirely, so we NOP all these calls.
     fn apply_flash_nop_patches(&mut self) {
-        // Each entry: (flash address, expected original bytes, description)
-        // Expected bytes are JSR @aa:24 instructions (opcode 5E, 4 bytes total).
-        // If the firmware has different bytes, it's a different version and
-        // patching would corrupt random code — skip with a warning.
+        // Each entry: (flash address, expected JSR bytes, description).
+        // Expected bytes are JSR @aa:24 instructions (opcode 0x5E, 4 bytes total).
+        // If the firmware has different bytes at an address, it's a different
+        // firmware version and patching would corrupt random code — skip with a warning.
+        //
+        // Three categories of patches, all using the same validation logic:
+        //   1. USB fast-path/init calls that block on ISP1581 enumeration state
+        //   2. Dispatch-level USB response manager calls (JSR @0x01374A)
+        //   3. Handler-internal USB response manager + data transfer calls
+        //
+        // These calls interleave USB transport with SCSI processing, which blocks
+        // because our ISP1581 model doesn't implement the full DMA handshake.
+        // Since all SCSI commands are emulated directly at 0x013C70, the dispatch
+        // path and handler USB calls are never reached — but NOPing them prevents
+        // hangs if the firmware accidentally enters these code paths.
         let patches: &[(u32, u32, &str)] = &[
             // USB fast-path calls in timer ISR path
             (0x012EC6, 0x5E01350A, "USB setup call (JSR @0x01350A)"),
@@ -309,21 +311,7 @@ impl Emulator {
             (0x02080E, 0x5E010D22, "shared module init (JSR @0x010D22)"),
             (0x020820, 0x5E01233A, "USB configure (JSR @0x01233A)"),
             (0x020824, 0x5E0126EE, "USB endpoint enable (JSR @0x0126EE)"),
-        ];
-
-        // NOP the JSR to USB response manager (0x01374A) within SCSI handlers
-        // that produce data-in responses. These handlers interleave response
-        // building with USB transfer, which blocks because our ISP1581 model
-        // doesn't fully implement the DMA handshake. By NOPing the call,
-        // the handler still builds the response in RAM, and we intercept it
-        // at the dispatch return point (0x020DB4).
-        //
-        // Note: The dispatch code at 0x020D9E also calls 0x01374A for exec_mode 0x01
-        // commands (TUR, RESERVE). That call must remain working.
-        let handler_response_mgr_calls: &[(u32, u32, &str)] = &[
-            // ALL dispatch-level USB response manager calls (JSR @0x01374A)
-            // in the dispatch code at 0x020A00-0x020E00.
-            // Each of these blocks in ISP1581 yield-poll loop without real USB.
+            // Dispatch-level USB response manager calls (JSR @0x01374A)
             (0x020B22, 0x5E01374A, "dispatch response mgr (0x020B22)"),
             (0x020B3A, 0x5E01374A, "dispatch response mgr (0x020B3A)"),
             (0x020B8C, 0x5E01374A, "dispatch response mgr (0x020B8C)"),
@@ -349,14 +337,6 @@ impl Emulator {
             (0x0279AE, 0x5E014090, "GET WINDOW data transfer"),
         ];
 
-        for &(addr, expected, desc) in handler_response_mgr_calls {
-            let actual = self.bus.read_long(addr);
-            if actual == expected {
-                self.bus.flash_write_long(addr, 0x00000000); // 2x NOP
-                log::info!("JIT: NOPed {} at 0x{:06X}", desc, addr);
-            }
-        }
-
         let mut patched = 0;
         for &(addr, expected, desc) in patches {
             let actual = self.bus.read_long(addr);
@@ -367,7 +347,7 @@ impl Emulator {
                 );
                 continue;
             }
-            self.bus.flash_write_long(addr, 0x00000000);
+            self.bus.flash_write_long(addr, 0x00000000); // 2x NOP
             patched += 1;
         }
 
@@ -514,14 +494,19 @@ impl Emulator {
                 self.bus.write_word(0x4007B0, 0x0000);
             }
             0x15 => {
-                // MODE SELECT(6): accept data, return GOOD
-                // Data-out: read from EP1 OUT FIFO (if any injected via TCP type 0x06)
-                log::info!("SCSI EMU: MODE SELECT → GOOD (data-out accepted)");
+                // MODE SELECT(6): stub — accept and return GOOD
+                // Real implementation would read data-out payload from EP1 OUT
+                let param_len = self.bus.read_byte(0x4007E2) as usize; // CDB[4]
+                log::info!("SCSI EMU: MODE SELECT → GOOD (stub: {} bytes data-out not consumed)", param_len);
                 self.bus.write_word(0x4007B0, 0x0000);
             }
             0x24 => {
-                // SET WINDOW: accept window descriptor, return GOOD
-                log::info!("SCSI EMU: SET WINDOW → GOOD (window config accepted)");
+                // SET WINDOW: stub — accept and return GOOD
+                // Real implementation would parse 80-byte window descriptor
+                let xfer_len = ((self.bus.read_byte(0x4007E4) as u32) << 16)
+                    | ((self.bus.read_byte(0x4007E5) as u32) << 8)
+                    | self.bus.read_byte(0x4007E6) as u32;
+                log::info!("SCSI EMU: SET WINDOW → GOOD (stub: {} bytes data-out not consumed)", xfer_len);
                 self.bus.write_word(0x4007B0, 0x0000);
             }
             _ => {
@@ -530,63 +515,6 @@ impl Emulator {
                 log::warn!("SCSI EMU: opcode 0x{:02X} → ILLEGAL REQUEST (sense 05/24/00)", opcode);
             }
         }
-    }
-
-    /// Handle return from a directly-invoked SCSI handler (legacy).
-    /// Called when PC hits sentinel 0x07FFFE (pushed as return address).
-    fn handle_handler_return(&mut self) {
-        let opcode = self.bus.read_byte(0x4007B6);
-        let exec_mode = self.bus.read_byte(0x40049B);
-        log::info!("HANDLER RETURN: opcode=0x{:02X} mode=0x{:02X} sense=0x{:04X}",
-            opcode, exec_mode, self.bus.read_word(0x4007B0));
-
-        // For data-in commands (exec_mode 0x03), read response from RAM
-        if exec_mode == 0x03 {
-            let (buf_addr, max_len) = match opcode {
-                0x12 => (0x4008A2u32, 36usize), // INQUIRY
-                _ => (0u32, 0usize),
-            };
-            if buf_addr > 0 && max_len > 0 {
-                let alloc_len = self.bus.read_byte(0x4007E2) as usize; // CDB[4]
-                let xfer_len = alloc_len.min(max_len);
-                if xfer_len > 0 {
-                    let mut data = vec![0u8; xfer_len];
-                    for j in 0..xfer_len {
-                        data[j] = self.bus.read_byte(buf_addr + j as u32);
-                    }
-                    // INQUIRY: fill standard fields + vendor/product from flash
-                    if opcode == 0x12 && xfer_len >= 36 {
-                        data[0] = 0x06; data[1] = 0x00; data[2] = 0x02;
-                        data[3] = 0x02; data[4] = 0x1F;
-                        let inq_bytes: Vec<u8> = (0..28).map(|j| {
-                            self.bus.read_byte(0x0170D6 + j)
-                        }).collect();
-                        if inq_bytes.iter().all(|&b| (0x20..=0x7E).contains(&b) || b == 0xFF)
-                            && inq_bytes[0] != 0xFF {
-                            data[8..36].copy_from_slice(&inq_bytes);
-                        } else {
-                            data[8..16].copy_from_slice(b"Nikon   ");
-                            data[16..32].copy_from_slice(b"LS-50 ED        ");
-                            data[32..36].copy_from_slice(b"1.02");
-                        }
-                    }
-                    log::info!("SCSI RESPONSE: opcode=0x{:02X} {} bytes", opcode, xfer_len);
-                    self.bus.isp1581_push_to_host(&data);
-                }
-            }
-        }
-
-        // Restore all registers + CCR (handlers clobber everything)
-        if let Some((regs, ccr)) = self.saved_regs.take() {
-            for r in 0..8 { // ER0-ER7 (restore SP too for safety)
-                self.cpu.write_er(r as u8, regs[r]);
-            }
-            self.cpu.ccr = ccr;
-            log::info!("  Restored registers: SP=0x{:06X} CCR=0x{:02X}", regs[7], ccr);
-        }
-
-        // Return to the main loop idle point (0x013C70).
-        self.cpu.pc = 0x013C70;
     }
 
     // --- One-shot runtime actions ---
@@ -603,21 +531,6 @@ impl Emulator {
             self.bus.write_byte(0x400085, 0x00); // Clear USB re-init flag
             self.bus.write_byte(0x400086, 0x00); // Clear USB status flag
             log::info!("MAIN LOOP INIT: Set USB state vars (session=02, cleared reset flags)");
-        }
-
-        // Force USB session state to "connected" (0x02) to prevent the
-        // main loop from entering the USB re-establish path.
-        // The dispatch code and handlers change 0x407DC7 from 0x02 to 0x01
-        // as part of USB state management. Without a real ISP1581 USB
-        // enumeration, the re-establish path blocks forever.
-        // Also clear USB transaction flag and command phase.
-        {
-            let session = self.bus.read_byte(0x407DC7);
-            if session != 0x02 {
-                self.bus.write_byte(0x407DC7, 0x02);
-                self.bus.write_byte(0x40049A, 0x00);
-                self.bus.write_byte(0x407DC6, 0x00);
-            }
         }
 
         // Log SCSI cmd_pending check (repeating, only when pending)
@@ -649,83 +562,6 @@ impl Emulator {
             self.bus.write_byte(0x400082, 0x00);
         }
 
-        // Legacy dispatch return intercept — kept for reference but
-        // no longer the primary path (all commands are now emulated directly).
-        if pc == 0x020DB4 && false { // disabled
-            let opcode = self.bus.read_byte(0x4007B6);
-            let exec_mode = self.bus.read_byte(0x40049B);
-            if exec_mode == 0x03 {
-                // Determine response buffer and size based on opcode
-                let (buf_addr, max_len) = match opcode {
-                    0x12 => (0x4008A2u32, 36usize),   // INQUIRY: 36 bytes at 0x4008A2
-                    0x03 => (0u32, 0usize),             // REQUEST SENSE: uses stack, handled separately
-                    0x1A => (0u32, 0usize),             // MODE SENSE: uses stack
-                    _ => (0u32, 0usize),
-                };
-
-                if buf_addr > 0 && max_len > 0 {
-                    // Read alloc_length from CDB (byte 4 for 6-byte CDBs)
-                    let alloc_len = self.bus.read_byte(0x4007E2) as usize; // CDB[4]
-                    let xfer_len = alloc_len.min(max_len);
-                    if xfer_len > 0 {
-                        let mut data = vec![0u8; xfer_len];
-                        for j in 0..xfer_len {
-                            data[j] = self.bus.read_byte(buf_addr + j as u32);
-                        }
-
-                        // For INQUIRY: the response manager patch prevents the
-                        // handler from filling vendor/product strings (they're
-                        // copied in the same loop that does USB transfer).
-                        // Fill from flash string data at known addresses.
-                        if opcode == 0x12 && xfer_len >= 36 {
-                            // Standard INQUIRY response fields per SPC-2
-                            data[0] = 0x06; // Device type: scanner
-                            data[1] = 0x00; // Not removable
-                            data[2] = 0x02; // ANSI version 2 (SCSI-2)
-                            data[3] = 0x02; // Response data format 2
-                            data[4] = 0x1F; // Additional length (31)
-                            // Copy vendor/product/revision from firmware flash.
-                            // INQUIRY string at flash 0x170D6 (from KB).
-                            // Format: 8 bytes vendor + 16 bytes product + 4 bytes revision
-                            let inq_str_addr = 0x0170D6u32;
-                            let inq_bytes: Vec<u8> = (0..28).map(|j| {
-                                self.bus.read_byte(inq_str_addr + j)
-                            }).collect();
-                            // Check if the flash data looks like ASCII strings
-                            let is_ascii = inq_bytes.iter().all(|&b| b == 0xFF || (b >= 0x20 && b <= 0x7E));
-                            if is_ascii && inq_bytes[0] != 0xFF {
-                                data[8..36].copy_from_slice(&inq_bytes);
-                            } else {
-                                // Fallback: use known strings
-                                let vendor = b"Nikon   ";
-                                let product = b"LS-50 ED        ";
-                                let revision = b"1.02";
-                                data[8..16].copy_from_slice(vendor);
-                                data[16..32].copy_from_slice(product);
-                                data[32..36].copy_from_slice(revision);
-                            }
-                        }
-
-                        log::info!("SCSI RESPONSE INTERCEPT: opcode=0x{:02X} buf=0x{:06X} len={} data={:02X?}",
-                            opcode, buf_addr, xfer_len, &data[..xfer_len.min(16)]);
-                        self.bus.isp1581_push_to_host(&data);
-                    }
-                }
-            }
-
-            // Reset USB state after dispatch so the main loop can iterate.
-            // The NOPed response manager calls leave USB state inconsistent:
-            //   - 0x407DC7 (session) drops from 0x02 to 0x01 during dispatch
-            //   - 0x40049A (txn active) may be set without being cleared
-            //   - 0x407DC6 (cmd_phase) is set but never cleared
-            // The main loop checks 0x407DC7==0x02 at the top of each iteration.
-            // If not 0x02, it enters the USB re-establish path which blocks.
-            self.bus.write_byte(0x407DC7, 0x02);
-            self.bus.write_byte(0x40049A, 0x00); // Clear USB transaction active
-            self.bus.write_byte(0x407DC6, 0x00); // Clear command phase
-            log::info!("SCSI: Reset USB state after dispatch (session=02, txn=0, phase=0)");
-        }
-
         // One-shot: scan state check reached
         if pc == 0x02083C && self.milestones_seen.insert(0x02083C) {
             log::info!("MAIN LOOP: reached scan state check (0x02083C) at insn {}", insn_count);
@@ -742,11 +578,25 @@ impl Emulator {
         }
     }
 
+    /// Force USB session state to "connected" (0x02) to prevent the
+    /// main loop from entering the USB re-establish path.
+    /// The dispatch code changes 0x407DC7 from 0x02 to 0x01 as part of
+    /// USB state management. Without real ISP1581 USB enumeration, the
+    /// re-establish path blocks forever. Called periodically (not every cycle).
+    fn force_usb_session_state(&mut self) {
+        let session = self.bus.read_byte(0x407DC7);
+        if session != 0x02 {
+            self.bus.write_byte(0x407DC7, 0x02);
+            self.bus.write_byte(0x40049A, 0x00); // Clear USB transaction active
+            self.bus.write_byte(0x407DC6, 0x00); // Clear command phase
+        }
+    }
+
     // --- Validation helpers ---
 
     /// Check whether a PC value is within a valid code region.
     fn is_valid_pc(pc: u32) -> bool {
-        (0x000100..=0x07FFFF).contains(&pc)       // Flash (includes 0x07FFFE sentinel)
+        (0x000100..=0x07FFFF).contains(&pc)       // Flash
             || (0x400000..=0x41FFFF).contains(&pc) // RAM
             || (0xFFFB80..=0xFFFEFF).contains(&pc) // On-chip RAM (trampolines)
     }
@@ -1045,6 +895,11 @@ impl Emulator {
         match msg_type {
             0x01 => {
                 // CDB — inject directly into firmware RAM (bypass USB transport)
+                if payload.is_empty() {
+                    log::warn!("TCP: Received empty CDB, ignoring");
+                    return;
+                }
+
                 log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}{}]",
                     payload.get(0).copied().unwrap_or(0),
                     payload.get(1).copied().unwrap_or(0),
@@ -1058,14 +913,23 @@ impl Emulator {
                         String::new()
                     });
 
+                // Warn if CDB length is short for the opcode group
+                let expected_len = match payload[0] >> 5 {
+                    0 => 6,       // Group 0 (0x00-0x1F)
+                    1 | 2 => 10,  // Group 1/2 (0x20-0x5F)
+                    _ => payload.len(),
+                };
+                if payload.len() < expected_len {
+                    log::warn!("TCP: CDB length {} < expected {} for opcode 0x{:02X}",
+                        payload.len(), expected_len, payload[0]);
+                }
+
                 // Write CDB to firmware buffer at 0x4007DE (16 bytes)
                 for (j, &b) in payload.iter().enumerate().take(16) {
                     self.bus.write_byte(0x4007DE + j as u32, b);
                 }
-                // Set SCSI opcode byte at 0x4007B6 (firmware reads opcode from here)
-                if !payload.is_empty() {
-                    self.bus.write_byte(0x4007B6, payload[0]);
-                }
+                // Set SCSI opcode byte at 0x4007B6
+                self.bus.write_byte(0x4007B6, payload[0]);
                 // Clear sense code before new command
                 self.bus.write_word(0x4007B0, 0x0000);
                 // Flag for JIT 0x400088 injection at dispatcher entry
@@ -1151,6 +1015,10 @@ impl Emulator {
 
     /// Send a TCP frame to the connected client.
     fn send_tcp_frame(&mut self, msg_type: u8, payload: &[u8]) {
+        if payload.len() > 0xFFFF {
+            log::error!("TCP: payload length {} exceeds frame max (65535). Dropping.", payload.len());
+            return;
+        }
         if let Some(ref mut stream) = self.tcp_client {
             use std::io::Write;
             let len = payload.len() as u16;
@@ -1216,7 +1084,8 @@ impl Emulator {
         self.irq.check_and_service(&mut self.cpu, &mut self.bus);
 
         let decoded = decode::decode(&mut self.bus, self.cpu.pc);
-        if let decode::Instruction::Unknown(_) = &decoded.insn {
+        if let decode::Instruction::Unknown(w) = &decoded.insn {
+            log::error!("step_one: Unknown instruction 0x{:04X} at PC=0x{:06X}", w, self.cpu.pc);
             return;
         }
 

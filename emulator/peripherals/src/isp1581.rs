@@ -18,9 +18,6 @@ use std::collections::VecDeque;
 /// These are the global interrupt flags that the firmware polls.
 pub const IRQ_EP_EVENT: u16 = 1 << 3;
 
-/// Interrupt bit indicating EP2 IN data was accepted (transfer complete for device→host).
-/// The firmware polls this after writing response data to EP data port.
-pub const IRQ_EP2_IN: u16 = 1 << 10; // EP2 IN event bit (bit 10 in DcInterrupt)
 
 pub struct Isp1581 {
     /// Endpoint status register at 0x08 (per-endpoint events).
@@ -84,23 +81,8 @@ impl Isp1581 {
             0x18 => {
                 // DcInterrupt — global interrupt flags.
                 // The firmware polls this during data transfers and USB state management.
-                // Various code paths check different bits:
-                //   - Response manager checks for "DMA idle"
-                //   - Data transfer loop checks for "write accepted"
-                //   - USB state check checks for "bus events"
-                // Return the current flags OR'd with any pending events.
-                // If dc_interrupt is 0 (no explicit events), return a small
-                // "ready" value that satisfies common poll patterns.
-                // After firmware reads, it will write-back to clear.
-                let val = self.dc_interrupt;
-                if val == 0 {
-                    // No explicit events — return "all clear" for USB state checks.
-                    // Firmware's response manager at 0x01374A → 0x013C70 polls this.
-                    // Return 0 to indicate "no active DMA/transfer" (idle).
-                    0
-                } else {
-                    val
-                }
+                // After firmware reads, it writes back to clear the bits it handled.
+                self.dc_interrupt
             }
             0x1E => {
                 // DcBufferStatus — endpoint buffer fill state.
@@ -109,11 +91,17 @@ impl Isp1581 {
             }
             0x20 => {
                 // EP Data Port: read 16-bit word from EP1 OUT FIFO (LE: low byte first)
+                if self.ep1_out_fifo.is_empty() {
+                    log::debug!("ISP1581: EP1 OUT FIFO underrun (read from empty FIFO)");
+                }
                 let lo = self.ep1_out_fifo.pop_front().unwrap_or(0);
                 let hi = self.ep1_out_fifo.pop_front().unwrap_or(0);
                 (hi as u16) << 8 | lo as u16
             }
-            _ => 0,
+            _ => {
+                log::trace!("ISP1581: unmodeled register read at offset 0x{:02X}", offset);
+                0
+            }
         }
     }
 
@@ -149,7 +137,9 @@ impl Isp1581 {
             0x24 => self.dma_config = val,
             0x2C => self.ep_control = val,
             0x84 => self.dma_count = val,
-            _ => {}
+            _ => {
+                log::trace!("ISP1581: unmodeled register write at offset 0x{:02X} = 0x{:04X}", offset, val);
+            }
         }
     }
 
@@ -266,7 +256,7 @@ mod tests {
         let cdb = vec![0x00; 32]; // TUR = all zeros
         isp.host_send_ep1(&cdb);
         assert!(isp.irq_pending);
-        assert_eq!(isp.irq_status & IRQ_EP_EVENT, IRQ_EP_EVENT);
+        assert_eq!(isp.ep_status & IRQ_EP_EVENT, IRQ_EP_EVENT);
 
         // Firmware reads word-by-word (16 words for 32 bytes)
         for i in 0..16 {

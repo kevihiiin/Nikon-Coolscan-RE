@@ -331,6 +331,8 @@ impl MemoryBus {
     pub fn isp1581_push_to_host(&mut self, data: &[u8]) {
         if let Some(ref mut dev) = self.isp1581_device {
             dev.push_to_host(data);
+        } else if !data.is_empty() {
+            log::warn!("isp1581_push_to_host: {} bytes dropped (no ISP1581 device model)", data.len());
         }
     }
 
