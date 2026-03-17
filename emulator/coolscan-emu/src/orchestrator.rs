@@ -522,21 +522,61 @@ impl Emulator {
     fn handle_tcp_message(&mut self, msg_type: u8, payload: &[u8]) {
         match msg_type {
             0x01 => {
-                // CDB — pad to 32 bytes and inject into ISP1581 EP1 FIFO
+                // CDB — inject into BOTH ISP1581 FIFO AND directly into RAM
                 let mut cdb = vec![0u8; 32];
                 let copy_len = payload.len().min(32);
                 cdb[..copy_len].copy_from_slice(&payload[..copy_len]);
                 log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}...]",
                     cdb[0], cdb[1], cdb[2], cdb[3], cdb[4], cdb[5]);
+
+                // Inject into ISP1581 FIFO (for when USB path works)
                 self.bus.isp1581_inject(&cdb);
+
+                // ALSO inject directly into firmware RAM (bypass USB transport)
+                // CDB buffer at 0x4007DE (16 bytes from KB docs)
+                for (i, &b) in payload.iter().enumerate().take(16) {
+                    self.bus.write_byte(0x4007DE + i as u32, b);
+                }
+                // Set SCSI opcode at expected location
+                // The firmware reads the opcode from the CDB buffer
+                // Set cmd_pending flag at 0x400082
+                self.bus.write_byte(0x400082, 0x01);
+                // Set USB connection state to "ready" at 0x407DC7
+                self.bus.write_byte(0x407DC7, 0x02);
+                log::info!("TCP: CDB injected to RAM 0x4007DE, cmd_pending=1");
             }
             0x02 => {
-                // Phase query — send 0xD0 on EP1
-                self.bus.isp1581_inject(&[0xD0]);
+                // Phase query — for now, read the firmware's phase byte from RAM
+                // The firmware writes the transfer phase to 0x40049C
+                let phase = self.bus.read_byte(0x40049C);
+                log::info!("TCP: Phase query → phase=0x{:02X}", phase);
+                // Send phase byte back to client
+                if let Some(ref mut stream) = self.tcp_client {
+                    use std::io::Write;
+                    let header = [0x00, 0x01, 0x81u8]; // 1 byte, type=phase
+                    let _ = stream.write_all(&header);
+                    let _ = stream.write_all(&[phase]);
+                }
             }
             0x04 => {
-                // Sense query — send 0x06 on EP1
-                self.bus.isp1581_inject(&[0x06]);
+                // Sense query — read sense data from firmware RAM
+                // Sense code at 0x4007B0 (2 bytes)
+                let sense_code = self.bus.read_word(0x4007B0);
+                log::info!("TCP: Sense query → sense_code=0x{:04X}", sense_code);
+                // Build 18-byte sense response
+                let mut sense = [0u8; 18];
+                sense[0] = 0x70; // Response code (current errors)
+                sense[2] = ((sense_code >> 8) & 0x0F) as u8; // Sense key
+                sense[7] = 10; // Additional sense length
+                sense[12] = (sense_code & 0xFF) as u8; // ASC
+                sense[13] = 0; // ASCQ
+                // Send sense back to client
+                if let Some(ref mut stream) = self.tcp_client {
+                    use std::io::Write;
+                    let header = [0x00, 18, 0x83u8]; // 18 bytes, type=sense
+                    let _ = stream.write_all(&header);
+                    let _ = stream.write_all(&sense);
+                }
             }
             _ => {
                 log::warn!("TCP: Unknown message type 0x{:02X}", msg_type);
