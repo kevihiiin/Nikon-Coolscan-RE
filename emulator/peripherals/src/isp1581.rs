@@ -14,21 +14,29 @@
 
 use std::collections::VecDeque;
 
-/// ISP1581 IRQ status bits.
+/// ISP1581 interrupt register bits (at offset 0x18, DcInterrupt).
+/// These are the global interrupt flags that the firmware polls.
 pub const IRQ_EP_EVENT: u16 = 1 << 3;
 
+/// Interrupt bit indicating EP2 IN data was accepted (transfer complete for device→host).
+/// The firmware polls this after writing response data to EP data port.
+pub const IRQ_EP2_IN: u16 = 1 << 10; // EP2 IN event bit (bit 10 in DcInterrupt)
+
 pub struct Isp1581 {
-    /// IRQ status register (16-bit).
-    pub irq_status: u16,
-    /// Mode register.
+    /// Endpoint status register at 0x08 (per-endpoint events).
+    pub ep_status: u16,
+    /// Global interrupt register at 0x18 (DcInterrupt).
+    /// Firmware polls this during data transfers.
+    pub dc_interrupt: u16,
+    /// Mode register at 0x0C.
     pub mode: u16,
-    /// DMA config.
+    /// DMA config at 0x24 (written by firmware for DMA direction).
     pub dma_config: u16,
-    /// EP index/count.
+    /// EP index/count at 0x1C/0x22.
     pub ep_index: u16,
-    /// EP control.
+    /// EP control at 0x2C.
     pub ep_control: u16,
-    /// DMA count.
+    /// DMA count at 0x84.
     pub dma_count: u16,
 
     /// EP1 OUT FIFO (host → device): CDB bytes arrive here.
@@ -45,7 +53,8 @@ impl Isp1581 {
         // Initialize with USB connected (SOFTCT bit in Mode register)
         // The firmware checks this to determine if USB is active.
         let mut isp = Self {
-            irq_status: 0,
+            ep_status: 0,
+            dc_interrupt: 0,
             mode: 0,
             dma_config: 0,
             ep_index: 0,
@@ -67,15 +76,41 @@ impl Isp1581 {
     /// the memory bus handles byte-level access).
     pub fn read_word(&mut self, offset: u32) -> u16 {
         match offset {
-            0x08 => self.irq_status,
+            0x08 => {
+                // DcEndpointStatus — per-endpoint event flags.
+                self.ep_status
+            }
             0x0C => self.mode,
+            0x18 => {
+                // DcInterrupt — global interrupt flags.
+                // The firmware polls this during data transfers and USB state management.
+                // Various code paths check different bits:
+                //   - Response manager checks for "DMA idle"
+                //   - Data transfer loop checks for "write accepted"
+                //   - USB state check checks for "bus events"
+                // Return the current flags OR'd with any pending events.
+                // If dc_interrupt is 0 (no explicit events), return a small
+                // "ready" value that satisfies common poll patterns.
+                // After firmware reads, it will write-back to clear.
+                let val = self.dc_interrupt;
+                if val == 0 {
+                    // No explicit events — return "all clear" for USB state checks.
+                    // Firmware's response manager at 0x01374A → 0x013C70 polls this.
+                    // Return 0 to indicate "no active DMA/transfer" (idle).
+                    0
+                } else {
+                    val
+                }
+            }
+            0x1E => {
+                // DcBufferStatus — endpoint buffer fill state.
+                // Return 0 (all buffers empty/available for write).
+                0
+            }
             0x20 => {
                 // EP Data Port: read 16-bit word from EP1 OUT FIFO (LE: low byte first)
                 let lo = self.ep1_out_fifo.pop_front().unwrap_or(0);
                 let hi = self.ep1_out_fifo.pop_front().unwrap_or(0);
-                // Return as LE 16-bit: firmware will see lo in bits[7:0], hi in bits[15:8]
-                // But memory bus is BE, so we need to return (hi << 8) | lo
-                // and the firmware's byte-swap code extracts lo first.
                 (hi as u16) << 8 | lo as u16
             }
             _ => 0,
@@ -86,21 +121,32 @@ impl Isp1581 {
     pub fn write_word(&mut self, offset: u32, val: u16) {
         match offset {
             0x08 => {
-                // Write-back clears bits
-                self.irq_status &= !val;
-                if self.irq_status == 0 {
+                // Write-back clears endpoint status bits
+                self.ep_status &= !val;
+            }
+            0x0C => self.mode = val,
+            0x18 => {
+                // Write-back clears DcInterrupt bits
+                self.dc_interrupt &= !val;
+                if self.dc_interrupt == 0 && self.ep_status == 0 {
                     self.irq_pending = false;
                 }
             }
-            0x0C => self.mode = val,
-            0x18 => self.dma_config = val,
             0x1C => self.ep_index = val,
             0x20 => {
-                // EP Data Port write: firmware writes to EP2 IN FIFO
+                // EP Data Port write: firmware writes to EP2 IN FIFO.
                 // Firmware writes LE words: low byte in bits[7:0], high byte in bits[15:8]
                 self.ep2_in_fifo.push_back(val as u8);         // Low byte
                 self.ep2_in_fifo.push_back((val >> 8) as u8);  // High byte
+                // Signal that the data was accepted by setting DcInterrupt bits.
+                // The firmware polls 0x600018 after each write to check completion.
+                // Different firmware code paths check different bits:
+                //   - BTST #0x04, R0H checks bit 12 (0x1000)
+                //   - Other paths check lower bits
+                // Set all bits to cover all cases.
+                self.dc_interrupt |= 0xFFFF;
             }
+            0x24 => self.dma_config = val,
             0x2C => self.ep_control = val,
             0x84 => self.dma_count = val,
             _ => {}
@@ -112,7 +158,8 @@ impl Isp1581 {
         for &b in data {
             self.ep1_out_fifo.push_back(b);
         }
-        self.irq_status |= IRQ_EP_EVENT;
+        self.ep_status |= IRQ_EP_EVENT;
+        self.dc_interrupt |= IRQ_EP_EVENT;
         self.irq_pending = true;
     }
 
@@ -125,6 +172,14 @@ impl Isp1581 {
     /// Check if EP2 IN has data ready for host.
     pub fn ep2_has_data(&self) -> bool {
         !self.ep2_in_fifo.is_empty()
+    }
+
+    /// Push raw bytes into EP2 IN FIFO (for intercepted data transfers).
+    /// Unlike write_word(0x20), this adds bytes directly without LE word packing.
+    pub fn ep2_push_bytes(&mut self, data: &[u8]) {
+        for &b in data {
+            self.ep2_in_fifo.push_back(b);
+        }
     }
 
     /// Check IRQ pending flag (firmware must write-back to clear IRQ status).
@@ -194,6 +249,10 @@ impl h8300h_core::memory::MmioDevice for Isp1581 {
     fn has_data_for_host(&self) -> bool {
         self.ep2_has_data()
     }
+
+    fn push_to_host(&mut self, data: &[u8]) {
+        self.ep2_push_bytes(data);
+    }
 }
 
 #[cfg(test)]
@@ -236,11 +295,16 @@ mod tests {
         isp.host_send_ep1(&[0x00]);
         assert!(isp.irq_pending);
 
-        // Firmware reads IRQ status, then writes back to clear
+        // Firmware reads endpoint status, then writes back to clear
         let status = isp.read_word(0x08);
         assert_eq!(status & IRQ_EP_EVENT, IRQ_EP_EVENT);
-        isp.write_word(0x08, status); // Write-back clears
-        assert_eq!(isp.irq_status, 0);
+        isp.write_word(0x08, status); // Write-back clears ep_status
+
+        // Also clear dc_interrupt
+        let dc_int = isp.read_word(0x18);
+        isp.write_word(0x18, dc_int);
+
+        assert_eq!(isp.ep_status, 0);
         assert!(!isp.irq_pending);
     }
 }

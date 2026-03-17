@@ -37,6 +37,10 @@ pub trait MmioDevice {
 
     /// Check if device has data ready for host.
     fn has_data_for_host(&self) -> bool { false }
+
+    /// Push raw bytes into the device's host-bound FIFO (EP2 IN for USB).
+    /// Unlike write_word, this adds bytes directly without protocol-level packing.
+    fn push_to_host(&mut self, _data: &[u8]) {}
 }
 
 /// Memory region identifiers for address decode.
@@ -320,6 +324,13 @@ impl MemoryBus {
             dev.has_data_for_host()
         } else {
             false
+        }
+    }
+
+    /// Push raw bytes to ISP1581 EP2 IN FIFO (intercepted data transfers).
+    pub fn isp1581_push_to_host(&mut self, data: &[u8]) {
+        if let Some(ref mut dev) = self.isp1581_device {
+            dev.push_to_host(data);
         }
     }
 

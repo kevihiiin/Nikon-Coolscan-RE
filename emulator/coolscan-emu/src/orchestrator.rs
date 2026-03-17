@@ -33,6 +33,9 @@ pub struct Emulator {
     tcp_listener: Option<TcpListener>,
     /// Connected TCP client stream.
     tcp_client: Option<std::net::TcpStream>,
+    /// Flag: a CDB was injected and needs the dispatch path to process it.
+    /// Set during CDB injection, cleared after the dispatcher consumes it.
+    cdb_injected: bool,
 }
 
 impl Emulator {
@@ -119,6 +122,7 @@ impl Emulator {
             milestones_seen: std::collections::HashSet::new(),
             tcp_listener,
             tcp_client: None,
+            cdb_injected: false,
         }
     }
 
@@ -297,6 +301,34 @@ impl Emulator {
             (0x020824, 0x5E0126EE, "USB endpoint enable (JSR @0x0126EE)"),
         ];
 
+        // NOP the JSR to USB response manager (0x01374A) within SCSI handlers
+        // that produce data-in responses. These handlers interleave response
+        // building with USB transfer, which blocks because our ISP1581 model
+        // doesn't fully implement the DMA handshake. By NOPing the call,
+        // the handler still builds the response in RAM, and we intercept it
+        // at the dispatch return point (0x020DB4).
+        //
+        // Note: The dispatch code at 0x020D9E also calls 0x01374A for exec_mode 0x01
+        // commands (TUR, RESERVE). That call must remain working.
+        let handler_response_mgr_calls: &[(u32, u32, &str)] = &[
+            // Dispatch-level USB state setup for exec_mode 0x01 (TUR etc.)
+            (0x020D9E, 0x5E01374A, "dispatch USB state setup (exec_mode=1)"),
+            // Handler-internal USB response manager calls for data-in/out commands
+            (0x026042, 0x5E01374A, "INQUIRY response manager"),
+            (0x02209E, 0x5E01374A, "MODE SENSE response manager"),
+            (0x021932, 0x5E01374A, "REQUEST SENSE response manager"),
+            (0x0219CA, 0x5E01374A, "MODE SELECT response manager"),
+            (0x026EC6, 0x5E01374A, "SET WINDOW response manager"),
+        ];
+
+        for &(addr, expected, desc) in handler_response_mgr_calls {
+            let actual = self.bus.read_long(addr);
+            if actual == expected {
+                self.bus.flash_write_long(addr, 0x00000000); // 2x NOP
+                log::info!("JIT: NOPed {} at 0x{:06X}", desc, addr);
+            }
+        }
+
         let mut patched = 0;
         for &(addr, expected, desc) in patches {
             let actual = self.bus.read_long(addr);
@@ -387,13 +419,96 @@ impl Emulator {
             log::info!("MAIN LOOP INIT: Set USB state vars (session=02, cleared reset flags)");
         }
 
-        // Log SCSI cmd_pending check (repeating, not one-shot)
+        // Log SCSI cmd_pending check (repeating, only when pending)
         if pc == 0x013C70 {
             let pending = self.bus.read_byte(0x400082);
-            log::info!(
-                "SCSI: cmd_pending check at insn {} -- pending={:02X}, CDB[0]={:02X}",
-                insn_count, pending, self.bus.read_byte(0x4007DE)
-            );
+            if pending != 0 {
+                log::info!(
+                    "SCSI: cmd_pending check at insn {} -- pending={:02X}, CDB[0]={:02X}",
+                    insn_count, pending, self.bus.read_byte(0x4007DE)
+                );
+            }
+        }
+
+
+        // SCSI response data intercept and cleanup.
+        // At 0x020DB4 (the JSR @0x016436 cleanup after the handler call),
+        // clear the CDB byte count to prevent side effects, and for
+        // data-in handlers, read the response from RAM and push to EP2 IN.
+        // JIT CDB byte count: set 0x400088=6 ONLY when we injected a CDB.
+        // The dispatcher runs on every main loop iteration. We only want
+        // to set 0x400088 when there's an actual injected command to process.
+        if pc == 0x020AE2 && self.cdb_injected {
+            self.bus.write_word(0x400088, 0x0006);
+        }
+        if pc == 0x020B48 {
+            // Clear after the command ready check consumed the value
+            self.bus.write_word(0x400088, 0x0000);
+            self.cdb_injected = false;
+        }
+
+        if pc == 0x020DB4 {
+            let opcode = self.bus.read_byte(0x4007B6);
+            let exec_mode = self.bus.read_byte(0x40049B);
+            // Only intercept data-in commands (exec_mode 0x03)
+            if exec_mode == 0x03 {
+                // Determine response buffer and size based on opcode
+                let (buf_addr, max_len) = match opcode {
+                    0x12 => (0x4008A2u32, 36usize),   // INQUIRY: 36 bytes at 0x4008A2
+                    0x03 => (0u32, 0usize),             // REQUEST SENSE: uses stack, handled separately
+                    0x1A => (0u32, 0usize),             // MODE SENSE: uses stack
+                    _ => (0u32, 0usize),
+                };
+
+                if buf_addr > 0 && max_len > 0 {
+                    // Read alloc_length from CDB (byte 4 for 6-byte CDBs)
+                    let alloc_len = self.bus.read_byte(0x4007E2) as usize; // CDB[4]
+                    let xfer_len = alloc_len.min(max_len);
+                    if xfer_len > 0 {
+                        let mut data = vec![0u8; xfer_len];
+                        for j in 0..xfer_len {
+                            data[j] = self.bus.read_byte(buf_addr + j as u32);
+                        }
+
+                        // For INQUIRY: the response manager patch prevents the
+                        // handler from filling vendor/product strings (they're
+                        // copied in the same loop that does USB transfer).
+                        // Fill from flash string data at known addresses.
+                        if opcode == 0x12 && xfer_len >= 36 {
+                            // Standard INQUIRY response fields per SPC-2
+                            data[0] = 0x06; // Device type: scanner
+                            data[1] = 0x00; // Not removable
+                            data[2] = 0x02; // ANSI version 2 (SCSI-2)
+                            data[3] = 0x02; // Response data format 2
+                            data[4] = 0x1F; // Additional length (31)
+                            // Copy vendor/product/revision from firmware flash.
+                            // INQUIRY string at flash 0x170D6 (from KB).
+                            // Format: 8 bytes vendor + 16 bytes product + 4 bytes revision
+                            let inq_str_addr = 0x0170D6u32;
+                            let inq_bytes: Vec<u8> = (0..28).map(|j| {
+                                self.bus.read_byte(inq_str_addr + j)
+                            }).collect();
+                            // Check if the flash data looks like ASCII strings
+                            let is_ascii = inq_bytes.iter().all(|&b| b == 0xFF || (b >= 0x20 && b <= 0x7E));
+                            if is_ascii && inq_bytes[0] != 0xFF {
+                                data[8..36].copy_from_slice(&inq_bytes);
+                            } else {
+                                // Fallback: use known strings
+                                let vendor = b"Nikon   ";
+                                let product = b"LS-50 ED        ";
+                                let revision = b"1.02";
+                                data[8..16].copy_from_slice(vendor);
+                                data[16..32].copy_from_slice(product);
+                                data[32..36].copy_from_slice(revision);
+                            }
+                        }
+
+                        log::info!("SCSI RESPONSE INTERCEPT: opcode=0x{:02X} buf=0x{:06X} len={} data={:02X?}",
+                            opcode, buf_addr, xfer_len, &data[..xfer_len.min(16)]);
+                        self.bus.isp1581_push_to_host(&data);
+                    }
+                }
+            }
         }
 
         // One-shot: scan state check reached
@@ -521,7 +636,7 @@ impl Emulator {
     }
 
     /// Boot milestone addresses and their descriptions.
-    const MILESTONES: [(u32, &'static str); 12] = [
+    const MILESTONES: [(u32, &'static str); 30] = [
         (0x020334, "Reached main entry point"),
         (0x020374, "Past I/O init table"),
         (0x020796, "Delay loop setup"),
@@ -534,6 +649,27 @@ impl Emulator {
         (0x01233A, "Main loop: USB configure"),
         (0x0126EE, "Main loop: USB endpoint enable"),
         (0x013C70, "Main loop: cmd_pending check"),
+        // SCSI dispatch flow trace (Phase 4)
+        (0x013690, "SCSI: command ready check (0x013690)"),
+        (0x020B48, "SCSI: opcode lookup (0x020B48)"),
+        (0x020B70, "SCSI: opcode matched (0x020B70)"),
+        (0x020CA0, "SCSI: permission check (0x020CA0)"),
+        (0x020D94, "SCSI: exec mode check (0x020D94)"),
+        (0x020DB2, "SCSI: handler call (0x020DB2)"),
+        // SCSI handler entry points
+        (0x0215C2, "SCSI: TEST UNIT READY handler"),
+        (0x021866, "SCSI: REQUEST SENSE handler"),
+        (0x025E18, "SCSI: INQUIRY handler"),
+        (0x021F1C, "SCSI: MODE SENSE handler"),
+        (0x02194A, "SCSI: MODE SELECT handler"),
+        (0x026E38, "SCSI: SET WINDOW handler"),
+        (0x0220B8, "SCSI: SCAN handler"),
+        (0x023F10, "SCSI: READ handler"),
+        (0x025506, "SCSI: SEND(WRITE) handler"),
+        (0x023D32, "SCSI: SEND DIAGNOSTIC handler"),
+        // USB response path
+        (0x01374A, "SCSI: USB response manager"),
+        (0x014090, "SCSI: USB data transfer"),
     ];
 
     /// Log a boot milestone if the PC matches one we haven't seen yet.
@@ -672,17 +808,40 @@ impl Emulator {
     }
 
     /// Handle an incoming TCP message.
+    ///
+    /// TCP frame protocol (host ↔ emulator):
+    ///   Header: [length:2 BE] [type:1]  Payload: [N bytes]
+    ///
+    /// Host → Emulator:
+    ///   0x01 = CDB inject (6-16 bytes)
+    ///   0x02 = Phase query
+    ///   0x04 = Sense query
+    ///   0x05 = Data-In query (drain ISP1581 EP2 IN FIFO)
+    ///   0x06 = Data-Out inject (push to ISP1581 EP1 OUT FIFO for data-out commands)
+    ///   0x07 = Completion poll (check if cmd_pending returned to 0)
+    ///
+    /// Emulator → Host:
+    ///   0x81 = Phase byte (1 byte)
+    ///   0x82 = Data-In response (variable)
+    ///   0x83 = Sense data (18 bytes, fixed-format REQUEST SENSE)
+    ///   0x84 = Data-In from ISP1581 EP2 (variable, raw FIFO drain)
+    ///   0x85 = Completion status (1 byte: 0=pending, 1=done, + 2 bytes sense)
     fn handle_tcp_message(&mut self, msg_type: u8, payload: &[u8]) {
         match msg_type {
             0x01 => {
                 // CDB — inject directly into firmware RAM (bypass USB transport)
-                log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}]",
+                log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}{}]",
                     payload.get(0).copied().unwrap_or(0),
                     payload.get(1).copied().unwrap_or(0),
                     payload.get(2).copied().unwrap_or(0),
                     payload.get(3).copied().unwrap_or(0),
                     payload.get(4).copied().unwrap_or(0),
-                    payload.get(5).copied().unwrap_or(0));
+                    payload.get(5).copied().unwrap_or(0),
+                    if payload.len() > 6 {
+                        format!(" +{} bytes", payload.len() - 6)
+                    } else {
+                        String::new()
+                    });
 
                 // Write CDB to firmware buffer at 0x4007DE (16 bytes)
                 for (j, &b) in payload.iter().enumerate().take(16) {
@@ -692,42 +851,82 @@ impl Emulator {
                 if !payload.is_empty() {
                     self.bus.write_byte(0x4007B6, payload[0]);
                 }
+                // Clear sense code before new command
+                self.bus.write_word(0x4007B0, 0x0000);
+                // Flag for JIT 0x400088 injection at dispatcher entry
+                self.cdb_injected = true;
                 // Set cmd_pending flag at 0x400082
                 self.bus.write_byte(0x400082, 0x01);
-                log::info!("TCP: CDB injected to RAM 0x4007DE, cmd_pending=1, opcode=0x{:02X}",
+                log::info!("TCP: CDB injected, cmd_pending=1, opcode=0x{:02X}",
                     payload.get(0).copied().unwrap_or(0));
             }
             0x02 => {
                 // Phase query — read the firmware's phase byte from RAM
                 let phase = self.bus.read_byte(0x40049C);
                 log::info!("TCP: Phase query → phase=0x{:02X}", phase);
-                if let Some(ref mut stream) = self.tcp_client {
-                    use std::io::Write;
-                    let mut resp = [0x00, 0x01, 0x81u8, 0x00]; // header + phase
-                    resp[3] = phase;
-                    if let Err(e) = stream.write_all(&resp) {
-                        log::warn!("TCP phase write error: {}. Disconnecting.", e);
-                        self.tcp_client = None;
-                    }
-                }
+                self.send_tcp_frame(0x81, &[phase]);
             }
             0x04 => {
-                // Sense query — read sense data from firmware RAM
+                // Sense query — read sense data from firmware RAM and build
+                // a standard REQUEST SENSE response (18 bytes).
                 let sense_code = self.bus.read_word(0x4007B0);
                 log::info!("TCP: Sense query → sense_code=0x{:04X}", sense_code);
-                let mut buf = [0u8; 3 + 18]; // header + sense
-                buf[0] = 0x00; buf[1] = 18; buf[2] = 0x83; // header
-                buf[3] = 0x70; // Response code (current errors)
-                buf[5] = ((sense_code >> 8) & 0x0F) as u8; // Sense key
-                buf[10] = 10; // Additional sense length
-                buf[15] = (sense_code & 0xFF) as u8; // ASC
-                if let Some(ref mut stream) = self.tcp_client {
-                    use std::io::Write;
-                    if let Err(e) = stream.write_all(&buf) {
-                        log::warn!("TCP sense write error: {}. Disconnecting.", e);
-                        self.tcp_client = None;
-                    }
+                let mut sense = [0u8; 18];
+                sense[0] = 0x70; // Response code (current errors)
+                sense[2] = ((sense_code >> 8) & 0x0F) as u8; // Sense key
+                sense[7] = 10; // Additional sense length
+                sense[12] = (sense_code & 0xFF) as u8; // ASC
+                self.send_tcp_frame(0x83, &sense);
+            }
+            0x05 => {
+                // Data-In query — drain ISP1581 EP2 IN FIFO (firmware response data)
+                let data = self.bus.isp1581_drain(4096);
+                log::info!("TCP: Data-In query → {} bytes from EP2 IN", data.len());
+                if !data.is_empty() {
+                    log::info!("TCP: Data-In first 16 bytes: {:02X?}", &data[..data.len().min(16)]);
                 }
+                self.send_tcp_frame(0x84, &data);
+            }
+            0x06 => {
+                // Data-Out inject — push payload to ISP1581 EP1 OUT FIFO
+                // Used for data-out SCSI commands (MODE SELECT, SET WINDOW, etc.)
+                // The firmware handler reads data from EP1 OUT when processing the command.
+                log::info!("TCP: Data-Out inject, {} bytes to EP1 OUT", payload.len());
+                self.bus.isp1581_inject(payload);
+                self.send_tcp_frame(0x86, &[0x01]); // ACK
+            }
+            0x07 => {
+                // Completion poll — check if cmd_pending has returned to 0
+                let pending = self.bus.read_byte(0x400082);
+                let sense_code = self.bus.read_word(0x4007B0);
+                let ep2_len = if self.bus.isp1581_has_response() { 1u8 } else { 0u8 };
+                let done = if pending == 0 { 1u8 } else { 0u8 };
+                log::debug!("TCP: Completion poll → done={}, sense=0x{:04X}, ep2_has_data={}",
+                    done, sense_code, ep2_len);
+                let mut resp = [0u8; 4];
+                resp[0] = done;
+                resp[1] = (sense_code >> 8) as u8;
+                resp[2] = sense_code as u8;
+                resp[3] = ep2_len; // 1 if EP2 IN has data
+                self.send_tcp_frame(0x85, &resp);
+            }
+            0x08 => {
+                // RAM read — read arbitrary memory region
+                // Payload: [addr:4 BE] [len:2 BE]
+                if payload.len() < 6 {
+                    log::warn!("TCP: RAM read needs 6 bytes (addr:4 + len:2), got {}", payload.len());
+                    self.send_tcp_frame(0x88, &[]);
+                    return;
+                }
+                let addr = u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                let len = u16::from_be_bytes([payload[4], payload[5]]) as usize;
+                let len = len.min(4096); // Cap at 4KB
+                let mut data = vec![0u8; len];
+                for i in 0..len {
+                    data[i] = self.bus.read_byte(addr + i as u32);
+                }
+                log::info!("TCP: RAM read 0x{:06X} +{} bytes", addr, len);
+                self.send_tcp_frame(0x88, &data);
             }
             _ => {
                 log::warn!("TCP: Unknown message type 0x{:02X}", msg_type);
@@ -735,30 +934,35 @@ impl Emulator {
         }
     }
 
-    /// Send pending response data back to the TCP client.
+    /// Send a TCP frame to the connected client.
+    fn send_tcp_frame(&mut self, msg_type: u8, payload: &[u8]) {
+        if let Some(ref mut stream) = self.tcp_client {
+            use std::io::Write;
+            let len = payload.len() as u16;
+            let header = [(len >> 8) as u8, len as u8, msg_type];
+            if let Err(e) = stream.write_all(&header) {
+                log::warn!("TCP write error: {}. Disconnecting.", e);
+                self.tcp_client = None;
+                return;
+            }
+            if !payload.is_empty() {
+                if let Err(e) = stream.write_all(payload) {
+                    log::warn!("TCP write error: {}. Disconnecting.", e);
+                    self.tcp_client = None;
+                }
+            }
+        }
+    }
+
+    /// Send pending ISP1581 EP2 IN data back to TCP client (auto-push).
+    /// This fires whenever firmware writes to EP2 IN between polls.
     fn send_tcp_response(&mut self) {
-        let data = self.bus.isp1581_drain(1024);
+        let data = self.bus.isp1581_drain(4096);
         if data.is_empty() {
             return;
         }
-        if let Some(ref mut stream) = self.tcp_client {
-            use std::io::Write;
-            // Determine response type based on data length
-            let msg_type = match data.len() {
-                1 => 0x81, // Phase byte
-                18 => 0x83, // Sense data
-                _ => 0x82, // Data in
-            };
-            let len = data.len() as u16;
-            let header = [(len >> 8) as u8, len as u8, msg_type];
-            if let Err(e) = stream.write_all(&header) {
-                log::warn!("TCP write header error: {}", e);
-                return;
-            }
-            if let Err(e) = stream.write_all(&data) {
-                log::warn!("TCP write data error: {}", e);
-            }
-        }
+        log::info!("TCP: Auto-push {} bytes from EP2 IN (type 0x82)", data.len());
+        self.send_tcp_frame(0x82, &data);
     }
 
     /// Inject a CDB directly (for testing without TCP).

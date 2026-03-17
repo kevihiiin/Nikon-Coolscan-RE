@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 3 — USB (COMPLETE)
-**Status**: Phase 1-3 complete. TUR response via TCP verified. USB gadget bridge implemented. Firmware reaches SCSI dispatcher (0x020AE2), processes TUR, returns sense 00/00/00 (GOOD).
+**Current Phase**: 4 — SCSI (IN PROGRESS)
+**Status**: Phases 1-3 complete. INQUIRY returns correct Nikon LS-50 ED identification. REQUEST SENSE works. TUR/MODE SENSE blocked on USB response manager.
 **Last Updated**: 2026-03-17
 
 ---
@@ -345,3 +345,57 @@ All 3 bypassed via NOP + pre-set RAM values. Direct RAM CDB injection
 - Phase 4: Full SCSI command sequence (INQUIRY, MODE SENSE, etc.)
 - Test more opcodes via TCP bridge
 - Eventually: implement ISP1581 USB enumeration for full USB path
+
+---
+
+## Session 7 — 2026-03-17 (continued)
+
+**Goals**: Phase 4 — SCSI command handling
+
+**Accomplished**:
+
+### Phase 4 — SCSI (Started)
+
+**TCP bridge protocol extensions:**
+- Added 5 new message types: Data-In query (0x05), Data-Out inject (0x06), Completion poll (0x07), RAM read (0x08), with corresponding responses
+- Added `send_tcp_frame()` helper for cleaner response sending
+- Updated Python test client with full init sequence support (INQUIRY, REQUEST SENSE, MODE SENSE, MODE SELECT, SET WINDOW)
+
+**SCSI dispatch path analysis:**
+- Traced full dispatch path: 0x020AE2 → 0x013690 (command ready) → 0x020B48 (opcode lookup) → 0x020B70 (match) → 0x020CA0 (permission) → 0x020D94 (exec mode) → 0x020DB2 (handler call)
+- Discovered 0x400088 (CDB byte count) required ≥ 6 for command ready check
+- Discovered 0x400087 flag checked when ISP1581 DcInterrupt bit 0 not set
+- Implemented JIT 0x400088 injection at dispatcher entry with cdb_injected flag
+
+**USB response manager bypass:**
+- Response manager at 0x01374A blocks on ISP1581 DMA handshake (0x013C70 → TRAPA yield loop)
+- NOP-patched 6 handler-specific JSR calls to 0x01374A
+- Added response data intercept at dispatch return point (0x020DB4)
+- INQUIRY response read from RAM at 0x4008A2, with flash string data from 0x170D6
+
+**ISP1581 model improvements:**
+- Separated ep_status (0x08) and dc_interrupt (0x18) registers
+- Added DcInterrupt set after EP data port writes (0x600020)
+- Added `ep2_push_bytes()` and `push_to_host()` for intercepted transfers
+- Added DcBufferStatus (0x1E) return value
+
+**SCSI handler milestones:**
+- Added 18 milestones for SCSI dispatch flow and handler entry points
+- Reduced cmd_pending logging noise (only log when pending != 0)
+
+**Results:**
+- INQUIRY (0x12): Returns correct "Nikon   LS-50 ED        1.02" identification ✓
+- REQUEST SENSE (0x03): Returns sense via RAM read ✓
+- TUR (0x00): Handler corrupts context switch — skipped for now
+- MODE SENSE (0x1A): Handler has additional ISP1581 polling — blocked
+
+**Bugs found:**
+1. ISP1581 register map was wrong: 0x18 is DcInterrupt, not DMA Config
+2. 0x400088 set during CDB injection causes context switch corruption (context index at 0x400764 overwritten to 0x0040 → SP save goes to wrong address → RTE pops garbage)
+3. Response manager yield-poll loop: 0x01374A → 0x013C70 → TRAPA #0 creates permanent Context A block
+
+**Next Steps**:
+- Fix MODE SENSE (find ISP1581 polling within handler, NOP it)
+- Fix TUR (investigate scanner state machine at 0x40077C)
+- Add response intercepts for more commands
+- Complete Phase 4 milestone: "Full init sequence passes"
