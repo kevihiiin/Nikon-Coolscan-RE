@@ -118,6 +118,23 @@ def query_sense(sock):
     return None, None, None
 
 
+def collect_data_in(sock, auto_data):
+    """Collect all data-in bytes from auto-push frames and explicit query.
+
+    Combines data from wait_completion's auto_data, any additional auto-pushed
+    frames still in the socket buffer, and falls back to an explicit query
+    if nothing was collected.
+    """
+    data = b"".join(auto_data)
+    frames = recv_all_frames(sock, timeout=0.3)
+    for ft, fp in frames:
+        if ft in (0x82, 0x84):
+            data += fp
+    if not data:
+        data = query_data_in(sock)
+    return data
+
+
 def inject_data_out(sock, data):
     """Inject data-out payload into ISP1581 EP1 OUT FIFO."""
     send_frame(sock, 0x06, data)
@@ -176,21 +193,7 @@ def send_inquiry(sock, alloc_len=36, evpd=False, page_code=0):
         print("  Result: TIMEOUT")
         return None
 
-    # Collect data from auto-push + explicit query
-    data = b""
-    for d in auto_data:
-        data += d
-
-    # Drain any additional auto-pushed data
-    frames = recv_all_frames(sock, timeout=0.3)
-    for ft, fp in frames:
-        if ft in (0x82, 0x84):
-            data += fp
-
-    # Also try explicit query
-    if not data:
-        data = query_data_in(sock)
-
+    data = collect_data_in(sock, auto_data)
     sense_sk, sense_asc, sense_ascq = query_sense(sock)
 
     if data:
@@ -228,13 +231,7 @@ def send_request_sense(sock, alloc_len=18):
         print("  Result: TIMEOUT")
         return None
 
-    frames = recv_all_frames(sock, timeout=0.3)
-    data = b""
-    for ft, fp in frames:
-        if ft in (0x82, 0x84):
-            data += fp
-    if not data:
-        data = query_data_in(sock)
+    data = collect_data_in(sock, auto_data)
 
     if data:
         print(f"  Response: {len(data)} bytes")
