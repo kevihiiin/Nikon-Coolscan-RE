@@ -211,7 +211,7 @@ impl Emulator {
                     // Configure via timer model to avoid I/O address conflicts
                     // (0xFFFF8E is shared between Port 7 and ITU4 TIER).
                     // Configure ITU4 in BOTH model AND bus so sync doesn't overwrite.
-                    // ITU4 base in onchip_io: 0x8C
+                    // ITU4 base in onchip_io: 0x92 (NOT 0x8C — there's a gap after ITU3)
                     {
                         let t4 = &mut self.peripherals.timers.timers[4];
                         t4.tcr = 0xA3;   // Internal clock φ/8, clear on GRA match
@@ -219,11 +219,12 @@ impl Emulator {
                         t4.gra = 0x2000;  // Compare value — fires every 8192 timer ticks (~32K insns)
                         t4.tcnt = 0;
                     }
-                    // Mirror to bus (ITU4 base = 0x8C)
-                    self.bus.onchip_io[0x8C] = 0xA3; // TCR4
-                    // Skip 0x8E (TIER4) — conflicts with Port 7, model handles directly
-                    self.bus.onchip_io[0x92] = 0x20; // GRA4H
-                    self.bus.onchip_io[0x93] = 0x00; // GRA4L → GRA = 0x2000
+                    // Mirror to bus (ITU4 base = 0x92)
+                    self.bus.onchip_io[0x92] = 0xA3; // TCR4
+                    // 0x94 = TIER4 (no longer conflicts with Port 7!)
+                    self.bus.onchip_io[0x94] = 0x01; // TIER4: IMIEA enabled
+                    self.bus.onchip_io[0x98] = 0x20; // GRA4H
+                    self.bus.onchip_io[0x99] = 0x00; // GRA4L → GRA = 0x2000
                     self.peripherals.timers.tstr |= 0x10; // Start ITU4 (bit 4)
                     self.bus.onchip_io[0x60] |= 0x10;     // Mirror TSTR to bus
                     log::info!("JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)");
@@ -307,7 +308,8 @@ impl Emulator {
     }
 
     /// ITU base addresses in on-chip I/O space (ITU0-ITU4).
-    const ITU_BASES: [usize; 5] = [0x64, 0x6E, 0x78, 0x82, 0x8C];
+    /// Note: ITU4 is at 0x92, NOT 0x8C. There's a gap at 0x8C-0x91 (Port 7, BSC regs).
+    const ITU_BASES: [usize; 5] = [0x64, 0x6E, 0x78, 0x82, 0x92];
 
     /// Sync peripheral models with memory bus state.
     /// Called after every instruction to propagate I/O register writes to models
@@ -326,10 +328,8 @@ impl Emulator {
                 let t = &mut self.peripherals.timers.timers[i];
                 t.tcr = self.bus.onchip_io[base];
                 t.tior = self.bus.onchip_io[base + 1];
-                // TIER at base+2: skip for ITU4 (0x8E conflicts with Port 7 GPIO)
-                if i != 4 {
-                    t.tier = self.bus.onchip_io[base + 2];
-                }
+                // ITU4 is now at base 0x92, so TIER4 = 0x94 (no Port 7 conflict)
+                t.tier = self.bus.onchip_io[base + 2];
                 // GRA/GRB = big-endian 16-bit
                 t.gra = ((self.bus.onchip_io[base + 6] as u16) << 8)
                     | self.bus.onchip_io[base + 7] as u16;

@@ -143,7 +143,8 @@ impl TimerUnit {
             // ITU1: TCR1=0x6E, ... GRB1L=0x77
             // ITU2: TCR2=0x78, ... GRB2L=0x81
             // ITU3: TCR3=0x82, ... GRB3L=0x8B
-            // ITU4: TCR4=0x8C, ... GRB4L=0x95
+            // GAP: 0x8C-0x91 (Port 7, BSC regs, etc.)
+            // ITU4: TCR4=0x92, ... GRB4L=0x9B
             _ => self.read_timer_reg(offset),
         }
     }
@@ -165,7 +166,7 @@ impl TimerUnit {
             0x6E..=0x77 => Some((1, offset - 0x6E)),
             0x78..=0x81 => Some((2, offset - 0x78)),
             0x82..=0x8B => Some((3, offset - 0x82)),
-            0x8C..=0x95 => Some((4, offset - 0x8C)),
+            0x92..=0x9B => Some((4, offset - 0x92)),
             _ => None,
         }
     }
