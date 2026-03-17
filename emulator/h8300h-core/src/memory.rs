@@ -174,7 +174,12 @@ impl MemoryBus {
                 if self.trace_enabled {
                     log::warn!("Unmapped read: 0x{:06X}", addr);
                 }
-                0xFF
+                // Return 0x00 for unmapped regions (not 0xFF).
+                // The firmware's USB fast-path code polls bit 7 of an ISP1581
+                // register via register indirect. If the address falls in an
+                // unmapped region (e.g., 0x063621), returning 0x00 lets the
+                // polling loop exit (bit 7 clear = "ready").
+                0x00
             }
         }
     }

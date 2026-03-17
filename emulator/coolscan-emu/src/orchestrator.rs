@@ -229,12 +229,22 @@ impl Emulator {
                     self.bus.onchip_io[0x60] |= 0x10;     // Mirror TSTR to bus
                     log::info!("JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)");
 
-                    // Set USB initialization flag at RAM 0x400084.
-                    // The firmware's IRQ1 handler checks this; if 0, USB processing is skipped.
-                    // Also set related USB state flags that the firmware expects.
-                    self.bus.write_byte(0x400084, 0x01); // USB initialized
-                    self.bus.write_byte(0x400082, 0x00); // cmd_pending = 0 (no command yet)
-                    log::info!("JIT: Set USB init flag at 0x400084");
+                    // DO NOT set USB init flag at 0x400084 — the USB fast-path code
+                    // has wrong patched addresses (points to flash 0x063621 instead of
+                    // ISP1581 at 0x600000+). Setting 0x400084=1 causes the timer ISR
+                    // to call USB code which loops forever on a flash read.
+                    // Instead, leave 0x400084=0 so USB code is skipped.
+                    // CDB injection uses direct RAM write to 0x4007DE + cmd_pending.
+                    // Patch the USB fast-path calls in flash to NOPs.
+                    // The USB fast-path code in RAM has wrong ISP1581 addresses
+                    // (patched to 0x063621 → erased flash, causes infinite loop).
+                    // We NOP out the two JSR calls that enter the fast-path:
+                    // 0x012ECE: JSR @0x013506 → NOP+NOP (4 bytes)
+                    // 0x012ED0: (continuation)
+                    self.bus.flash_write_long(0x012ECE, 0x00000000); // NOP the JSR to USB fast-path
+                    // Also NOP the second USB call at 0x012EC6 (JSR @0x01350A)
+                    self.bus.flash_write_long(0x012EC6, 0x00000000); // NOP the USB setup call
+                    log::info!("JIT: NOPed USB fast-path calls at 0x012EC6 and 0x012ECE");
 
                     log::info!(
                         "JIT context init: Context B SP=0x{:06X}, entry=0x029B16",
