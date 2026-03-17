@@ -1,6 +1,6 @@
 # Phase 4: SCSI — Attempt Log
 
-**Status**: In Progress — INQUIRY and REQUEST SENSE working, TUR/MODE SENSE blocked
+**Status**: In Progress — TUR, INQUIRY, REQUEST SENSE working. MODE SENSE blocked (dispatch loop stuck after INQUIRY)
 
 ---
 
@@ -89,9 +89,73 @@ At dispatch return (0x020DB4), for data-in commands (exec_mode=0x03):
 
 4. **INQUIRY handler builds response at 0x4008A2**: Device type (0x06), vendor/product from flash at 0x170D6. The handler writes all 36 bytes there even with the response manager NOPed.
 
+## 2026-03-17 — Session 2: TUR Fix and Dispatch NOP Expansion
+
+### TUR Context Corruption Root Cause
+
+**Problem**: TUR (opcode 0x00) through firmware dispatcher corrupts context index at 0x400764.
+
+**Root cause traced via memory watchpoint**:
+1. Setting 0x400088=6 (CDB byte count) triggers firmware CDB queue processing
+2. Queue processing code in dispatch permission check area (0x020C40-0x020C60) iterates through queue entries
+3. Code at 0x020C48 (`MOV.W R0, @ER1`) writes to addresses computed from ER1, which happens to be 0x400040 area
+4. A byte value 0x40 gets written to 0x400765 (high byte of context index word), making it 0x0040 instead of 0x0000/0x0004
+5. Next context switch at 0x0108B6 reads index 0x0040, saves SP to wrong address, loads garbage SP, RTE pops PC=0x000000
+
+**Fix**: TUR is handled via direct emulation (sense 00/00/00, no firmware handler). The 700-byte TUR handler with its complex scanner state machine is bypassed entirely.
+
+### Direct Handler Invocation (Attempted)
+
+Attempted calling handlers directly from the idle loop (0x013C70) by pushing a sentinel return address (0x07FFFE) and modifying PC. This approach failed because:
+- Handlers modify RAM state that the main loop depends on
+- Context switches during handler execution create state inconsistencies
+- Register restore (ER0-ER7 + CCR) isn't sufficient — stack and RAM contents matter
+
+Reverted to firmware dispatcher path with JIT 0x400088 injection.
+
+### Dispatch-Level NOP Expansion
+
+**Discovery**: There are **11** JSR @0x01374A calls in the dispatch code (0x020A00-0x020E00), not just the one at 0x020D9E. All must be NOPed because the USB response manager blocks on ISP1581.
+
+**All patched addresses**: 0x020B22, 0x020B3A, 0x020B8C, 0x020BA2, 0x020C62, 0x020C84, 0x020D26, 0x020D40, 0x020D5A, 0x020D74, 0x020D9E
+
+### Data Transfer Function Discovery
+
+**Discovery**: All data-in handlers call JSR @0x014090 (USB data transfer) IN ADDITION to JSR @0x01374A (response manager). Both must be NOPed.
+
+| Handler | JSR @0x014090 Address | Purpose |
+|---------|----------------------|---------|
+| INQUIRY | 0x02604A | Transfers 36-byte response |
+| REQUEST SENSE | 0x02193A | Transfers 18-byte sense |
+| MODE SENSE | 0x0220A8 | Transfers mode pages |
+| RECEIVE DIAG | 0x023D22 | Transfers diagnostic data |
+| GET WINDOW | 0x0279AE | Transfers window params |
+
+### Current Results (Session 2 End)
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| TUR (0x00) | **WORKING** | Direct emulation (bypasses firmware handler) |
+| INQUIRY (0x12) | **WORKING** | 36 bytes: "Nikon LS-50 ED 1.02" |
+| REQUEST SENSE (0x03) | **WORKING** | Via RAM sense read at 0x4007B0 |
+| MODE SENSE (0x1A) | **BLOCKED** | Dispatch path stuck after INQUIRY — main loop doesn't iterate to second command |
+| MODE SELECT (0x15) | **UNTESTED** | |
+| SET WINDOW (0x24) | **UNTESTED** | |
+
+### Blocking Issue: Command Sequencing
+
+After INQUIRY completes via the firmware dispatcher:
+1. The INQUIRY handler runs with response manager + data transfer NOPed
+2. Handler returns to dispatcher cleanup at 0x020DB4
+3. Dispatcher returns to main loop
+4. Main loop gets stuck — doesn't re-enter cmd_pending check for the next command
+5. Likely cause: NOPed response manager calls in the dispatch code left USB state variables in an inconsistent state that prevents the main loop from progressing
+
+**This is the key blocker for multi-command sequences.** Single commands work fine individually.
+
 ### Next Steps
 
-- Fix TUR: either NOP the scanner state checks or make the state machine compatible
-- Fix MODE SENSE: find and NOP additional ISP1581 polling within the handler
-- Add response intercepts for MODE SENSE, MODE SELECT, SET WINDOW
-- Test full init sequence end-to-end
+- Investigate why main loop stops iterating after first dispatched command
+- May need to set USB completion flags that the NOPed response manager would normally set
+- Consider reading dispatch cleanup code to understand what state it expects
+- Alternative: implement a minimal USB completion emulation instead of NOPing everything
