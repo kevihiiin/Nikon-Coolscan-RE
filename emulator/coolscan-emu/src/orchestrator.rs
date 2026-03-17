@@ -14,6 +14,32 @@ use std::net::TcpListener;
 
 use crate::config::Config;
 
+// --- Firmware RAM addresses (from RE analysis, see docs/kb/) ---
+const FW_CMD_PENDING: u32 = 0x400082;     // CDB available flag (1 = pending)
+#[allow(dead_code)]
+const FW_CMD_PENDING2: u32 = 0x400087;    // Secondary command flag
+#[allow(dead_code)]
+const FW_CDB_LEN: u32 = 0x400088;         // CDB byte count
+const FW_SENSE_CODE: u32 = 0x4007B0;      // Current sense key/ASC/ASCQ
+const FW_SCSI_OPCODE: u32 = 0x4007B6;     // SCSI opcode byte for dispatch
+const FW_CDB_BUFFER: u32 = 0x4007DE;      // Start of CDB buffer (16 bytes)
+const FW_CTX_INDEX: u32 = 0x400764;        // Context switch index (0=A, 4=B)
+const FW_CTX_A_SP: u32 = 0x400766;         // Context A saved SP
+const FW_CTX_B_SP: u32 = 0x40076A;         // Context B saved SP
+#[allow(dead_code)]
+const FW_SYS_TICK: u32 = 0x40076E;         // System tick timestamp
+#[allow(dead_code)]
+const FW_WARM_BOOT: u32 = 0x400772;        // Warm-boot flag
+const FW_USB_SESSION: u32 = 0x407DC7;      // USB session state (2=ready)
+const FW_INQUIRY_FLASH: u32 = 0x170D6;     // INQUIRY string in flash
+#[allow(dead_code)]
+const FW_INQUIRY_RAM: u32 = 0x4008A2;      // INQUIRY buffer in RAM
+
+// --- Firmware code addresses ---
+const FW_CTX_SWITCH: u32 = 0x010876;       // Context switch handler entry
+const FW_SCSI_IDLE: u32 = 0x013C70;        // SCSI dispatcher idle point
+const FW_MAIN_LOOP: u32 = 0x0207F2;        // Context A main loop entry
+
 pub struct Emulator {
     pub cpu: Cpu,
     pub bus: MemoryBus,
@@ -33,9 +59,20 @@ pub struct Emulator {
     tcp_listener: Option<TcpListener>,
     /// Connected TCP client stream.
     tcp_client: Option<std::net::TcpStream>,
-    /// Flag: a CDB was injected and needs the dispatch path to process it.
-    /// Set during CDB injection, cleared after the dispatcher consumes it.
-    cdb_injected: bool,
+    /// Pending data-out CDB: stored when a data-out command arrives before its data.
+    /// When data-out arrives, the command is processed immediately.
+    pending_dataout_opcode: Option<u8>,
+    // --- Phase 5: Scan state ---
+    /// Whether RESERVE has been called (exclusive access claimed).
+    reserved: bool,
+    /// Whether a scan is active (set by SCAN, cleared by completion).
+    scan_active: bool,
+    /// Stored SET WINDOW descriptor (up to 80 bytes).
+    window_descriptor: Vec<u8>,
+    /// Scan image data buffer (synthesized test pattern).
+    scan_data: Vec<u8>,
+    /// Current offset into scan_data for chunked READ delivery.
+    scan_data_offset: usize,
 }
 
 impl Emulator {
@@ -64,7 +101,7 @@ impl Emulator {
         // but we take the warm-boot path (ASIC ready). Without trampolines,
         // TRAPA #0 jumps to 0xFFFD10 which would be NOPs.
         let trampolines: &[(u32, u32)] = &[
-            (0xFFFD10, 0x010876),  // Vec 8:  TRAP#0 → context switch
+            (0xFFFD10, FW_CTX_SWITCH),  // Vec 8:  TRAP#0 → context switch
             (0xFFFD14, 0x033444),  // Vec 15: IRQ3 → encoder
             (0xFFFD18, 0x014D4A),  // Vec 16/17: IRQ4/5 → adapter
             (0xFFFD1C, 0x010B76),  // Vec 32: IMIA2 → motor dispatcher
@@ -94,13 +131,15 @@ impl Emulator {
             match TcpListener::bind(format!("127.0.0.1:{}", config._tcp_port)) {
                 Ok(listener) => {
                     if let Err(e) = listener.set_nonblocking(true) {
-                        log::error!("Failed to set TCP listener non-blocking: {}. Emulator may hang.", e);
+                        log::error!("Failed to set TCP listener non-blocking: {}. Aborting TCP bridge.", e);
+                        None
+                    } else {
+                        log::info!("TCP bridge listening on port {}", config._tcp_port);
+                        Some(listener)
                     }
-                    log::info!("TCP bridge listening on port {}", config._tcp_port);
-                    Some(listener)
                 }
                 Err(e) => {
-                    log::warn!("Failed to bind TCP port {}: {}", config._tcp_port, e);
+                    log::error!("Failed to bind TCP port {}: {}. No TCP bridge.", config._tcp_port, e);
                     None
                 }
             }
@@ -122,7 +161,12 @@ impl Emulator {
             milestones_seen: std::collections::HashSet::new(),
             tcp_listener,
             tcp_client: None,
-            cdb_injected: false,
+            pending_dataout_opcode: None,
+            reserved: false,
+            scan_active: false,
+            window_descriptor: Vec::new(),
+            scan_data: Vec::new(),
+            scan_data_offset: 0,
         }
     }
 
@@ -135,7 +179,10 @@ impl Emulator {
         for i in 0..max_instructions {
             if self.cpu.sleeping {
                 self.check_peripherals();
-                if !self.irq.has_pending() {
+                // Only wake from SLEEP when a maskable IRQ is pending AND
+                // interrupts are enabled (CCR.I=0). Per H8/300H spec, SLEEP
+                // with I=1 remains halted until I is cleared externally.
+                if !self.irq.has_pending() || self.cpu.interrupt_masked() {
                     continue;
                 }
             }
@@ -174,8 +221,8 @@ impl Emulator {
 
             let pre_exec_pc = self.cpu.pc;
 
-            // Context switch tracing (entry to handler at 0x010876)
-            if pre_exec_pc == 0x010876 {
+            // Context switch tracing (entry to handler at FW_CTX_SWITCH)
+            if pre_exec_pc == FW_CTX_SWITCH {
                 self.trace_context_switch(i);
             }
             // Periodic save area integrity check
@@ -234,8 +281,8 @@ impl Emulator {
 
     /// Initialize the context switch system in RAM.
     ///
-    /// The context switch handler at 0x010876 reads context state from RAM
-    /// at 0x400764 (index) and 0x400766/0x40076A (saved SPs).
+    /// The context switch handler at FW_CTX_SWITCH reads context state from RAM
+    /// at FW_CTX_INDEX (index) and FW_CTX_A_SP/FW_CTX_B_SP (saved SPs).
     /// We defer this until the first TRAPA because the RAM test (which runs
     /// earlier) would overwrite any values set at startup.
     fn jit_context_init(&mut self) {
@@ -254,12 +301,12 @@ impl Emulator {
         }
         // Write packed RTE frame: [CCR=0x00][PC=0x029B16] (Context B entry)
         self.bus.write_long(frame_sp + 28, 0x00029B16);
-        self.bus.write_long(0x40076A, frame_sp);   // Context B saved SP
-        self.bus.write_word(0x400764, 0x0000);      // Context A is current (index 0)
+        self.bus.write_long(FW_CTX_B_SP, frame_sp);   // Context B saved SP
+        self.bus.write_word(FW_CTX_INDEX, 0x0000);      // Context A is current (index 0)
 
         // Start ITU4 system tick timer.
         // Warm-boot path skips the timer start code. Without ITU4 running,
-        // the system tick at 0x40076E never increments and the firmware
+        // the system tick at FW_SYS_TICK never increments and the firmware
         // hangs in a polling loop at 0x0352B0.
         // Configure in BOTH model AND bus so sync doesn't overwrite.
         // ITU4 base in onchip_io: 0x92 (NOT 0x8C -- there's a gap after ITU3).
@@ -300,7 +347,7 @@ impl Emulator {
         //
         // These calls interleave USB transport with SCSI processing, which blocks
         // because our ISP1581 model doesn't implement the full DMA handshake.
-        // Since all SCSI commands are emulated directly at 0x013C70, the dispatch
+        // Since all SCSI commands are emulated directly at FW_SCSI_IDLE, the dispatch
         // path and handler USB calls are never reached — but NOPing them prevents
         // hangs if the firmware accidentally enters these code paths.
         let patches: &[(u32, u32, &str)] = &[
@@ -359,9 +406,9 @@ impl Emulator {
     /// Log context switch entry and validate the context save area.
     fn trace_context_switch(&mut self, insn_count: u64) {
         self.ctx_switch_count += 1;
-        let ctx_idx = self.bus.read_word(0x400764);
-        let ctx_a_sp = self.bus.read_long(0x400766);
-        let ctx_b_sp = self.bus.read_long(0x40076A);
+        let ctx_idx = self.bus.read_word(FW_CTX_INDEX);
+        let ctx_a_sp = self.bus.read_long(FW_CTX_A_SP);
+        let ctx_b_sp = self.bus.read_long(FW_CTX_B_SP);
         let switching_to = if ctx_idx == 0 { "A->B" } else { "B->A" };
 
         // Log first 10 switches, then every 10000th
@@ -392,14 +439,14 @@ impl Emulator {
 
     /// Periodically check whether the context save area changed outside the handler.
     fn check_context_save_area(&mut self, insn_count: u64, pc: u32) {
-        let ctx_a_sp = self.bus.read_long(0x400766);
-        let ctx_b_sp = self.bus.read_long(0x40076A);
+        let ctx_a_sp = self.bus.read_long(FW_CTX_A_SP);
+        let ctx_b_sp = self.bus.read_long(FW_CTX_B_SP);
         if ctx_a_sp == self.last_ctx_a_sp && ctx_b_sp == self.last_ctx_b_sp {
             return;
         }
         // Only warn if we're outside the context switch handler
-        if pc != 0x010876 && !(0x010876..=0x010900).contains(&pc) {
-            let ctx_idx = self.bus.read_word(0x400764);
+        if pc != FW_CTX_SWITCH && !(FW_CTX_SWITCH..=0x010900).contains(&pc) {
+            let ctx_idx = self.bus.read_word(FW_CTX_INDEX);
             log::warn!(
                 "CTX SAVE AREA CHANGED outside handler! insn {} PC={:06X} idx={:04X} A_SP={:06X}->{:06X} B_SP={:06X}->{:06X}",
                 insn_count, pc, ctx_idx,
@@ -413,77 +460,154 @@ impl Emulator {
 
     // --- Direct SCSI command emulation ---
 
+    /// Clear sense code to GOOD status.
+    fn scsi_good(&mut self) {
+        self.bus.write_word(FW_SENSE_CODE, 0x0000);
+    }
+
+    /// Set sense to ILLEGAL REQUEST (SK=5, ASC=0x24).
+    fn scsi_illegal_request(&mut self) {
+        self.bus.write_word(FW_SENSE_CODE, 0x0050);
+    }
+
+    /// Read 24-bit big-endian transfer length from CDB bytes 6-8.
+    fn cdb_xfer_len_24(&mut self) -> u32 {
+        ((self.bus.read_byte(FW_CDB_BUFFER + 6) as u32) << 16)
+            | ((self.bus.read_byte(FW_CDB_BUFFER + 7) as u32) << 8)
+            | self.bus.read_byte(FW_CDB_BUFFER + 8) as u32
+    }
+
     /// Handle a SCSI command directly (bypassing firmware dispatcher).
     /// Builds response data from firmware flash/RAM and pushes to EP2 IN FIFO.
     fn handle_scsi_command(&mut self, opcode: u8) {
         match opcode {
             0x00 => {
                 // TEST UNIT READY: scanner is always ready in emulator
-                self.bus.write_word(0x4007B0, 0x0000);
+                self.scsi_good();
                 log::info!("SCSI EMU: TUR → GOOD");
             }
             0x12 => {
-                // INQUIRY: build 36-byte standard response
-                let alloc_len = self.bus.read_byte(0x4007E2) as usize; // CDB[4]
-                let xfer_len = alloc_len.min(36);
-                if xfer_len > 0 {
-                    let mut data = vec![0u8; xfer_len];
-                    data[0] = 0x06; // Device type: scanner
-                    data[1] = 0x00;
-                    data[2] = 0x02; // SCSI-2
-                    data[3] = 0x02; // Response format 2
-                    if xfer_len > 4 { data[4] = 0x1F; } // Additional length
-                    // Vendor/product/revision from flash at 0x170D6
-                    if xfer_len >= 36 {
-                        for j in 0..28 {
-                            data[8 + j] = self.bus.read_byte(0x0170D6 + j as u32);
+                // INQUIRY: standard or EVPD response
+                let evpd = self.bus.read_byte(FW_CDB_BUFFER + 1) & 0x01;
+                let page_code = self.bus.read_byte(FW_CDB_BUFFER + 2);
+                let alloc_len = self.bus.read_byte(FW_CDB_BUFFER + 4) as usize;
+
+                if evpd != 0 {
+                    // EVPD: Vital Product Data pages
+                    match page_code {
+                        0x00 => {
+                            // Supported VPD pages (from firmware: depends on adapter)
+                            // Adapter VPD pages vary: mount=C0/C1, strip=C0-C3, aps=C0-C3, feeder=C0-C4
+                            let pages = [0x00u8, 0xC0, 0xC1]; // Minimal: supported pages + 2 adapter pages
+                            let xfer_len = alloc_len.min(pages.len() + 4);
+                            let mut data = vec![0u8; xfer_len];
+                            data[0] = 0x06; // Device type: scanner
+                            data[3] = pages.len() as u8; // Page length
+                            for (i, &p) in pages.iter().enumerate() {
+                                if 4 + i < xfer_len { data[4 + i] = p; }
+                            }
+                            self.bus.isp1581_push_to_host(&data);
+                            log::info!("SCSI EMU: INQUIRY EVPD page 0x00 → {} bytes", xfer_len);
+                        }
+                        0xC0 => {
+                            // VPD page 0xC0: adapter identification
+                            let xfer_len = alloc_len.min(16);
+                            let mut data = vec![0u8; xfer_len];
+                            data[0] = 0x06; // Device type
+                            data[1] = 0xC0; // Page code
+                            data[3] = 8;    // Page length
+                            // Adapter type byte (from current config)
+                            data[4] = self.peripherals.gpio.port_7_input;
+                            self.bus.isp1581_push_to_host(&data);
+                            log::info!("SCSI EMU: INQUIRY EVPD page 0xC0 → {} bytes", xfer_len);
+                        }
+                        0xC1 => {
+                            // VPD page 0xC1: adapter capabilities
+                            let xfer_len = alloc_len.min(16);
+                            let data = vec![0u8; xfer_len];
+                            self.bus.isp1581_push_to_host(&data);
+                            log::info!("SCSI EMU: INQUIRY EVPD page 0xC1 → {} bytes", xfer_len);
+                        }
+                        _ => {
+                            self.scsi_illegal_request();
+                            log::warn!("SCSI EMU: INQUIRY EVPD page 0x{:02X} → ILLEGAL REQUEST", page_code);
+                            return;
                         }
                     }
-                    self.bus.isp1581_push_to_host(&data);
-                    log::info!("SCSI EMU: INQUIRY → {} bytes", xfer_len);
+                    self.scsi_good();
+                } else {
+                    // Standard INQUIRY
+                    let xfer_len = alloc_len.min(36);
+                    if xfer_len > 0 {
+                        let mut data = vec![0u8; xfer_len];
+                        data[0] = 0x06; // Device type: scanner
+                        data[1] = 0x00;
+                        data[2] = 0x02; // SCSI-2
+                        data[3] = 0x02; // Response format 2
+                        if xfer_len > 4 { data[4] = 0x1F; } // Additional length
+                        // Vendor/product/revision from flash
+                        if xfer_len >= 36 {
+                            for j in 0..28 {
+                                data[8 + j] = self.bus.read_byte(FW_INQUIRY_FLASH + j as u32);
+                            }
+                        }
+                        self.bus.isp1581_push_to_host(&data);
+                        log::info!("SCSI EMU: INQUIRY → {} bytes", xfer_len);
+                    }
+                    self.scsi_good();
                 }
-                self.bus.write_word(0x4007B0, 0x0000);
             }
             0x03 => {
                 // REQUEST SENSE: build 18-byte sense from RAM
-                let alloc_len = self.bus.read_byte(0x4007E2) as usize;
+                let alloc_len = self.bus.read_byte(FW_CDB_BUFFER + 4) as usize;
                 let xfer_len = alloc_len.min(18);
                 if xfer_len > 0 {
-                    let sense_code = self.bus.read_word(0x4007B0);
+                    let sense_code = self.bus.read_word(FW_SENSE_CODE);
                     let mut data = vec![0u8; xfer_len];
                     data[0] = 0x70; // Current errors
-                    if xfer_len > 2 { data[2] = ((sense_code >> 8) & 0x0F) as u8; } // Sense key
+                    if xfer_len > 2 { data[2] = ((sense_code >> 8) & 0x0F) as u8; }
                     if xfer_len > 7 { data[7] = 10; } // Additional length
-                    if xfer_len > 12 { data[12] = (sense_code & 0xFF) as u8; } // ASC
+                    if xfer_len > 12 { data[12] = (sense_code & 0xFF) as u8; }
                     self.bus.isp1581_push_to_host(&data);
-                    log::info!("SCSI EMU: REQUEST SENSE → {} bytes (SK={:X} ASC={:02X})",
-                        xfer_len, (sense_code >> 8) & 0xF, sense_code & 0xFF);
+                    log::info!("SCSI EMU: REQUEST SENSE → SK={:X} ASC={:02X}",
+                        (sense_code >> 8) & 0xF, sense_code & 0xFF);
                 }
-                // Clear sense after reading (per SCSI spec)
-                self.bus.write_word(0x4007B0, 0x0000);
+                self.scsi_good(); // Clear after reading (per SCSI spec)
+            }
+            0x16 => {
+                // RESERVE: claim exclusive access
+                self.reserved = true;
+                self.scsi_good();
+                log::info!("SCSI EMU: RESERVE → GOOD");
+            }
+            0x17 => {
+                // RELEASE: release exclusive access
+                self.reserved = false;
+                self.scan_active = false;
+                self.scsi_good();
+                log::info!("SCSI EMU: RELEASE → GOOD");
+            }
+            0x15 => {
+                // MODE SELECT(6): accept data-out, store for reference
+                let param_len = self.bus.read_byte(FW_CDB_BUFFER + 4) as usize;
+                // Drain data-out from EP1 OUT FIFO (host sends parameter bytes)
+                let _data = self.bus.isp1581_drain_host_data(param_len);
+                log::info!("SCSI EMU: MODE SELECT → GOOD ({} bytes consumed)", param_len);
+                self.scsi_good();
             }
             0x1A => {
                 // MODE SENSE(6): build minimal mode page response
-                let alloc_len = self.bus.read_byte(0x4007E2) as usize;
-                let page_code = self.bus.read_byte(0x4007E0) & 0x3F; // CDB[2]
+                let alloc_len = self.bus.read_byte(FW_CDB_BUFFER + 4) as usize;
+                let page_code = self.bus.read_byte(FW_CDB_BUFFER + 2) & 0x3F;
                 let xfer_len = alloc_len.min(36);
                 if xfer_len >= 4 {
                     let mut data = vec![0u8; xfer_len];
-                    // Mode parameter header (4 bytes)
                     data[0] = (xfer_len - 1) as u8; // Mode data length
-                    data[1] = 0x00; // Medium type
-                    data[2] = 0x00; // Device-specific parameter
-                    data[3] = 0x00; // Block descriptor length (0 when DBD=1)
-
                     // Mode page data (simplified)
                     if xfer_len > 4 && (page_code == 0x03 || page_code == 0x3F) {
-                        // Page 0x03: device-specific parameters
                         if xfer_len >= 16 {
                             data[4] = 0x03; // Page code
                             data[5] = 0x0A; // Page length (10)
-                            // Simplified scanner parameters
-                            data[6] = 0x00; data[7] = 0x00; // Reserved
-                            // Resolution (300 DPI default)
                             data[8] = 0x01; data[9] = 0x2C; // X res = 300
                             data[10] = 0x01; data[11] = 0x2C; // Y res = 300
                         }
@@ -491,28 +615,293 @@ impl Emulator {
                     self.bus.isp1581_push_to_host(&data);
                     log::info!("SCSI EMU: MODE SENSE page=0x{:02X} → {} bytes", page_code, xfer_len);
                 }
-                self.bus.write_word(0x4007B0, 0x0000);
+                self.scsi_good();
             }
-            0x15 => {
-                // MODE SELECT(6): stub — accept and return GOOD
-                // Real implementation would read data-out payload from EP1 OUT
-                let param_len = self.bus.read_byte(0x4007E2) as usize; // CDB[4]
-                log::info!("SCSI EMU: MODE SELECT → GOOD (stub: {} bytes data-out not consumed)", param_len);
-                self.bus.write_word(0x4007B0, 0x0000);
+            0x1B => {
+                // SCAN: initiate scan operation
+                self.handle_scan();
+            }
+            0x1D => {
+                // SEND DIAGNOSTIC: state-dependent, always return GOOD in emulator
+                self.scsi_good();
+                log::info!("SCSI EMU: SEND DIAGNOSTIC → GOOD (emulated)");
             }
             0x24 => {
-                // SET WINDOW: stub — accept and return GOOD
-                // Real implementation would parse 80-byte window descriptor
-                let xfer_len = ((self.bus.read_byte(0x4007E4) as u32) << 16)
-                    | ((self.bus.read_byte(0x4007E5) as u32) << 8)
-                    | self.bus.read_byte(0x4007E6) as u32;
-                log::info!("SCSI EMU: SET WINDOW → GOOD (stub: {} bytes data-out not consumed)", xfer_len);
-                self.bus.write_word(0x4007B0, 0x0000);
+                // SET WINDOW: parse and store window descriptor
+                self.handle_set_window();
+            }
+            0x25 => {
+                // GET WINDOW: return stored window descriptor
+                self.handle_get_window();
+            }
+            0x28 => {
+                // READ(10): dispatch by Data Type Code
+                self.handle_read();
+            }
+            0x2A => {
+                // WRITE(10): accept data-out by DTC
+                self.handle_write();
+            }
+            0xC0 | 0xC1 => {
+                // VENDOR C0/C1: trigger operations — stub GOOD
+                self.scsi_good();
+                log::info!("SCSI EMU: VENDOR 0x{:02X} → GOOD (stub)", opcode);
+            }
+            0xE0 => {
+                // VENDOR E0: write control parameters — accept data-out
+                let xfer_len = self.cdb_xfer_len_24() as usize;
+                let _data = self.bus.isp1581_drain_host_data(xfer_len);
+                self.scsi_good();
+                log::info!("SCSI EMU: VENDOR E0 → GOOD ({} bytes consumed)", xfer_len);
+            }
+            0xE1 => {
+                // VENDOR E1: read sensor results — return zeros
+                let xfer_len = self.cdb_xfer_len_24() as usize;
+                let data = vec![0u8; xfer_len];
+                self.bus.isp1581_push_to_host(&data);
+                self.scsi_good();
+                log::info!("SCSI EMU: VENDOR E1 → {} bytes (zeros)", xfer_len);
             }
             _ => {
                 // Unknown/unsupported opcode: ILLEGAL REQUEST
-                self.bus.write_word(0x4007B0, 0x0050); // SK=5, ASC=0x24
+                self.scsi_illegal_request();
                 log::warn!("SCSI EMU: opcode 0x{:02X} → ILLEGAL REQUEST (sense 05/24/00)", opcode);
+            }
+        }
+    }
+
+    /// Handle SCAN (0x1B) command.
+    fn handle_scan(&mut self) {
+        let op_type = self.bus.read_byte(FW_CDB_BUFFER + 4);
+        // Synthesize test image data based on window descriptor
+        let (width, height, bpp, channels) = self.parse_scan_dimensions();
+        let bytes_per_pixel = if bpp > 8 { 2 } else { 1 };
+        let image_size = width * height * bytes_per_pixel * channels;
+
+        // Generate gradient test pattern
+        let mut data = Vec::with_capacity(image_size);
+        for y in 0..height {
+            for x in 0..width {
+                for ch in 0..channels {
+                    if bytes_per_pixel == 2 {
+                        // 16-bit: gradient based on position
+                        let val = ((x * 65535 / width.max(1)) as u16).to_be_bytes();
+                        data.push(val[0]);
+                        data.push(val[1]);
+                    } else {
+                        // 8-bit: RGB gradient
+                        let val = match ch {
+                            0 => (x * 255 / width.max(1)) as u8,        // R: left-right
+                            1 => (y * 255 / height.max(1)) as u8,       // G: top-bottom
+                            _ => ((x + y) * 255 / (width + height).max(1)) as u8, // B: diagonal
+                        };
+                        data.push(val);
+                    }
+                }
+            }
+        }
+
+        self.scan_data = data;
+        self.scan_data_offset = 0;
+        self.scan_active = true;
+        self.scsi_good();
+        log::info!("SCSI EMU: SCAN op={} → GOOD ({}x{} {}bpp, {} bytes image)",
+            op_type, width, height, bpp, self.scan_data.len());
+    }
+
+    /// Parse scan dimensions from stored window descriptor.
+    /// Returns (width_pixels, height_pixels, bits_per_pixel, channels).
+    fn parse_scan_dimensions(&self) -> (usize, usize, usize, usize) {
+        if self.window_descriptor.len() < 48 {
+            // No window set: return small default
+            return (100, 100, 8, 3);
+        }
+        // Window descriptor layout (after 8-byte header):
+        // Bytes 10-11: X resolution (BE u16)
+        // Bytes 12-13: Y resolution (BE u16)
+        // Bytes 14-17: upper-left X (BE u32)
+        // Bytes 18-21: upper-left Y (BE u32)
+        // Bytes 22-25: width (BE u32, in 1/1200 inch)
+        // Bytes 26-29: height (BE u32, in 1/1200 inch)
+        // Byte 33: image composition (1=gray, 5=RGB, 2=halftone)
+        // Byte 34: bits per pixel
+        let wd = &self.window_descriptor;
+        let x_res = u16::from_be_bytes([wd[10], wd[11]]) as usize;
+        let y_res = u16::from_be_bytes([wd[12], wd[13]]) as usize;
+        let win_w = u32::from_be_bytes([wd[22], wd[23], wd[24], wd[25]]) as usize;
+        let win_h = u32::from_be_bytes([wd[26], wd[27], wd[28], wd[29]]) as usize;
+        let composition = if wd.len() > 33 { wd[33] as usize } else { 5 };
+        let bpp = if wd.len() > 34 { wd[34] as usize } else { 8 };
+
+        // Image composition determines channels
+        let channels = match composition {
+            5 => 3,     // RGB
+            2 | 1 => 1, // Grayscale / halftone
+            _ => 3,     // Default to RGB
+        };
+
+        // Convert from 1200ths of an inch to pixels
+        let width = if x_res > 0 { (win_w * x_res) / 1200 } else { 100 };
+        let height = if y_res > 0 { (win_h * y_res) / 1200 } else { 100 };
+
+        // Clamp to reasonable size for emulation
+        let width = width.clamp(1, 4096);
+        let height = height.clamp(1, 4096);
+        let bpp = if bpp == 0 { 8 } else { bpp };
+
+        (width, height, bpp, channels)
+    }
+
+    /// Handle SET WINDOW (0x24): consume and store window descriptor.
+    fn handle_set_window(&mut self) {
+        let xfer_len = self.cdb_xfer_len_24() as usize;
+        // Drain the window descriptor from EP1 OUT FIFO
+        let data = self.bus.isp1581_drain_host_data(xfer_len);
+        if !data.is_empty() {
+            self.window_descriptor = data;
+            log::info!("SCSI EMU: SET WINDOW → GOOD ({} bytes stored)", self.window_descriptor.len());
+        } else {
+            log::info!("SCSI EMU: SET WINDOW → GOOD ({} bytes, no data available)", xfer_len);
+        }
+        self.scsi_good();
+    }
+
+    /// Handle GET WINDOW (0x25): return stored window descriptor.
+    fn handle_get_window(&mut self) {
+        let alloc_len = self.cdb_xfer_len_24() as usize;
+        if self.window_descriptor.is_empty() {
+            // No window set: return minimal 8-byte header
+            let mut data = vec![0u8; alloc_len.min(8)];
+            if data.len() >= 6 {
+                // Window descriptor length = 0 (no descriptor body)
+                data[4] = 0x00; data[5] = 0x00;
+            }
+            self.bus.isp1581_push_to_host(&data);
+            log::info!("SCSI EMU: GET WINDOW → {} bytes (empty)", data.len());
+        } else {
+            let xfer_len = alloc_len.min(self.window_descriptor.len());
+            self.bus.isp1581_push_to_host(&self.window_descriptor[..xfer_len]);
+            log::info!("SCSI EMU: GET WINDOW → {} bytes", xfer_len);
+        }
+        self.scsi_good();
+    }
+
+    /// Handle READ (0x28): dispatch by Data Type Code (CDB[2]).
+    fn handle_read(&mut self) {
+        let dtc = self.bus.read_byte(FW_CDB_BUFFER + 2);
+        let qualifier = self.bus.read_byte(FW_CDB_BUFFER + 5);
+        let xfer_len = self.cdb_xfer_len_24() as usize;
+
+        match dtc {
+            0x00 => {
+                // Image data: return from scan buffer
+                if !self.scan_active {
+                    log::warn!("SCSI EMU: READ DTC=0x00 but no scan active → CHECK CONDITION");
+                    self.bus.write_word(FW_SENSE_CODE, 0x0250); // NOT READY
+                    return;
+                }
+                let remaining = self.scan_data.len().saturating_sub(self.scan_data_offset);
+                let actual = xfer_len.min(remaining);
+                if actual > 0 {
+                    let end = self.scan_data_offset + actual;
+                    self.bus.isp1581_push_to_host(&self.scan_data[self.scan_data_offset..end]);
+                    self.scan_data_offset = end;
+                }
+                if self.scan_data_offset >= self.scan_data.len() {
+                    self.scan_active = false;
+                    log::info!("SCSI EMU: READ DTC=0x00 → {} bytes (scan complete)", actual);
+                } else {
+                    log::info!("SCSI EMU: READ DTC=0x00 q={} → {} bytes ({} remaining)",
+                        qualifier, actual, self.scan_data.len() - self.scan_data_offset);
+                }
+                self.scsi_good();
+            }
+            0x03 => {
+                // Gamma/LUT: return identity LUT
+                let lut_size = xfer_len.min(4096);
+                let data: Vec<u8> = (0..lut_size).map(|i| (i * 255 / lut_size.max(1)) as u8).collect();
+                self.bus.isp1581_push_to_host(&data);
+                self.scsi_good();
+                log::info!("SCSI EMU: READ DTC=0x03 q={} → {} bytes (identity LUT)", qualifier, lut_size);
+            }
+            0x84 => {
+                // Calibration data: return 6 bytes of zeros
+                let actual = xfer_len.min(6);
+                let data = vec![0u8; actual];
+                self.bus.isp1581_push_to_host(&data);
+                self.scsi_good();
+                log::info!("SCSI EMU: READ DTC=0x84 → {} bytes", actual);
+            }
+            0x87 => {
+                // Scan parameters: return 24-byte status block
+                let actual = xfer_len.min(24);
+                let mut data = vec![0u8; actual];
+                // Report scan dimensions if we have them
+                let (w, h, _bpp, _ch) = self.parse_scan_dimensions();
+                if actual >= 4 {
+                    data[0] = (w >> 8) as u8; data[1] = w as u8;
+                    data[2] = (h >> 8) as u8; data[3] = h as u8;
+                }
+                self.bus.isp1581_push_to_host(&data);
+                self.scsi_good();
+                log::info!("SCSI EMU: READ DTC=0x87 → {} bytes (scan params)", actual);
+            }
+            0x88 => {
+                // Boundary data: return per-channel calibration (up to 644 bytes)
+                let actual = xfer_len.min(644);
+                let data = vec![0u8; actual];
+                self.bus.isp1581_push_to_host(&data);
+                self.scsi_good();
+                log::info!("SCSI EMU: READ DTC=0x88 q={} → {} bytes", qualifier, actual);
+            }
+            0xE0 => {
+                // Extended config: return zeros
+                let data = vec![0u8; xfer_len];
+                self.bus.isp1581_push_to_host(&data);
+                self.scsi_good();
+                log::info!("SCSI EMU: READ DTC=0xE0 → {} bytes", xfer_len);
+            }
+            _ => {
+                // Unsupported DTC
+                self.scsi_illegal_request();
+                log::warn!("SCSI EMU: READ DTC=0x{:02X} → ILLEGAL REQUEST (unsupported DTC)", dtc);
+            }
+        }
+    }
+
+    /// Handle WRITE (0x2A): accept data-out by DTC.
+    fn handle_write(&mut self) {
+        let dtc = self.bus.read_byte(FW_CDB_BUFFER + 2);
+        let qualifier = self.bus.read_byte(FW_CDB_BUFFER + 5);
+        let xfer_len = self.cdb_xfer_len_24() as usize;
+
+        // Drain the data-out payload from EP1 OUT (host→device)
+        let _data = self.bus.isp1581_drain_host_data(xfer_len);
+
+        match dtc {
+            0x03 => {
+                // Gamma/LUT upload: accept and discard
+                self.scsi_good();
+                log::info!("SCSI EMU: WRITE DTC=0x03 q={} → GOOD ({} bytes)", qualifier, xfer_len);
+            }
+            0x84 | 0x85 => {
+                // Calibration data: accept and discard
+                self.scsi_good();
+                log::info!("SCSI EMU: WRITE DTC=0x{:02X} → GOOD ({} bytes)", dtc, xfer_len);
+            }
+            0x88 => {
+                // Boundary data: accept
+                self.scsi_good();
+                log::info!("SCSI EMU: WRITE DTC=0x88 q={} → GOOD ({} bytes)", qualifier, xfer_len);
+            }
+            0xE0 => {
+                // Extended config: accept
+                self.scsi_good();
+                log::info!("SCSI EMU: WRITE DTC=0xE0 → GOOD ({} bytes)", xfer_len);
+            }
+            _ => {
+                self.scsi_illegal_request();
+                log::warn!("SCSI EMU: WRITE DTC=0x{:02X} → ILLEGAL REQUEST", dtc);
             }
         }
     }
@@ -524,8 +913,8 @@ impl Emulator {
         // Set USB state when main loop is first reached.
         // Must be done here (not in JIT) because context init at 0x0107EC
         // overwrites RAM set during JIT.
-        if pc == 0x0207F2 && self.milestones_seen.insert(0xDEAD0001) {
-            self.bus.write_byte(0x407DC7, 0x02); // USB session = configured
+        if pc == FW_MAIN_LOOP && self.milestones_seen.insert(0xDEAD0001) {
+            self.bus.write_byte(FW_USB_SESSION, 0x02); // USB session = configured
             self.bus.write_byte(0x407DC3, 0x01); // USB connection = connected
             self.bus.write_byte(0x400084, 0x00); // Clear USB bus reset flag
             self.bus.write_byte(0x400085, 0x00); // Clear USB re-init flag
@@ -534,39 +923,25 @@ impl Emulator {
         }
 
         // Log SCSI cmd_pending check (repeating, only when pending)
-        if pc == 0x013C70 {
-            let pending = self.bus.read_byte(0x400082);
+        if pc == FW_SCSI_IDLE {
+            let pending = self.bus.read_byte(FW_CMD_PENDING);
             if pending != 0 {
                 log::info!(
                     "SCSI: cmd_pending check at insn {} -- pending={:02X}, CDB[0]={:02X}",
-                    insn_count, pending, self.bus.read_byte(0x4007DE)
+                    insn_count, pending, self.bus.read_byte(FW_CDB_BUFFER)
                 );
             }
         }
 
 
-        // SCSI command handling: ALL commands are emulated directly.
-        //
-        // The firmware dispatcher (0x020AE2) and its USB response manager
-        // calls leave too much inconsistent state when NOPed, preventing
-        // the main loop from processing multiple commands in sequence.
-        // Instead, we intercept at the idle point (0x013C70) and handle
-        // each command ourselves, building responses from firmware data.
-        if pc == 0x013C70 && self.cdb_injected {
-            self.cdb_injected = false;
-            let opcode = self.bus.read_byte(0x4007B6);
-            self.handle_scsi_command(opcode);
-            // Clear cmd_pending BEFORE the function reads it, so the
-            // firmware's 0x013C70 function doesn't try to process the CDB
-            // through the USB path (which would enter the dispatcher).
-            self.bus.write_byte(0x400082, 0x00);
-        }
+        // SCSI commands are processed synchronously in handle_tcp_message,
+        // not via firmware interception. No cmd_pending needed.
 
         // One-shot: scan state check reached
         if pc == 0x02083C && self.milestones_seen.insert(0x02083C) {
             log::info!("MAIN LOOP: reached scan state check (0x02083C) at insn {}", insn_count);
-            log::info!("  USB state 0x407DC7={:02X}, flag 0x400084={:02X}, flag 0x400085={:02X}, flag 0x400086={:02X}",
-                self.bus.read_byte(0x407DC7),
+            log::info!("  USB state FW_USB_SESSION={:02X}, flag 0x400084={:02X}, flag 0x400085={:02X}, flag 0x400086={:02X}",
+                self.bus.read_byte(FW_USB_SESSION),
                 self.bus.read_byte(0x400084),
                 self.bus.read_byte(0x400085),
                 self.bus.read_byte(0x400086));
@@ -580,13 +955,13 @@ impl Emulator {
 
     /// Force USB session state to "connected" (0x02) to prevent the
     /// main loop from entering the USB re-establish path.
-    /// The dispatch code changes 0x407DC7 from 0x02 to 0x01 as part of
+    /// The dispatch code changes FW_USB_SESSION from 0x02 to 0x01 as part of
     /// USB state management. Without real ISP1581 USB enumeration, the
     /// re-establish path blocks forever. Called periodically (not every cycle).
     fn force_usb_session_state(&mut self) {
-        let session = self.bus.read_byte(0x407DC7);
+        let session = self.bus.read_byte(FW_USB_SESSION);
         if session != 0x02 {
-            self.bus.write_byte(0x407DC7, 0x02);
+            self.bus.write_byte(FW_USB_SESSION, 0x02);
             self.bus.write_byte(0x40049A, 0x00); // Clear USB transaction active
             self.bus.write_byte(0x407DC6, 0x00); // Clear command phase
         }
@@ -708,12 +1083,12 @@ impl Emulator {
         (0x0207A4, "First delay loop iteration"),
         (0x0205FC, "Past trampoline install"),
         (0x020608, "Interrupts enabled"),
-        (0x0207F2, "Reached Context A main loop"),
+        (FW_MAIN_LOOP, "Reached Context A main loop"),
         (0x020AE2, "SCSI dispatcher entered"),
         (0x010D22, "Main loop: shared module init"),
         (0x01233A, "Main loop: USB configure"),
         (0x0126EE, "Main loop: USB endpoint enable"),
-        (0x013C70, "Main loop: cmd_pending check"),
+        (FW_SCSI_IDLE, "Main loop: cmd_pending check"),
         // SCSI dispatch flow trace (Phase 4)
         (0x013690, "SCSI: command ready check (0x013690)"),
         (0x020B48, "SCSI: opcode lookup (0x020B48)"),
@@ -823,47 +1198,60 @@ impl Emulator {
             if let Some(ref listener) = self.tcp_listener {
                 if let Ok((stream, addr)) = listener.accept() {
                     if let Err(e) = stream.set_nonblocking(true) {
-                        log::error!("Failed to set TCP client non-blocking: {}. Emulator may hang.", e);
+                        log::error!("Failed to set TCP client non-blocking: {}. Rejecting connection.", e);
+                    } else {
+                        log::info!("TCP client connected from {}", addr);
+                        self.tcp_client = Some(stream);
                     }
-                    log::info!("TCP client connected from {}", addr);
-                    self.tcp_client = Some(stream);
                 }
             }
         }
 
-        // Read from connected client
+        // Read ALL available frames from connected client (not just one).
+        // This ensures that CDB + data-out frames sent in quick succession
+        // are both processed before the next SCSI idle intercept.
+        // Collect frames first, then process (avoids borrow checker issues).
+        let mut frames: Vec<(u8, Vec<u8>)> = Vec::new();
+        let mut disconnect = false;
         if let Some(ref mut stream) = self.tcp_client {
             use std::io::Read;
-            let mut header = [0u8; 3]; // [len_hi, len_lo, type]
-            match stream.read_exact(&mut header) {
-                Ok(()) => {
-                    let payload_len = ((header[0] as usize) << 8) | header[1] as usize;
-                    let msg_type = header[2];
-                    // Cap payload to prevent garbled frames from allocating huge buffers
-                    if payload_len > 4096 {
-                        log::error!("TCP: payload length {} exceeds max (4096). Disconnecting.", payload_len);
-                        self.tcp_client = None;
-                        return;
-                    }
-                    let mut payload = vec![0u8; payload_len];
-                    if payload_len > 0 {
-                        if let Err(e) = stream.read_exact(&mut payload) {
-                            // Partial read: stream is now desynchronized — must disconnect
-                            log::warn!("TCP read payload error: {}. Disconnecting.", e);
-                            self.tcp_client = None;
-                            return;
+            loop {
+                let mut header = [0u8; 3]; // [len_hi, len_lo, type]
+                match stream.read_exact(&mut header) {
+                    Ok(()) => {
+                        let payload_len = ((header[0] as usize) << 8) | header[1] as usize;
+                        let msg_type = header[2];
+                        if payload_len > 65536 {
+                            log::error!("TCP: payload length {} exceeds max (65536). Disconnecting.", payload_len);
+                            disconnect = true;
+                            break;
                         }
+                        let mut payload = vec![0u8; payload_len];
+                        if payload_len > 0 {
+                            if let Err(e) = stream.read_exact(&mut payload) {
+                                log::warn!("TCP read payload error: {}. Disconnecting.", e);
+                                disconnect = true;
+                                break;
+                            }
+                        }
+                        frames.push((msg_type, payload));
                     }
-                    self.handle_tcp_message(msg_type, &payload);
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // No data available — normal for non-blocking
-                }
-                Err(e) => {
-                    log::info!("TCP client disconnected: {}", e);
-                    self.tcp_client = None;
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        break; // No more data — done reading
+                    }
+                    Err(e) => {
+                        log::info!("TCP client disconnected: {}", e);
+                        disconnect = true;
+                        break;
+                    }
                 }
             }
+        }
+        if disconnect {
+            self.tcp_client = None;
+        }
+        for (msg_type, payload) in frames {
+            self.handle_tcp_message(msg_type, &payload);
         }
 
         // Send responses back to client
@@ -924,20 +1312,27 @@ impl Emulator {
                         payload.len(), expected_len, payload[0]);
                 }
 
-                // Write CDB to firmware buffer at 0x4007DE (16 bytes)
+                // Write CDB to firmware buffer at FW_CDB_BUFFER (16 bytes)
                 for (j, &b) in payload.iter().enumerate().take(16) {
-                    self.bus.write_byte(0x4007DE + j as u32, b);
+                    self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
                 }
-                // Set SCSI opcode byte at 0x4007B6
-                self.bus.write_byte(0x4007B6, payload[0]);
+                // Set SCSI opcode byte at FW_SCSI_OPCODE
+                self.bus.write_byte(FW_SCSI_OPCODE, payload[0]);
                 // Clear sense code before new command
-                self.bus.write_word(0x4007B0, 0x0000);
-                // Flag for JIT 0x400088 injection at dispatcher entry
-                self.cdb_injected = true;
-                // Set cmd_pending flag at 0x400082
-                self.bus.write_byte(0x400082, 0x01);
-                log::info!("TCP: CDB injected, cmd_pending=1, opcode=0x{:02X}",
-                    payload.get(0).copied().unwrap_or(0));
+                self.bus.write_word(FW_SENSE_CODE, 0x0000);
+                // Process SCSI commands directly — don't wait for firmware to reach
+                // any specific PC. The firmware's SCSI dispatcher relies on USB
+                // transport that we don't fully emulate, so we handle all commands
+                // here instead. cmd_pending is never set (firmware never sees it).
+                let opcode = payload[0];
+                let is_data_out = matches!(opcode, 0x15 | 0x24 | 0x2A | 0xE0);
+                if is_data_out {
+                    self.pending_dataout_opcode = Some(opcode);
+                    log::info!("TCP: CDB buffered (data-out cmd 0x{:02X}), waiting for data-out", opcode);
+                } else {
+                    log::info!("TCP: Processing SCSI cmd 0x{:02X} immediately", opcode);
+                    self.handle_scsi_command(opcode);
+                }
             }
             0x02 => {
                 // Phase query — read the firmware's phase byte from RAM
@@ -948,7 +1343,7 @@ impl Emulator {
             0x04 => {
                 // Sense query — read sense data from firmware RAM and build
                 // a standard REQUEST SENSE response (18 bytes).
-                let sense_code = self.bus.read_word(0x4007B0);
+                let sense_code = self.bus.read_word(FW_SENSE_CODE);
                 log::info!("TCP: Sense query → sense_code=0x{:04X}", sense_code);
                 let mut sense = [0u8; 18];
                 sense[0] = 0x70; // Response code (current errors)
@@ -959,7 +1354,7 @@ impl Emulator {
             }
             0x05 => {
                 // Data-In query — drain ISP1581 EP2 IN FIFO (firmware response data)
-                let data = self.bus.isp1581_drain(4096);
+                let data = self.bus.isp1581_drain(65536);
                 log::info!("TCP: Data-In query → {} bytes from EP2 IN", data.len());
                 if !data.is_empty() {
                     log::info!("TCP: Data-In first 16 bytes: {:02X?}", &data[..data.len().min(16)]);
@@ -969,17 +1364,27 @@ impl Emulator {
             0x06 => {
                 // Data-Out inject — push payload to ISP1581 EP1 OUT FIFO
                 // Used for data-out SCSI commands (MODE SELECT, SET WINDOW, etc.)
-                // The firmware handler reads data from EP1 OUT when processing the command.
                 log::info!("TCP: Data-Out inject, {} bytes to EP1 OUT", payload.len());
                 self.bus.isp1581_inject(payload);
                 self.send_tcp_frame(0x86, &[0x01]); // ACK
+                // If we have a pending data-out command, process it now
+                if let Some(opcode) = self.pending_dataout_opcode.take() {
+                    log::info!("TCP: Data-out received, processing cmd 0x{:02X} now", opcode);
+                    self.handle_scsi_command(opcode);
+                }
             }
             0x07 => {
                 // Completion poll — check if cmd_pending has returned to 0
-                let pending = self.bus.read_byte(0x400082);
-                let sense_code = self.bus.read_word(0x4007B0);
+                // If a data-out command is still pending (no data-out frame arrived),
+                // process it now with whatever is in EP1 OUT (might be empty).
+                if let Some(opcode) = self.pending_dataout_opcode.take() {
+                    log::info!("TCP: Completion poll while data-out pending — processing 0x{:02X} now", opcode);
+                    self.handle_scsi_command(opcode);
+                }
+                // Commands are now processed synchronously, so always report done
+                let sense_code = self.bus.read_word(FW_SENSE_CODE);
                 let ep2_len = if self.bus.isp1581_has_response() { 1u8 } else { 0u8 };
-                let done = if pending == 0 { 1u8 } else { 0u8 };
+                let done = 1u8;
                 log::debug!("TCP: Completion poll → done={}, sense=0x{:04X}, ep2_has_data={}",
                     done, sense_code, ep2_len);
                 let mut resp = [0u8; 4];
@@ -1040,7 +1445,7 @@ impl Emulator {
     /// Send pending ISP1581 EP2 IN data back to TCP client (auto-push).
     /// This fires whenever firmware writes to EP2 IN between polls.
     fn send_tcp_response(&mut self) {
-        let data = self.bus.isp1581_drain(4096);
+        let data = self.bus.isp1581_drain(65536);
         if data.is_empty() {
             return;
         }

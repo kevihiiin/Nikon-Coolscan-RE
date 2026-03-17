@@ -51,6 +51,26 @@
 - No USB state machine (enumeration, suspend, reset) — firmware handles via register polling
 - No SOF counter or frame timing
 
+## 2026-03-17 — Register Map Corrections (Session 7)
+
+**Fixes**:
+- 0x18 is DcInterrupt (global interrupt flags), NOT DMA Config as originally documented
+- Separated ep_status (0x08) and dc_interrupt (0x18) as independent registers
+- Added ep2_push_bytes() for direct byte injection (bypasses LE word packing)
+- Added push_to_host() for intercepted data transfers
+
+## 2026-03-17 — IRQ Pending Fix (Session 9)
+
+**Bug**: irq_pending was only cleared in write_word(0x18) handler. If firmware cleared
+ep_status (0x08) without writing dc_interrupt (0x18), irq_pending stayed true forever,
+causing continuous IRQ re-entry.
+
+**Fix**: Added irq_pending check in write_word(0x08) handler — clears when both
+ep_status and dc_interrupt are zero.
+
+**Also fixed**: FIFO underrun warning upgraded from debug to warn level, with byte
+count reported when partial word read occurs (less than 2 bytes in FIFO).
+
 ## 2026-03-17 — Erased Flash Polling Bug
 
 **Problem**: Firmware USB code at 0x4011C2 reads @0x063621 and tests bit 7.
@@ -64,3 +84,19 @@ context. The actual problem is the firmware polls a register that would indicate
 USB bus ready — we bypass the entire fast-path instead.
 
 **Resolution**: NOP the calling JSRs rather than trying to model the register.
+
+---
+
+## 2026-03-17 — EP1 OUT drain method (Phase 5)
+
+**Problem**: Data-out SCSI commands (SET WINDOW, MODE SELECT, WRITE) called
+`isp1581_drain()` which reads from EP2 IN (device→host FIFO). Injected data-out
+bytes go into EP1 OUT (host→device FIFO) via `isp1581_inject()`. Wrong FIFO!
+
+**Fix**: Added `drain_host_data()` to MmioDevice trait, implemented in ISP1581
+as drain from `ep1_out_fifo`. Added `isp1581_drain_host_data()` wrapper to
+MemoryBus. All data-out command handlers updated.
+
+**FIFO summary**:
+- EP1 OUT (host→device): `isp1581_inject()` writes, `isp1581_drain_host_data()` reads
+- EP2 IN (device→host): `isp1581_push_to_host()` writes, `isp1581_drain()` reads

@@ -91,8 +91,9 @@ impl Isp1581 {
             }
             0x20 => {
                 // EP Data Port: read 16-bit word from EP1 OUT FIFO (LE: low byte first)
-                if self.ep1_out_fifo.is_empty() {
-                    log::debug!("ISP1581: EP1 OUT FIFO underrun (read from empty FIFO)");
+                let fifo_len = self.ep1_out_fifo.len();
+                if fifo_len < 2 {
+                    log::warn!("ISP1581: EP1 OUT FIFO underrun ({} bytes available, 2 needed)", fifo_len);
                 }
                 let lo = self.ep1_out_fifo.pop_front().unwrap_or(0);
                 let hi = self.ep1_out_fifo.pop_front().unwrap_or(0);
@@ -111,6 +112,9 @@ impl Isp1581 {
             0x08 => {
                 // Write-back clears endpoint status bits
                 self.ep_status &= !val;
+                if self.ep_status == 0 && self.dc_interrupt == 0 {
+                    self.irq_pending = false;
+                }
             }
             0x0C => self.mode = val,
             0x18 => {
@@ -230,6 +234,11 @@ impl h8300h_core::memory::MmioDevice for Isp1581 {
 
     fn drain_device_data(&mut self, max: usize) -> Vec<u8> {
         self.host_recv_ep2(max)
+    }
+
+    fn drain_host_data(&mut self, max: usize) -> Vec<u8> {
+        let count = max.min(self.ep1_out_fifo.len());
+        self.ep1_out_fifo.drain(..count).collect()
     }
 
     fn has_irq(&self) -> bool {

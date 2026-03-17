@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TCP test client for the Coolscan emulator bridge.
 
-Phase 4: Full SCSI init sequence test.
+Phase 5: Full scan sequence test (init + scan + image data retrieval).
 
 Frame protocol:
   [2B length BE] [1B type] [payload]
@@ -306,10 +306,11 @@ def send_mode_select(sock, mode_data):
     ])
     send_frame(sock, 0x01, cdb)
 
-    # Data-out commands are handled synchronously by the emulator
-    # Wait for completion then check sense
+    # Inject data-out payload for the command
+    if mode_data:
+        inject_data_out(sock, mode_data)
+
     done, sk, asc, has_data, auto_data = wait_completion(sock)
-    # Drain any auto-pushed data
     recv_all_frames(sock, timeout=0.3)
     sense_sk, sense_asc, sense_ascq = query_sense(sock)
     if sense_sk is not None:
@@ -334,6 +335,10 @@ def send_set_window(sock, window_data):
         0x80,  # Nikon control flag
     ])
     send_frame(sock, 0x01, cdb)
+
+    # Inject the window descriptor as data-out
+    if window_data:
+        inject_data_out(sock, window_data)
 
     done, sk, asc, has_data, auto_data = wait_completion(sock)
     recv_all_frames(sock, timeout=0.3)
@@ -362,10 +367,10 @@ def build_default_window_descriptor():
     struct.pack_into(">H", wd, 12, 300)
     # [14-17] X upper left = 0
     # [18-21] Y upper left = 0
-    # [22-25] Width = 1 inch at 300 DPI = 300
-    struct.pack_into(">I", wd, 22, 300)
-    # [26-29] Height = 1 inch
-    struct.pack_into(">I", wd, 26, 300)
+    # [22-25] Width = 1 inch = 1200 (in 1/1200 inch units)
+    struct.pack_into(">I", wd, 22, 1200)
+    # [26-29] Height = 1 inch = 1200
+    struct.pack_into(">I", wd, 26, 1200)
     # [30] Brightness = 128
     wd[30] = 128
     # [31] Threshold = 128
@@ -379,6 +384,130 @@ def build_default_window_descriptor():
     # [46] Padding type = 0
     # Nikon extensions start at higher offsets
     return bytes(wd)
+
+
+def send_reserve(sock):
+    """RESERVE (opcode 0x16) — claim exclusive access."""
+    print("\n=== RESERVE ===")
+    cdb = bytes([0x16, 0x00, 0x00, 0x00, 0x00, 0x00])
+    send_frame(sock, 0x01, cdb)
+    done, sk, asc, has_data, auto_data = wait_completion(sock)
+    recv_all_frames(sock, timeout=0.3)
+    sense_sk, sense_asc, sense_ascq = query_sense(sock)
+    if sense_sk == 0:
+        print("  Result: GOOD")
+        return True
+    else:
+        print(f"  Result: {sense_sk:X}/{sense_asc:02X}/{sense_ascq:02X}")
+        return False
+
+
+def send_diagnostic(sock):
+    """SEND DIAGNOSTIC (opcode 0x1D) — self test / calibration."""
+    print("\n=== SEND DIAGNOSTIC ===")
+    cdb = bytes([0x1D, 0x04, 0x00, 0x00, 0x00, 0x00])  # SelfTest bit
+    send_frame(sock, 0x01, cdb)
+    done, sk, asc, has_data, auto_data = wait_completion(sock)
+    recv_all_frames(sock, timeout=0.3)
+    sense_sk, sense_asc, sense_ascq = query_sense(sock)
+    if sense_sk == 0:
+        print("  Result: GOOD")
+        return True
+    else:
+        print(f"  Result: {sense_sk:X}/{sense_asc:02X}/{sense_ascq:02X}")
+        return False
+
+
+def send_get_window(sock, alloc_len=88):
+    """GET WINDOW (opcode 0x25) — read back window descriptor."""
+    print(f"\n=== GET WINDOW (alloc_len={alloc_len}) ===")
+    cdb = bytes([
+        0x25, 0x00, 0x00, 0x00, 0x00, 0x00,
+        (alloc_len >> 16) & 0xFF,
+        (alloc_len >> 8) & 0xFF,
+        alloc_len & 0xFF,
+        0x00,
+    ])
+    send_frame(sock, 0x01, cdb)
+    done, sk, asc, has_data, auto_data = wait_completion(sock)
+    data = collect_data_in(sock, auto_data)
+    if data:
+        print(f"  Response: {len(data)} bytes")
+        hex_dump(data[:48])  # First 48 bytes
+    else:
+        print("  No data-in response")
+    return data
+
+
+def send_scan(sock, op_type=0):
+    """SCAN (opcode 0x1B) — initiate scan."""
+    print(f"\n=== SCAN (op_type={op_type}) ===")
+    cdb = bytes([0x1B, 0x00, 0x00, 0x00, op_type, 0x00])
+    send_frame(sock, 0x01, cdb)
+    done, sk, asc, has_data, auto_data = wait_completion(sock)
+    recv_all_frames(sock, timeout=0.3)
+    sense_sk, sense_asc, sense_ascq = query_sense(sock)
+    if sense_sk == 0:
+        print("  Result: GOOD (scan started)")
+        return True
+    else:
+        print(f"  Result: {sense_sk:X}/{sense_asc:02X}/{sense_ascq:02X}")
+        return False
+
+
+def send_read(sock, dtc, qualifier=0, xfer_len=4096):
+    """READ(10) (opcode 0x28) — read data by DTC."""
+    print(f"\n=== READ DTC=0x{dtc:02X} q={qualifier} len={xfer_len} ===")
+    cdb = bytes([
+        0x28, 0x00,
+        dtc,
+        0x00, 0x00,
+        qualifier,
+        (xfer_len >> 16) & 0xFF,
+        (xfer_len >> 8) & 0xFF,
+        xfer_len & 0xFF,
+        0x80,  # Control
+    ])
+    send_frame(sock, 0x01, cdb)
+    done, sk, asc, has_data, auto_data = wait_completion(sock)
+    data = collect_data_in(sock, auto_data)
+    sense_sk, sense_asc, sense_ascq = query_sense(sock)
+    if data:
+        print(f"  Response: {len(data)} bytes")
+        if len(data) <= 64:
+            hex_dump(data)
+    if sense_sk and sense_sk != 0:
+        print(f"  Sense: {sense_sk:X}/{sense_asc:02X}/{sense_ascq:02X}")
+    return data
+
+
+def send_write(sock, dtc, qualifier=0, data=b""):
+    """WRITE(10) (opcode 0x2A) — write data by DTC."""
+    print(f"\n=== WRITE DTC=0x{dtc:02X} q={qualifier} len={len(data)} ===")
+    xfer_len = len(data)
+    cdb = bytes([
+        0x2A, 0x00,
+        dtc,
+        0x00, 0x00,
+        qualifier,
+        (xfer_len >> 16) & 0xFF,
+        (xfer_len >> 8) & 0xFF,
+        xfer_len & 0xFF,
+        0x00,
+    ])
+    send_frame(sock, 0x01, cdb)
+    # Inject data-out
+    if data:
+        inject_data_out(sock, data)
+    done, sk, asc, has_data, auto_data = wait_completion(sock)
+    recv_all_frames(sock, timeout=0.3)
+    sense_sk, sense_asc, sense_ascq = query_sense(sock)
+    if sense_sk == 0:
+        print("  Result: GOOD")
+        return True
+    else:
+        print(f"  Result: {sense_sk:X}/{sense_asc:02X}/{sense_ascq:02X}")
+        return False
 
 
 def run_init_sequence(sock):
@@ -424,6 +553,80 @@ def run_init_sequence(sock):
     print("=" * 60)
 
 
+def run_scan_sequence(sock):
+    """Run the full scan sequence: init + reserve + calibrate + scan + read image data."""
+    print("=" * 60)
+    print("COOLSCAN EMULATOR — PHASE 5 FULL SCAN SEQUENCE TEST")
+    print("=" * 60)
+
+    # 1. TUR
+    if not send_tur(sock):
+        print("\nTUR failed — aborting")
+        return
+
+    # 2. INQUIRY
+    send_inquiry(sock)
+
+    # 3. REQUEST SENSE (clear any pending)
+    send_request_sense(sock)
+
+    # 4. RESERVE (exclusive access)
+    send_reserve(sock)
+
+    # 5. MODE SELECT
+    mode_data = bytes([0x00, 0x00, 0x00, 0x00])
+    send_mode_select(sock, mode_data)
+
+    # 6. SEND DIAGNOSTIC (self-test / calibration)
+    send_diagnostic(sock)
+
+    # 7. SET WINDOW (configure scan: 300 DPI, 1x1 inch, 8-bit RGB)
+    window = build_default_window_descriptor()
+    send_set_window(sock, window)
+
+    # 8. GET WINDOW (verify settings)
+    send_get_window(sock)
+
+    # 9. READ scan parameters
+    send_read(sock, dtc=0x87, xfer_len=24)
+
+    # 10. READ calibration boundary
+    send_read(sock, dtc=0x88, qualifier=0x00, xfer_len=644)
+
+    # 11. WRITE gamma LUT (identity)
+    lut = bytes(range(256)) * 3  # 768 bytes: R, G, B identity LUTs
+    send_write(sock, dtc=0x03, qualifier=0x00, data=lut)
+
+    # 12. SCAN (initiate)
+    if not send_scan(sock, op_type=0):
+        print("\nSCAN failed — aborting")
+        return
+
+    # 13. READ image data in chunks
+    print("\n=== READING IMAGE DATA ===")
+    total_bytes = 0
+    chunk_count = 0
+    while True:
+        data = send_read(sock, dtc=0x00, qualifier=0x00, xfer_len=4096)
+        if not data:
+            break
+        total_bytes += len(data)
+        chunk_count += 1
+        print(f"  Chunk {chunk_count}: {len(data)} bytes (total: {total_bytes})")
+        if len(data) < 4096:
+            # Short read = last chunk
+            break
+
+    print(f"\n  Total image data: {total_bytes} bytes in {chunk_count} chunks")
+
+    # 14. Final REQUEST SENSE
+    send_request_sense(sock)
+
+    print("\n" + "=" * 60)
+    print(f"SCAN SEQUENCE COMPLETE — {total_bytes} bytes of image data retrieved")
+    print("=" * 60)
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PORT
     mode = sys.argv[2] if len(sys.argv) > 2 else "init"
@@ -438,6 +641,8 @@ def main():
 
     if mode == "init":
         run_init_sequence(sock)
+    elif mode == "scan":
+        run_scan_sequence(sock)
     elif mode == "tur":
         send_tur(sock)
     elif mode == "inquiry":
@@ -448,7 +653,7 @@ def main():
         send_mode_sense(sock)
     else:
         print(f"Unknown mode: {mode}")
-        print("Usage: tcp_test_client.py [port] [init|tur|inquiry|sense|modesense]")
+        print("Usage: tcp_test_client.py [port] [init|tur|inquiry|sense|modesense|scan]")
 
     sock.close()
     print("\nDone.")

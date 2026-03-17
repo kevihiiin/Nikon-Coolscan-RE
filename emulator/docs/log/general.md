@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 4 — SCSI (COMPLETE)
-**Status**: Phases 1-4 complete. Full SCSI init sequence passes: TUR, INQUIRY, REQUEST SENSE, MODE SENSE, MODE SELECT, SET WINDOW all working via direct SCSI emulation.
+**Current Phase**: 5 — Scan (COMPLETE)
+**Status**: Phases 1-5 complete. Full scan sequence verified end-to-end: 300x300 8bpp RGB → 270KB image data via TCP.
 **Last Updated**: 2026-03-17
 
 ---
@@ -446,3 +446,139 @@ Emulator stable at 500M+ instructions with no crashes.
 
 **Next Steps:**
 - Phase 5: Full scan returns image data
+
+---
+
+## Session 9 — 2026-03-17 (continued)
+
+**Goals**: Comprehensive code review, fix all bugs, start Phase 5
+
+**Accomplished**:
+
+### Code Review (4 specialized agents in parallel)
+Reviewed all 23 .rs files (~6800 LOC) across 4 crates:
+- **Silent Failure Hunter**: 21 findings (6 critical, 6 high, 9 medium)
+- **Bug Hunter**: 4 findings (1 critical, 3 important)
+- **Code Simplifier**: 12 priority findings
+- **Phase 5 Gap Analyzer**: mapped all 17 SCSI opcodes vs implementation
+
+### Bug Fixes (11 total)
+1. **CRITICAL**: CPU SLEEP escape when I=1 + pending IRQ — added interrupt_masked() check
+2. **CRITICAL**: RegIndirectDisp24 displacement not sign-extended — added sign_extend_24()
+3. **CRITICAL**: 78-prefix decoder returned NOP for unknown bit ops → returns Unknown
+4. 5× executor catch-all returns upgraded from silent 0 to log::error
+5. ISP1581 FIFO underrun: debug→warn, reports byte count for partial word reads
+6. ISP1581 irq_pending now cleared on ep_status writeback (not just dc_interrupt)
+7. TCP set_nonblocking failure aborts bridge setup instead of creating blocking listener
+8. Config: unknown args/adapters/parse failures emit warnings
+
+### Constants Extraction
+- 20 firmware address constants extracted to top of orchestrator.rs
+- All ~60 magic hex literal uses replaced with named FW_* constants
+
+### Phase 5 — Scan (Started)
+
+**SCSI commands added** (11 new opcodes):
+- RESERVE (0x16), RELEASE (0x17), SCAN (0x1B), SEND DIAGNOSTIC (0x1D)
+- GET WINDOW (0x25), READ (0x28) with 6 DTC handlers, WRITE (0x2A) with 5 DTC handlers
+- VENDOR C0/C1/E0/E1 stubs
+
+**Scan emulation**:
+- SET WINDOW consumes + stores window descriptor from EP1 OUT FIFO
+- SCAN parses window for dimensions/BPP, generates RGB gradient test pattern
+- READ DTC=0x00 delivers image data in chunks with scan-active state tracking
+- READ DTC=0x87 returns scan parameters, 0x88 returns boundary data, 0x84 calibration
+
+**Infrastructure**:
+- Helper methods: scsi_good(), scsi_illegal_request(), cdb_xfer_len_24()
+- Emulator state: reserved, scan_active, window_descriptor, scan_data, scan_data_offset
+- TCP payload cap increased 4KB→64KB for image data delivery
+
+**Test client**:
+- 7 new functions: send_reserve, send_diagnostic, send_get_window, send_scan, send_read, send_write, run_scan_sequence
+- `scan` mode runs full init→reserve→calibrate→scan→read image sequence
+
+**Documentation updated**:
+- phase-5-scan.md: full session entry
+- bridge-attempts.md: USB gadget + TCP extensions + Phase 5 updates
+- isp1581-attempts.md: register corrections, IRQ fix, FIFO fix
+- peripheral-models.md: SCSI emulation + constants decisions
+- general.md: Phase 5 status + Session 9 entry
+
+**Tests**: 47/47 passing
+
+**Next Steps**:
+- Phase 6: Polish and end-to-end validation
+
+---
+
+## Session 10 — 2026-03-17 (continued)
+
+**Goals**: Complete Phase 5 — fix end-to-end scan, verify all SCSI commands work
+
+**Accomplished**:
+
+### Phase 5 — Scan (COMPLETE)
+
+**Critical bug fixes (4):**
+
+1. **SCSI command timing race**: Commands were processed in `handle_oneshot_actions`
+   (after execute), so the firmware read `cmd_pending=1` before our intercept could
+   clear it, entering the dispatcher path which hangs without USB. Moved SCSI
+   processing to synchronous handling in `handle_tcp_message` — no firmware
+   interception needed at all.
+
+2. **Data-out flow broken**: SET WINDOW, MODE SELECT, and WRITE(10) data-out
+   payloads arrived via separate TCP frames AFTER the CDB was already processed.
+   The handler tried to drain EP1 OUT FIFO but it was empty. Fixed with:
+   - Data-out commands buffered in `pending_dataout_opcode`
+   - `cmd_pending` deferred until data-out arrives
+   - Process command immediately when data-out frame received
+
+3. **EP1 OUT vs EP2 IN FIFO confusion**: Data-out commands drained from
+   `isp1581_drain()` (EP2 IN = device→host) instead of EP1 OUT (host→device).
+   Added `isp1581_drain_host_data()` method and `drain_host_data()` to MmioDevice
+   trait. All data-out handlers now use the correct FIFO.
+
+4. **TCP single-frame polling**: `poll_tcp()` read only one frame per cycle.
+   If CDB and data-out arrived as consecutive TCP frames, the data-out was
+   delayed until the next poll cycle (1000 instructions later). Changed to
+   read ALL available frames per poll cycle.
+
+**New features:**
+- INQUIRY EVPD support: pages 0x00 (supported pages), 0xC0 (adapter ID),
+  0xC1 (adapter capabilities). Returns adapter type from GPIO config.
+- Image composition parsing: window descriptor byte 33 determines channels
+  (1=gray, 5=RGB). Byte 34 is bits per pixel (was using byte 33 for BPP).
+- Window dimension units corrected: width/height in 1/1200 inch, converted
+  to pixels via DPI.
+
+**End-to-end test results (300 DPI, 1×1 inch, 8-bit RGB):**
+```
+TUR → GOOD
+INQUIRY → "Nikon   LS-50 ED        1.02" (36 bytes)
+REQUEST SENSE → Key=0 ASC=00
+RESERVE → GOOD
+MODE SELECT → GOOD (4 bytes)
+SEND DIAGNOSTIC → GOOD
+SET WINDOW → GOOD (80 bytes stored)
+GET WINDOW → 80 bytes (window descriptor echoed)
+READ DTC=0x87 → 300×300 scan params
+READ DTC=0x88 → 644 bytes boundary
+WRITE DTC=0x03 → GOOD (768 bytes gamma LUT)
+SCAN → GOOD (300×300 8bpp RGB, 270000 bytes)
+READ DTC=0x00 → 270000 bytes in 66 chunks (4096 per chunk)
+REQUEST SENSE → Key=0 ASC=00 (final check)
+```
+
+**Phase 5 milestone ACHIEVED: Full scan returns image data**
+
+**Tests**: 47/47 passing, 0 warnings
+
+**Architecture change**: SCSI commands now processed synchronously in TCP
+message handler (no firmware interception). This is simpler, more reliable,
+and avoids firmware execution timing issues. The firmware still runs (for
+context switching, timer interrupts, etc.) but SCSI is fully emulated.
+
+**Next Steps:**
+- Phase 6: Polish and end-to-end validation

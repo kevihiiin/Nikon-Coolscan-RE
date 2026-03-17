@@ -32,6 +32,9 @@ pub trait MmioDevice {
     /// Drain device data for host (for USB EP2 IN). Returns bytes available.
     fn drain_device_data(&mut self, _max: usize) -> Vec<u8> { Vec::new() }
 
+    /// Drain host-to-device data (from USB EP1 OUT). Used by SCSI data-out command handlers.
+    fn drain_host_data(&mut self, _max: usize) -> Vec<u8> { Vec::new() }
+
     /// Check if device has pending interrupt.
     fn has_irq(&self) -> bool { false }
 
@@ -309,10 +312,20 @@ impl MemoryBus {
         }
     }
 
-    /// Drain ISP1581 EP2 IN FIFO (host reads this).
+    /// Drain ISP1581 EP2 IN FIFO (host reads device responses).
     pub fn isp1581_drain(&mut self, max: usize) -> Vec<u8> {
         if let Some(ref mut dev) = self.isp1581_device {
             dev.drain_device_data(max)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Drain ISP1581 EP1 OUT FIFO (device reads host data-out).
+    /// Used by SCSI data-out command handlers (SET WINDOW, MODE SELECT, WRITE).
+    pub fn isp1581_drain_host_data(&mut self, max: usize) -> Vec<u8> {
+        if let Some(ref mut dev) = self.isp1581_device {
+            dev.drain_host_data(max)
         } else {
             Vec::new()
         }

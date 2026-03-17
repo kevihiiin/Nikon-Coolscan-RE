@@ -729,7 +729,10 @@ fn get_bit_num(cpu: &Cpu, op: &Operand) -> u8 {
     match op {
         Operand::Imm8(n) => *n & 0x7,
         Operand::Reg8(r) => cpu.read_r8(*r) & 0x7,
-        _ => 0,
+        _ => {
+            log::error!("get_bit_num: unexpected operand {:?}, expected Imm8 or Reg8", op);
+            0
+        }
     }
 }
 
@@ -789,7 +792,10 @@ fn resolve_jump_target(cpu: &Cpu, bus: &mut MemoryBus, target: &Operand) -> u32 
             let vec_addr = *abs as u32;
             bus.read_long(vec_addr) & 0x00FF_FFFF
         }
-        _ => 0,
+        _ => {
+            log::error!("resolve_jump_target: unexpected operand {:?}", target);
+            0
+        }
     }
 }
 
@@ -980,13 +986,18 @@ fn read_operand_b_direct(cpu: &Cpu, op: &Operand) -> u8 {
     match op {
         Operand::Reg8(r) => cpu.read_r8(*r),
         Operand::Imm8(v) => *v,
-        _ => 0,
+        _ => {
+            log::error!("read_operand_b_direct: unexpected operand {:?}, expected Reg8 or Imm8", op);
+            0
+        }
     }
 }
 
 fn write_operand_b_direct(cpu: &mut Cpu, op: &Operand, val: u8) {
     if let Operand::Reg8(r) = op {
         cpu.write_r8(*r, val);
+    } else {
+        log::error!("write_operand_b_direct: unexpected operand {:?}, expected Reg8", op);
     }
 }
 
@@ -994,7 +1005,10 @@ fn write_operand_b_direct(cpu: &mut Cpu, op: &Operand, val: u8) {
 fn extract_reg(op: &Operand) -> u8 {
     match op {
         Operand::Reg8(r) | Operand::Reg16(r) | Operand::Reg32(r) => *r,
-        _ => 0,
+        _ => {
+            log::error!("extract_reg: unexpected operand {:?}, expected register", op);
+            0
+        }
     }
 }
 

@@ -12,6 +12,16 @@
 
 use crate::memory::MemoryBus;
 
+/// Sign-extend a 24-bit displacement to 32 bits.
+/// H8/300H @(d:24, ERn) displacements are signed; bit 23 is the sign bit.
+fn sign_extend_24(val: u32) -> u32 {
+    if val & 0x0080_0000 != 0 {
+        val | 0xFF00_0000
+    } else {
+        val & 0x00FF_FFFF
+    }
+}
+
 /// Operand size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Size {
@@ -39,7 +49,9 @@ pub enum Operand {
     RegIndirect(u8),
     /// Register indirect with displacement @(d:16, ERn)
     RegIndirectDisp16(u8, i16),
-    /// Register indirect with displacement @(d:24, ERn) — H8/300H extended
+    /// Register indirect with displacement @(d:24, ERn) — H8/300H extended.
+    /// Displacement is sign-extended from 24 bits to 32 bits (stored as u32
+    /// after sign-extension so wrapping_add produces correct addresses).
     RegIndirectDisp24(u8, u32),
     /// Post-increment @ERn+
     PostInc(u8),
@@ -694,7 +706,7 @@ fn decode_01_prefix(bus: &mut MemoryBus, pc: u32, w1: u16) -> Decoded {
                 let d_hi = bus.read_byte(pc + 7) as u32;
                 let d_mid = bus.read_byte(pc + 8) as u32;
                 let d_lo = bus.read_byte(pc + 9) as u32;
-                let disp = (d_hi << 16) | (d_mid << 8) | d_lo;
+                let disp = sign_extend_24((d_hi << 16) | (d_mid << 8) | d_lo);
 
                 let w2_hi = (w2 >> 8) as u8;
                 let mode = (w2 >> 4) & 0xF;
@@ -781,7 +793,7 @@ fn decode_01f0_prefix(bus: &mut MemoryBus, pc: u32, w1: u16) -> Decoded {
                 let rd = w1_n3;
                 let disp_hi = bus.read_word(pc + 4) as u32;
                 let disp_lo = bus.read_word(pc + 6) as u32;
-                let disp = (disp_hi << 16) | disp_lo;
+                let disp = sign_extend_24((disp_hi << 16) | disp_lo);
                 Decoded {
                     insn: Instruction::Mov(Size::Long, Operand::RegIndirectDisp24(rs, disp), Operand::Reg32(rd)),
                     len: 8,
@@ -791,7 +803,7 @@ fn decode_01f0_prefix(bus: &mut MemoryBus, pc: u32, w1: u16) -> Decoded {
                 let rd = w1_n2 & 0x7;
                 let disp_hi = bus.read_word(pc + 4) as u32;
                 let disp_lo = bus.read_word(pc + 6) as u32;
-                let disp = (disp_hi << 16) | disp_lo;
+                let disp = sign_extend_24((disp_hi << 16) | disp_lo);
                 Decoded {
                     insn: Instruction::Mov(Size::Long, Operand::Reg32(rs), Operand::RegIndirectDisp24(rd, disp)),
                     len: 8,
@@ -1591,7 +1603,7 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                     let d_hi = (w2 >> 8) as u32;
                     let d_mid = (w2 & 0xFF) as u32;
                     let d_lo = (w3 >> 8) as u32;
-                    let disp = (d_hi << 16) | (d_mid << 8) | d_lo;
+                    let disp = sign_extend_24((d_hi << 16) | (d_mid << 8) | d_lo);
                     let reg = mode_lo;
 
                     if mode_hi & 0x8 == 0 {
@@ -1617,8 +1629,7 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                     let w3 = bus.read_word(pc + 6);
                     let w4 = bus.read_word(pc + 8);
 
-                    let disp = ((w2 as u32) << 8) | ((w3 >> 8) as u32);
-                    let disp = disp & 0x00FFFFFF;
+                    let disp = sign_extend_24(((w2 as u32) << 8) | ((w3 >> 8) as u32) & 0x00FFFFFF);
 
                     let bit_op = (w3 & 0xFF) as u8;
                     let bit_nib = (w4 >> 8) as u8;
@@ -1646,8 +1657,8 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                         0x77 if bit_nib & 0x8 == 0 => Instruction::Bld(bit, target),
                         0x77 => Instruction::Bild(Operand::Imm8(bit_num), target),
                         _ => {
-                            log::warn!("78-prefix: unknown bit_op 0x{:02X} at PC=0x{:06X}", bit_op, pc);
-                            Instruction::Nop
+                            log::error!("78-prefix: unknown bit_op 0x{:02X} at PC=0x{:06X}", bit_op, pc);
+                            Instruction::Unknown(w0)
                         }
                     };
 
@@ -1663,7 +1674,7 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                 let d_hi = (w2 & 0xFF) as u32;
                 let d_mid = (w3 >> 8) as u32;
                 let d_lo = (w3 & 0xFF) as u32;
-                let disp = (d_hi << 16) | (d_mid << 8) | d_lo;
+                let disp = sign_extend_24((d_hi << 16) | (d_mid << 8) | d_lo);
 
                 if mode & 0x8 == 0 {
                     Decoded {
