@@ -26,59 +26,10 @@ impl PeripheralBus {
         }
     }
 
-    /// Read an on-chip I/O register (address 0xFFFF00-0xFFFFFF).
-    /// Returns (value, handled).
-    pub fn read_io(&mut self, addr: u32) -> (u8, bool) {
-        let offset = (addr & 0xFF) as u8;
-        match offset {
-            // Timer registers: ITU0-ITU2 (0x60-0x81), ITU3 (0x82-0x8B), ITU4 (0x92-0x9B)
-            // Note: 0x8C-0x91 are GPIO/BSC (Port 7 etc.), not timers
-            0x60..=0x8B | 0x92..=0x9B => {
-                let val = self.timers.read(offset);
-                (val, true)
-            }
-            // GPIO ports: 0x80-0x8F, 0xA2-0xA3, 0xC7-0xC8
-            0x80..=0x8F | 0xA2..=0xA3 | 0xC7..=0xC8 => {
-                let val = self.gpio.read(offset);
-                (val, true)
-            }
-            // Watchdog: 0xA8
-            0xA8 => (self.watchdog.read(), true),
-            // ADC: 0xE0-0xEF
-            0xE0..=0xEF => {
-                let val = self.adc.read(offset);
-                (val, true)
-            }
-            _ => (0, false),
-        }
-    }
-
-    /// Write an on-chip I/O register.
-    /// Returns true if handled.
-    pub fn write_io(&mut self, addr: u32, val: u8) -> bool {
-        let offset = (addr & 0xFF) as u8;
-        match offset {
-            // Timer registers: ITU0-ITU2 (0x60-0x81), ITU3 (0x82-0x8B), ITU4 (0x92-0x9B)
-            0x60..=0x8B | 0x92..=0x9B => {
-                self.timers.write(offset, val);
-                true
-            }
-            // GPIO ports: 0x80-0x8F, 0xA2-0xA3, 0xC7-0xC8
-            0x80..=0x8F | 0xA2..=0xA3 | 0xC7..=0xC8 => {
-                self.gpio.write(offset, val);
-                true
-            }
-            0xA8 => {
-                self.watchdog.write(val);
-                true
-            }
-            0xE0..=0xEF => {
-                self.adc.write(offset, val);
-                true
-            }
-            _ => false,
-        }
-    }
+    // Note: read_io/write_io routing methods were removed — the orchestrator
+    // accesses peripheral models directly via self.peripherals.timers, .gpio, etc.
+    // This avoids the GPIO/timer address range overlap bug that existed in the
+    // routing match arms (0x80-0x8B was claimed by both timers and GPIO).
 }
 
 impl Default for PeripheralBus {

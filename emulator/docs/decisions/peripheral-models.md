@@ -96,8 +96,8 @@ context switch crash or pre-initializing enough state. Direct RAM injection allo
 the TCP bridge infrastructure independently of firmware boot completion.
 
 **Implementation**:
-- Non-blocking TCP server on port 5050
-- Frame protocol: [type:1][length:2 BE][payload:N]
+- Non-blocking TCP server on port 6581
+- Frame protocol: [length:2 BE][type:1][payload:N]
 - CDB written directly to firmware buffer at 0x4007DE
 - cmd_pending flag set at 0x400082
 - Phase/sense read from 0x40049C and 0x4007B0

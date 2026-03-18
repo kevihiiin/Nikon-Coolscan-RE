@@ -541,20 +541,16 @@ fn decode_group_0(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                         len: 2,
                     }
                 }
-                0x8 | 0x9 | 0xB | 0xC | 0xD | 0xE | 0xF => {
-                    // MOV.L ERs, ERd (0F 8s_d) — wait, that's not right
-                    // H8/300H: 0F sr — MOV.L ERs, ERd where s = nib2 & 7, d = nib3
-                    // Actually 0F 8x = MOV.L, where bit 3 of nib2 marks .L
-                    if nib2 & 0x8 != 0 {
-                        let rs = nib2 & 0x7;
-                        Decoded {
-                            insn: Instruction::Mov(Size::Long, Operand::Reg32(rs), Operand::Reg32(nib3)),
-                            len: 2,
-                        }
-                    } else {
-                        Decoded { insn: Instruction::Unknown(w0), len: 2 }
+                0x8 => {
+                    // MOV.L ERs, ERd (0F 8s d) — only nib2=0x8 is valid per H8/300H manual
+                    let rs = nib2 & 0x7;
+                    Decoded {
+                        insn: Instruction::Mov(Size::Long, Operand::Reg32(rs), Operand::Reg32(nib3)),
+                        len: 2,
                     }
                 }
+                // nib2 values 0x9, 0xB-0xF are undefined in the 0F group
+                0x9 | 0xB..=0xF => Decoded { insn: Instruction::Unknown(w0), len: 2 },
                 _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
             }
         }
@@ -1633,34 +1629,13 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
 
                     let bit_op = (w3 & 0xFF) as u8;
                     let bit_nib = (w4 >> 8) as u8;
-                    let bit_num = bit_nib & 0x7;
 
                     let target = Operand::RegIndirectDisp24(base_reg, disp);
-                    let bit = Operand::Imm8(bit_num);
 
-                    let insn = match bit_op {
-                        0x63 | 0x73 => Instruction::Btst(bit, target),
-                        0x60 => Instruction::Bset(Operand::Reg8(bit_nib), target),
-                        0x70 => Instruction::Bset(bit, target),
-                        0x62 => Instruction::Bclr(Operand::Reg8(bit_nib), target),
-                        0x72 => Instruction::Bclr(bit, target),
-                        0x61 => Instruction::Bnot(Operand::Reg8(bit_nib), target),
-                        0x71 => Instruction::Bnot(bit, target),
-                        0x67 if bit_nib & 0x8 == 0 => Instruction::Bst(bit, target),
-                        0x67 => Instruction::Bist(Operand::Imm8(bit_num), target),
-                        0x74 if bit_nib & 0x8 == 0 => Instruction::Bor(bit, target),
-                        0x74 => Instruction::Bior(Operand::Imm8(bit_num), target),
-                        0x75 if bit_nib & 0x8 == 0 => Instruction::Bxor(bit, target),
-                        0x75 => Instruction::Bixor(Operand::Imm8(bit_num), target),
-                        0x76 if bit_nib & 0x8 == 0 => Instruction::Band(bit, target),
-                        0x76 => Instruction::Biand(Operand::Imm8(bit_num), target),
-                        0x77 if bit_nib & 0x8 == 0 => Instruction::Bld(bit, target),
-                        0x77 => Instruction::Bild(Operand::Imm8(bit_num), target),
-                        _ => {
-                            log::error!("78-prefix: unknown bit_op 0x{:02X} at PC=0x{:06X}", bit_op, pc);
-                            Instruction::Unknown(w0)
-                        }
-                    };
+                    let insn = decode_bit_insn(bit_op, bit_nib, target).unwrap_or_else(|| {
+                        log::error!("78-prefix: unknown bit_op 0x{:02X} at PC=0x{:06X}", bit_op, pc);
+                        Instruction::Unknown(w0)
+                    });
 
                     Decoded { insn, len: 10 }
                 }
@@ -1735,12 +1710,38 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
     }
 }
 
+/// Decode a bit-operation instruction from (bit_op, bit_nib, target).
+/// `bit_nib` is the 4-bit field: bits 2:0 = bit number, bit 3 = register vs immediate flag.
+/// Used by both 78-prefix (10-byte) and 7C-7F prefix (4-byte) bit-on-memory instructions.
+fn decode_bit_insn(bit_op: u8, bit_nib: u8, target: Operand) -> Option<Instruction> {
+    let bit = Operand::Imm8(bit_nib & 0x7);
+    match bit_op {
+        0x63 | 0x73 => Some(Instruction::Btst(bit, target)),
+        0x60 => Some(Instruction::Bset(Operand::Reg8(bit_nib), target)),
+        0x70 => Some(Instruction::Bset(bit, target)),
+        0x62 => Some(Instruction::Bclr(Operand::Reg8(bit_nib), target)),
+        0x72 => Some(Instruction::Bclr(bit, target)),
+        0x61 => Some(Instruction::Bnot(Operand::Reg8(bit_nib), target)),
+        0x71 => Some(Instruction::Bnot(bit, target)),
+        0x67 if bit_nib & 0x8 == 0 => Some(Instruction::Bst(bit, target)),
+        0x67 => Some(Instruction::Bist(Operand::Imm8(bit_nib & 0x7), target)),
+        0x74 if bit_nib & 0x8 == 0 => Some(Instruction::Bor(bit, target)),
+        0x74 => Some(Instruction::Bior(Operand::Imm8(bit_nib & 0x7), target)),
+        0x75 if bit_nib & 0x8 == 0 => Some(Instruction::Bxor(bit, target)),
+        0x75 => Some(Instruction::Bixor(Operand::Imm8(bit_nib & 0x7), target)),
+        0x76 if bit_nib & 0x8 == 0 => Some(Instruction::Band(bit, target)),
+        0x76 => Some(Instruction::Biand(Operand::Imm8(bit_nib & 0x7), target)),
+        0x77 if bit_nib & 0x8 == 0 => Some(Instruction::Bld(bit, target)),
+        0x77 => Some(Instruction::Bild(Operand::Imm8(bit_nib & 0x7), target)),
+        _ => None,
+    }
+}
+
 /// Group 7C-7F: bit operations on memory (@ERd or @aa:8)
 fn decode_group_7_bitop_mem(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, nib3: u8) -> Decoded {
     let w1 = bus.read_word(pc + 2);
     let bit_op = (w1 >> 8) as u8;
-    let bit_num = ((w1 >> 4) & 0xF) as u8;
-    let _reg_or_zero = (w1 & 0xF) as u8;
+    let bit_nib = ((w1 >> 4) & 0xF) as u8;
 
     // 7C/7D = @ERd (register indirect), 7E/7F = @aa:8 (absolute 8-bit)
     let target = match op_lo {
@@ -1749,28 +1750,8 @@ fn decode_group_7_bitop_mem(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, ni
         _ => unreachable!(),
     };
 
-    let bit = Operand::Imm8(bit_num & 0x7);
-
-    let insn = match bit_op {
-        0x63 | 0x73 => Instruction::Btst(bit, target),
-        0x60 => Instruction::Bset(Operand::Reg8(bit_num), target),
-        0x70 => Instruction::Bset(bit, target),
-        0x61 => Instruction::Bnot(Operand::Reg8(bit_num), target),
-        0x71 => Instruction::Bnot(bit, target),
-        0x62 => Instruction::Bclr(Operand::Reg8(bit_num), target),
-        0x72 => Instruction::Bclr(bit, target),
-        0x67 if bit_num & 0x8 == 0 => Instruction::Bst(bit, target),
-        0x67 => Instruction::Bist(Operand::Imm8(bit_num & 0x7), target),
-        0x74 if bit_num & 0x8 == 0 => Instruction::Bor(bit, target),
-        0x74 => Instruction::Bior(Operand::Imm8(bit_num & 0x7), target),
-        0x75 if bit_num & 0x8 == 0 => Instruction::Bxor(bit, target),
-        0x75 => Instruction::Bixor(Operand::Imm8(bit_num & 0x7), target),
-        0x76 if bit_num & 0x8 == 0 => Instruction::Band(bit, target),
-        0x76 => Instruction::Biand(Operand::Imm8(bit_num & 0x7), target),
-        0x77 if bit_num & 0x8 == 0 => Instruction::Bld(bit, target),
-        0x77 => Instruction::Bild(Operand::Imm8(bit_num & 0x7), target),
-        _ => Instruction::Unknown(w0),
-    };
+    let insn = decode_bit_insn(bit_op, bit_nib, target)
+        .unwrap_or(Instruction::Unknown(w0));
 
     Decoded { insn, len: 4 }
 }

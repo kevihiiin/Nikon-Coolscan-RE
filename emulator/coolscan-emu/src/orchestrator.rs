@@ -467,7 +467,7 @@ impl Emulator {
 
     /// Set sense to ILLEGAL REQUEST (SK=5, ASC=0x24).
     fn scsi_illegal_request(&mut self) {
-        self.bus.write_word(FW_SENSE_CODE, 0x0050);
+        self.bus.write_word(FW_SENSE_CODE, 0x0524);
     }
 
     /// Read 24-bit big-endian transfer length from CDB bytes 6-8.
@@ -1476,23 +1476,13 @@ impl Emulator {
         Vec::new() // Timeout
     }
 
-    /// Execute one CPU instruction with full peripheral handling.
-    #[allow(dead_code)]
-    pub fn step_one(&mut self) {
-        if self.cpu.sleeping {
-            self.check_peripherals();
-            if !self.irq.has_pending() {
-                return;
-            }
-        }
-
+    /// Decode and execute one instruction. Returns the decoded instruction,
+    /// or None if CPU is sleeping and no wake condition is met.
+    /// Panics / returns Unknown if an invalid instruction is encountered.
+    fn decode_execute_one(&mut self) -> Option<decode::Decoded> {
         self.irq.check_and_service(&mut self.cpu, &mut self.bus);
 
         let decoded = decode::decode(&mut self.bus, self.cpu.pc);
-        if let decode::Instruction::Unknown(w) = &decoded.insn {
-            log::error!("step_one: Unknown instruction 0x{:04X} at PC=0x{:06X}", w, self.cpu.pc);
-            return;
-        }
 
         let insn_pc = self.cpu.pc;
         let new_pc = execute::execute(
@@ -1505,7 +1495,35 @@ impl Emulator {
         self.cpu.pc = new_pc;
         self.cpu.cycle_count += 1;
 
+        Some(decoded)
+    }
+
+    /// Execute one CPU instruction with full peripheral handling.
+    /// Returns false if emulation should halt (unknown instruction).
+    #[allow(dead_code)]
+    pub fn step_one(&mut self) -> bool {
+        if self.cpu.sleeping {
+            self.check_peripherals();
+            // Per H8/300H spec: SLEEP with I=1 stays halted until NMI
+            if !self.irq.has_pending() || self.cpu.interrupt_masked() {
+                return true;
+            }
+        }
+
+        let decoded = match self.decode_execute_one() {
+            Some(d) => d,
+            None => return true,
+        };
+
+        if let decode::Instruction::Unknown(w) = &decoded.insn {
+            log::error!("step_one: HALT: Unknown instruction 0x{:04X} at PC=0x{:06X}", w, self.cpu.pc);
+            self.dump_stack();
+            self.dump_state();
+            return false;
+        }
+
         self.sync_peripherals();
         self.check_peripherals();
+        true
     }
 }

@@ -163,7 +163,10 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
                     cpu.set_flag(CCR_Z, result == 0);
                     cpu.set_flag(CCR_V, false);
                 }
-                _ => {}
+                Size::Byte => {
+                    log::error!("EXTU.B is invalid per H8/300H manual at PC=0x{:06X}", insn_pc);
+                    debug_assert!(false, "EXTU.B is invalid");
+                }
             }
             next_pc
         }
@@ -187,7 +190,10 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
                     cpu.set_flag(CCR_Z, result == 0);
                     cpu.set_flag(CCR_V, false);
                 }
-                _ => {}
+                Size::Byte => {
+                    log::error!("EXTS.B is invalid per H8/300H manual at PC=0x{:06X}", insn_pc);
+                    debug_assert!(false, "EXTS.B is invalid");
+                }
             }
             next_pc
         }
@@ -731,6 +737,7 @@ fn get_bit_num(cpu: &Cpu, op: &Operand) -> u8 {
         Operand::Reg8(r) => cpu.read_r8(*r) & 0x7,
         _ => {
             log::error!("get_bit_num: unexpected operand {:?}, expected Imm8 or Reg8", op);
+            debug_assert!(false, "get_bit_num: unexpected operand {:?}", op);
             0
         }
     }
@@ -794,6 +801,7 @@ fn resolve_jump_target(cpu: &Cpu, bus: &mut MemoryBus, target: &Operand) -> u32 
         }
         _ => {
             log::error!("resolve_jump_target: unexpected operand {:?}", target);
+            debug_assert!(false, "resolve_jump_target: unexpected operand {:?}", target);
             0
         }
     }
@@ -806,34 +814,55 @@ fn abs8_addr(abs: u8) -> u32 {
     0xFFFF00 | abs as u32
 }
 
+/// Resolve a memory-mode operand to an effective address.
+/// Handles all addressing modes that map to a memory location.
+/// For PostInc, advances the register by `size` bytes after computing the address.
+/// Returns None for register/immediate operands that don't have a memory address.
+fn resolve_read_address(cpu: &mut Cpu, op: &Operand, size: u32) -> Option<u32> {
+    match op {
+        Operand::RegIndirect(r) => Some(cpu.read_er(*r)),
+        Operand::RegIndirectDisp16(r, d) => Some((cpu.read_er(*r) as i32 + *d as i32) as u32),
+        Operand::RegIndirectDisp24(r, d) => Some(cpu.read_er(*r).wrapping_add(*d)),
+        Operand::PostInc(r) => {
+            let addr = cpu.read_er(*r);
+            cpu.write_er(*r, addr + size);
+            Some(addr)
+        }
+        Operand::Abs8(a) => Some(abs8_addr(*a)),
+        Operand::Abs16(a) => Some(*a as i16 as i32 as u32 & 0x00FF_FFFF),
+        Operand::Abs24(a) => Some(*a),
+        _ => None,
+    }
+}
+
+/// Resolve a memory-mode operand for write (PreDec decrements before computing address).
+fn resolve_write_address(cpu: &mut Cpu, op: &Operand, size: u32) -> Option<u32> {
+    match op {
+        Operand::RegIndirect(r) => Some(cpu.read_er(*r)),
+        Operand::RegIndirectDisp16(r, d) => Some((cpu.read_er(*r) as i32 + *d as i32) as u32),
+        Operand::RegIndirectDisp24(r, d) => Some(cpu.read_er(*r).wrapping_add(*d)),
+        Operand::PreDec(r) => {
+            let addr = cpu.read_er(*r) - size;
+            cpu.write_er(*r, addr);
+            Some(addr)
+        }
+        Operand::Abs8(a) => Some(abs8_addr(*a)),
+        Operand::Abs16(a) => Some(*a as i16 as i32 as u32 & 0x00FF_FFFF),
+        Operand::Abs24(a) => Some(*a),
+        _ => None,
+    }
+}
+
 pub fn read_operand_b(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u8 {
     match op {
         Operand::Reg8(r) => cpu.read_r8(*r),
         Operand::Imm8(v) => *v,
-        Operand::RegIndirect(r) => bus.read_byte(cpu.read_er(*r)),
-        Operand::RegIndirectDisp16(r, d) => {
-            let addr = (cpu.read_er(*r) as i32 + *d as i32) as u32;
-            bus.read_byte(addr)
-        }
-        Operand::RegIndirectDisp24(r, d) => {
-            let addr = cpu.read_er(*r).wrapping_add(*d);
-            bus.read_byte(addr)
-        }
-        Operand::PostInc(r) => {
-            let addr = cpu.read_er(*r);
-            let val = bus.read_byte(addr);
-            cpu.write_er(*r, addr + 1); // Post-increment by 1 for byte
-            val
-        }
-        Operand::Abs8(a) => bus.read_byte(abs8_addr(*a)),
-        Operand::Abs16(a) => {
-            let addr = *a as i16 as i32 as u32 & 0x00FF_FFFF;
-            bus.read_byte(addr)
-        }
-        Operand::Abs24(a) => bus.read_byte(*a),
         Operand::Ccr => cpu.ccr,
-        _ => {
-            log::warn!("Unhandled byte read operand: {:?}", op);
+        _ => if let Some(addr) = resolve_read_address(cpu, op, 1) {
+            bus.read_byte(addr)
+        } else {
+            log::error!("Unhandled byte read operand: {:?}", op);
+            debug_assert!(false, "Unhandled byte read operand: {:?}", op);
             0
         }
     }
@@ -842,28 +871,13 @@ pub fn read_operand_b(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u8 {
 pub fn write_operand_b(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand, val: u8) {
     match op {
         Operand::Reg8(r) => cpu.write_r8(*r, val),
-        Operand::RegIndirect(r) => bus.write_byte(cpu.read_er(*r), val),
-        Operand::RegIndirectDisp16(r, d) => {
-            let addr = (cpu.read_er(*r) as i32 + *d as i32) as u32;
-            bus.write_byte(addr, val);
-        }
-        Operand::RegIndirectDisp24(r, d) => {
-            let addr = cpu.read_er(*r).wrapping_add(*d);
-            bus.write_byte(addr, val);
-        }
-        Operand::PreDec(r) => {
-            let addr = cpu.read_er(*r) - 1;
-            cpu.write_er(*r, addr);
-            bus.write_byte(addr, val);
-        }
-        Operand::Abs8(a) => bus.write_byte(abs8_addr(*a), val),
-        Operand::Abs16(a) => {
-            let addr = *a as i16 as i32 as u32 & 0x00FF_FFFF;
-            bus.write_byte(addr, val);
-        }
-        Operand::Abs24(a) => bus.write_byte(*a, val),
         Operand::Ccr => cpu.ccr = val,
-        _ => log::warn!("Unhandled byte write operand: {:?}", op),
+        _ => if let Some(addr) = resolve_write_address(cpu, op, 1) {
+            bus.write_byte(addr, val);
+        } else {
+            log::error!("Unhandled byte write operand: {:?}", op);
+            debug_assert!(false, "Unhandled byte write operand: {:?}", op);
+        }
     }
 }
 
@@ -871,28 +885,11 @@ pub fn read_operand_w(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u16 {
     match op {
         Operand::Reg16(r) => cpu.read_r16(*r),
         Operand::Imm16(v) => *v,
-        Operand::RegIndirect(r) => bus.read_word(cpu.read_er(*r)),
-        Operand::RegIndirectDisp16(r, d) => {
-            let addr = (cpu.read_er(*r) as i32 + *d as i32) as u32;
+        _ => if let Some(addr) = resolve_read_address(cpu, op, 2) {
             bus.read_word(addr)
-        }
-        Operand::RegIndirectDisp24(r, d) => {
-            let addr = cpu.read_er(*r).wrapping_add(*d);
-            bus.read_word(addr)
-        }
-        Operand::PostInc(r) => {
-            let addr = cpu.read_er(*r);
-            let val = bus.read_word(addr);
-            cpu.write_er(*r, addr + 2); // Post-increment by 2 for word
-            val
-        }
-        Operand::Abs16(a) => {
-            let addr = *a as i16 as i32 as u32 & 0x00FF_FFFF;
-            bus.read_word(addr)
-        }
-        Operand::Abs24(a) => bus.read_word(*a),
-        _ => {
-            log::warn!("Unhandled word read operand: {:?}", op);
+        } else {
+            log::error!("Unhandled word read operand: {:?}", op);
+            debug_assert!(false, "Unhandled word read operand: {:?}", op);
             0
         }
     }
@@ -901,26 +898,12 @@ pub fn read_operand_w(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u16 {
 pub fn write_operand_w(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand, val: u16) {
     match op {
         Operand::Reg16(r) => cpu.write_r16(*r, val),
-        Operand::RegIndirect(r) => bus.write_word(cpu.read_er(*r), val),
-        Operand::RegIndirectDisp16(r, d) => {
-            let addr = (cpu.read_er(*r) as i32 + *d as i32) as u32;
+        _ => if let Some(addr) = resolve_write_address(cpu, op, 2) {
             bus.write_word(addr, val);
+        } else {
+            log::error!("Unhandled word write operand: {:?}", op);
+            debug_assert!(false, "Unhandled word write operand: {:?}", op);
         }
-        Operand::RegIndirectDisp24(r, d) => {
-            let addr = cpu.read_er(*r).wrapping_add(*d);
-            bus.write_word(addr, val);
-        }
-        Operand::PreDec(r) => {
-            let addr = cpu.read_er(*r) - 2;
-            cpu.write_er(*r, addr);
-            bus.write_word(addr, val);
-        }
-        Operand::Abs16(a) => {
-            let addr = *a as i16 as i32 as u32 & 0x00FF_FFFF;
-            bus.write_word(addr, val);
-        }
-        Operand::Abs24(a) => bus.write_word(*a, val),
-        _ => log::warn!("Unhandled word write operand: {:?}", op),
     }
 }
 
@@ -928,28 +911,11 @@ pub fn read_operand_l(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u32 {
     match op {
         Operand::Reg32(r) => cpu.read_er(*r),
         Operand::Imm32(v) => *v,
-        Operand::RegIndirect(r) => bus.read_long(cpu.read_er(*r)),
-        Operand::RegIndirectDisp16(r, d) => {
-            let addr = (cpu.read_er(*r) as i32 + *d as i32) as u32;
+        _ => if let Some(addr) = resolve_read_address(cpu, op, 4) {
             bus.read_long(addr)
-        }
-        Operand::RegIndirectDisp24(r, d) => {
-            let addr = cpu.read_er(*r).wrapping_add(*d);
-            bus.read_long(addr)
-        }
-        Operand::PostInc(r) => {
-            let addr = cpu.read_er(*r);
-            let val = bus.read_long(addr);
-            cpu.write_er(*r, addr + 4); // Post-increment by 4 for long
-            val
-        }
-        Operand::Abs16(a) => {
-            let addr = *a as i16 as i32 as u32 & 0x00FF_FFFF;
-            bus.read_long(addr)
-        }
-        Operand::Abs24(a) => bus.read_long(*a),
-        _ => {
-            log::warn!("Unhandled long read operand: {:?}", op);
+        } else {
+            log::error!("Unhandled long read operand: {:?}", op);
+            debug_assert!(false, "Unhandled long read operand: {:?}", op);
             0
         }
     }
@@ -958,26 +924,12 @@ pub fn read_operand_l(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u32 {
 pub fn write_operand_l(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand, val: u32) {
     match op {
         Operand::Reg32(r) => cpu.write_er(*r, val),
-        Operand::RegIndirect(r) => bus.write_long(cpu.read_er(*r), val),
-        Operand::RegIndirectDisp16(r, d) => {
-            let addr = (cpu.read_er(*r) as i32 + *d as i32) as u32;
+        _ => if let Some(addr) = resolve_write_address(cpu, op, 4) {
             bus.write_long(addr, val);
+        } else {
+            log::error!("Unhandled long write operand: {:?}", op);
+            debug_assert!(false, "Unhandled long write operand: {:?}", op);
         }
-        Operand::RegIndirectDisp24(r, d) => {
-            let addr = cpu.read_er(*r).wrapping_add(*d);
-            bus.write_long(addr, val);
-        }
-        Operand::PreDec(r) => {
-            let addr = cpu.read_er(*r) - 4;
-            cpu.write_er(*r, addr);
-            bus.write_long(addr, val);
-        }
-        Operand::Abs16(a) => {
-            let addr = *a as i16 as i32 as u32 & 0x00FF_FFFF;
-            bus.write_long(addr, val);
-        }
-        Operand::Abs24(a) => bus.write_long(*a, val),
-        _ => log::warn!("Unhandled long write operand: {:?}", op),
     }
 }
 
@@ -1007,6 +959,7 @@ fn extract_reg(op: &Operand) -> u8 {
         Operand::Reg8(r) | Operand::Reg16(r) | Operand::Reg32(r) => *r,
         _ => {
             log::error!("extract_reg: unexpected operand {:?}, expected register", op);
+            debug_assert!(false, "extract_reg: unexpected operand {:?}", op);
             0
         }
     }

@@ -7,7 +7,7 @@
 ///   0x600000-0x6000FF  ISP1581 USB controller (16-bit)
 ///   0x800000-0x837FFF  ASIC RAM (224KB)
 ///   0xC00000-0xC0FFFF  Buffer RAM (64KB)
-///   0xFFFD00-0xFFFD3F  On-chip RAM (64 bytes, for trampolines)
+///   0xFFFB80-0xFFFEFF  On-chip RAM (896 bytes, includes trampoline area)
 ///   0xFFFF00-0xFFFFFF  On-chip I/O registers
 
 /// Trait for memory-mapped I/O peripherals.
@@ -178,8 +178,11 @@ impl MemoryBus {
             }
             MemoryRegion::Unmapped => {
                 self.unmapped_reads += 1;
-                if self.trace_enabled {
-                    log::warn!("Unmapped read: 0x{:06X}", addr);
+                // Log first 16 unique unmapped reads unconditionally, then only when tracing
+                if self.unmapped_reads <= 16 || self.trace_enabled {
+                    log::warn!("Unmapped read: 0x{:06X} (#{}){}",
+                        addr, self.unmapped_reads,
+                        if self.unmapped_reads == 16 { " — suppressing further warnings" } else { "" });
                 }
                 // Return 0x00 for unmapped regions (not 0xFF).
                 // The firmware's USB fast-path code polls bit 7 of an ISP1581
@@ -215,8 +218,10 @@ impl MemoryBus {
             }
             MemoryRegion::Unmapped => {
                 self.unmapped_writes += 1;
-                if self.trace_enabled {
-                    log::warn!("Unmapped write: 0x{:06X} = 0x{:02X}", addr, val);
+                if self.unmapped_writes <= 16 || self.trace_enabled {
+                    log::warn!("Unmapped write: 0x{:06X} = 0x{:02X} (#{}){}",
+                        addr, val, self.unmapped_writes,
+                        if self.unmapped_writes == 16 { " — suppressing further warnings" } else { "" });
                 }
             }
         }
@@ -299,63 +304,46 @@ impl MemoryBus {
         self.isp1581_regs[offset] = val;
     }
 
+    /// Access ISP1581 device model mutably, returning default if not installed.
+    fn with_isp1581_mut<F, R>(&mut self, default: R, f: F) -> R
+    where F: FnOnce(&mut dyn MmioDevice) -> R {
+        if let Some(ref mut dev) = self.isp1581_device {
+            f(dev.as_mut())
+        } else {
+            default
+        }
+    }
+
     /// Inject host data into ISP1581 EP1 OUT FIFO. Returns true if IRQ should fire.
     pub fn isp1581_inject(&mut self, data: &[u8]) -> bool {
-        if let Some(ref mut dev) = self.isp1581_device {
-            let fire_irq = dev.inject_host_data(data);
-            if fire_irq {
-                self.isp1581_irq_pending = true;
-            }
-            fire_irq
-        } else {
-            false
-        }
+        let fire_irq = self.with_isp1581_mut(false, |dev| dev.inject_host_data(data));
+        if fire_irq { self.isp1581_irq_pending = true; }
+        fire_irq
     }
 
     /// Drain ISP1581 EP2 IN FIFO (host reads device responses).
     pub fn isp1581_drain(&mut self, max: usize) -> Vec<u8> {
-        if let Some(ref mut dev) = self.isp1581_device {
-            dev.drain_device_data(max)
-        } else {
-            Vec::new()
-        }
+        self.with_isp1581_mut(Vec::new(), |dev| dev.drain_device_data(max))
     }
 
     /// Drain ISP1581 EP1 OUT FIFO (device reads host data-out).
-    /// Used by SCSI data-out command handlers (SET WINDOW, MODE SELECT, WRITE).
     pub fn isp1581_drain_host_data(&mut self, max: usize) -> Vec<u8> {
-        if let Some(ref mut dev) = self.isp1581_device {
-            dev.drain_host_data(max)
-        } else {
-            Vec::new()
-        }
+        self.with_isp1581_mut(Vec::new(), |dev| dev.drain_host_data(max))
     }
 
     /// Check if ISP1581 has data ready for host.
     pub fn isp1581_has_response(&self) -> bool {
-        if let Some(ref dev) = self.isp1581_device {
-            dev.has_data_for_host()
-        } else {
-            false
-        }
+        self.isp1581_device.as_ref().map_or(false, |dev| dev.has_data_for_host())
     }
 
     /// Push raw bytes to ISP1581 EP2 IN FIFO (intercepted data transfers).
     pub fn isp1581_push_to_host(&mut self, data: &[u8]) {
-        if let Some(ref mut dev) = self.isp1581_device {
-            dev.push_to_host(data);
-        } else if !data.is_empty() {
-            log::warn!("isp1581_push_to_host: {} bytes dropped (no ISP1581 device model)", data.len());
-        }
+        self.with_isp1581_mut((), |dev| dev.push_to_host(data));
     }
 
     /// Check if ISP1581 has pending IRQ.
     pub fn isp1581_has_irq(&self) -> bool {
-        if let Some(ref dev) = self.isp1581_device {
-            dev.has_irq()
-        } else {
-            self.isp1581_irq_pending
-        }
+        self.isp1581_device.as_ref().map_or(self.isp1581_irq_pending, |dev| dev.has_irq())
     }
 
     /// Read on-chip I/O register (0xFFFF00-0xFFFFFF).

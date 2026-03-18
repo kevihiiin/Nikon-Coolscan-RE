@@ -12,27 +12,31 @@ No reference to MAME, QEMU, GDB sim, SLEIGH, or any other emulator source.
 Full review of the 257-page Hitachi H8/300H Programming Manual (ADE-602-053A)
 against our emulator implementation. Source: `emulator/reference/H8_300H_Programming_Manual.pdf`.
 
-### Stack Frame Layout (Advanced Mode) — CONFIRMED CORRECT
+### Stack Frame Layout (Advanced Mode) — REVISED
 
-From Figure 1-5 (p6) and Table 2-8 bus states (p236):
+From Figure 1-5 (p6) and Table 2-8 bus states (p236).
+
+**NOTE**: The manual describes a 6-byte frame (word CCR + long PC), but empirical
+testing of the Coolscan V firmware (Session 5, 2026-03-17) showed the firmware
+expects a 4-byte packed frame: `[CCR:8][PC:24]` as a single longword. The 6-byte
+layout caused context switch crashes because the firmware's RTE popped 4 bytes,
+not 6. The current implementation uses 4-byte packed frames throughout.
 
 **TRAPA / Interrupt exception push:**
 ```
-SP -= 6
-[SP+0] = CCR (stored as 16-bit word, CCR in low byte, high byte reserved)
-[SP+2] = PC  (stored as 32-bit longword, upper 8 bits don't-care)
+SP -= 4
+[SP+0..SP+3] = [CCR:8 | PC:24] as single 32-bit longword
 ```
-Bus write order: Stack(L) first, then Stack(H) — low address written first.
-Our implementation: `write_word(sp, ccr); write_long(sp+2, pc)` — correct.
+Our implementation: `frame = (ccr << 24) | (pc & 0xFFFFFF); write_long(sp, frame)` — correct.
 
 **RTE pop:**
 ```
-CCR = [SP+0] (read as 16-bit word)
-PC  = [SP+2] (read as 32-bit longword, masked to 24 bits)
-SP += 6
+frame = [SP+0..SP+3] (32-bit longword)
+CCR = frame >> 24
+PC  = frame & 0x00FFFFFF
+SP += 4
 ```
-Bus read order: Stack(H) first, then Stack(L) — high address read first.
-Our implementation: `read_word(sp); read_long(sp+2); sp += 6` — correct.
+Our implementation: `read_long(sp); ccr = frame >> 24; pc = frame & 0xFFFFFF; sp += 4` — correct.
 
 **JSR/BSR push (Advanced mode):** pushes 32-bit PC (4 bytes), SP -= 4.
 **RTS pop (Advanced mode):** pops 32-bit longword, SP += 4.

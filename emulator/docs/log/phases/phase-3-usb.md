@@ -75,9 +75,9 @@ ISP1581 bus at H8/300H address 0x600000; offset = (addr - 0x600000).
 **Target**: External SCSI command injection over TCP
 
 **Architecture:**
-- Non-blocking TCP server on port 5050
-- Frame protocol: [type:1][length:2 big-endian][payload:N]
-- Checked every 10,000 instructions in orchestrator main loop
+- Non-blocking TCP server on port 6581
+- Frame protocol: [length:2 big-endian][type:1][payload:N]
+- Checked every 1,000 instructions in orchestrator main loop
 
 **Frame types:**
 | Type | Direction | Payload | Purpose |

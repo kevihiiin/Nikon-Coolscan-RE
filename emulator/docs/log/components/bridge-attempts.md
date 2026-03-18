@@ -7,10 +7,10 @@
 **Target**: External interface for SCSI command injection and status query
 
 ### Architecture:
-- Non-blocking TCP server bound to 127.0.0.1:5050
+- Non-blocking TCP server bound to 127.0.0.1:6581
 - Accepts single client connection
-- Polled every 10,000 instructions in orchestrator main loop
-- Frame protocol: [type:1][length:2 BE][payload:N]
+- Polled every 1,000 instructions in orchestrator main loop
+- Frame protocol: [length:2 BE][type:1][payload:N]
 
 ### Frame types:
 | Type | Direction | Purpose |

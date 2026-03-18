@@ -172,8 +172,8 @@
 - FIFO port reads at endpoint data registers return from EP queues
 
 **TCP bridge:**
-- Non-blocking TCP server on port 5050
-- Frame protocol: [type:1][length:2][payload:N]
+- Non-blocking TCP server on port 6581
+- Frame protocol: [length:2 BE][type:1][payload:N]
   - Type 0x01: CDB inject (client→emu, 6/10/12 byte CDB)
   - Type 0x02: Phase query (client→emu)
   - Type 0x03: Sense query (client→emu)

@@ -16,7 +16,9 @@
 
 use crate::traits::UsbBridge;
 
-/// TCP bridge stub — full implementation in Phase 3.
+/// TCP bridge stub — UNUSED. TCP is implemented directly in orchestrator::poll_tcp().
+/// Kept for potential future refactoring where TCP logic moves out of the orchestrator.
+#[allow(dead_code)]
 pub struct TcpBridge {
     port: u16,
     connected: bool,
