@@ -1,14 +1,14 @@
-/// Linux USB Gadget bridge using FunctionFS.
-///
-/// Presents the emulator as a real USB device (VID 04B0, PID 4001 = Nikon LS-50).
-/// Uses configfs to create the gadget and FunctionFS for endpoint I/O.
-///
-/// Requires: Linux kernel with USB gadget support (configfs + functionfs).
-/// Typically needs root or appropriate permissions.
-///
-/// Endpoints:
-///   EP1 OUT (bulk) — host sends CDB / data-out
-///   EP2 IN  (bulk) — device sends phase / data-in / sense
+//! Linux USB Gadget bridge using FunctionFS.
+//!
+//! Presents the emulator as a real USB device (VID 04B0, PID 4001 = Nikon LS-50).
+//! Uses configfs to create the gadget and FunctionFS for endpoint I/O.
+//!
+//! Requires: Linux kernel with USB gadget support (configfs + functionfs).
+//! Typically needs root or appropriate permissions.
+//!
+//! Endpoints:
+//!   EP1 OUT (bulk) — host sends CDB / data-out
+//!   EP2 IN  (bulk) — device sends phase / data-in / sense
 
 use crate::traits::UsbBridge;
 use std::fs::{self, File, OpenOptions};
@@ -45,6 +45,12 @@ pub struct GadgetBridge {
     connected: bool,
     /// UDC (USB Device Controller) name.
     udc: Option<String>,
+}
+
+impl Default for GadgetBridge {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GadgetBridge {
@@ -176,10 +182,10 @@ impl GadgetBridge {
     /// Tear down the USB gadget. Best-effort: logs errors but continues cleanup.
     pub fn teardown(&mut self) {
         // Unbind UDC
-        if let Some(ref udc) = self.udc {
-            if let Err(e) = write_file(&self.gadget_path.join("UDC"), "") {
-                log::warn!("teardown: failed to unbind UDC {udc}: {e}");
-            }
+        if let Some(ref udc) = self.udc
+            && let Err(e) = write_file(&self.gadget_path.join("UDC"), "")
+        {
+            log::warn!("teardown: failed to unbind UDC {udc}: {e}");
         }
         self.udc = None;
 
@@ -213,10 +219,8 @@ impl GadgetBridge {
                 }
             }
         }
-        if self.gadget_path.exists() {
-            if let Err(e) = fs::remove_dir(&self.gadget_path) {
-                log::warn!("teardown: remove gadget dir: {e}");
-            }
+        if self.gadget_path.exists() && let Err(e) = fs::remove_dir(&self.gadget_path) {
+            log::warn!("teardown: remove gadget dir: {e}");
         }
 
         self.connected = false;
@@ -247,11 +251,11 @@ impl UsbBridge for GadgetBridge {
     }
 
     fn send_ep2_in(&mut self, data: &[u8]) {
-        if let Some(ref mut ep2) = self.ep2_in {
-            if let Err(e) = ep2.write_all(data) {
-                log::warn!("EP2 IN write error: {e}");
-                self.connected = false;
-            }
+        if let Some(ref mut ep2) = self.ep2_in
+            && let Err(e) = ep2.write_all(data)
+        {
+            log::warn!("EP2 IN write error: {e}");
+            self.connected = false;
         }
     }
 
@@ -363,12 +367,10 @@ fn find_udc() -> Result<String, String> {
     if !udc_dir.exists() {
         return Err("No /sys/class/udc — USB gadget support not available".to_string());
     }
-    for entry in fs::read_dir(udc_dir).map_err(|e| format!("read /sys/class/udc: {e}"))? {
-        if let Ok(entry) = entry {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if !name.is_empty() {
-                return Ok(name);
-            }
+    for entry in fs::read_dir(udc_dir).map_err(|e| format!("read /sys/class/udc: {e}"))?.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.is_empty() {
+            return Ok(name);
         }
     }
     Err("No UDC found in /sys/class/udc".to_string())

@@ -1,8 +1,8 @@
-/// SCI (Serial Communication Interface) stub.
-///
-/// SCI0: 0xFFFFB0-B5, SCI1: 0xFFFFC8-CD (overlap with Port 9).
-/// Firmware uses polled I/O for adapter communication.
-/// Stub: return "no data available" (SSR flags clear).
+//! SCI (Serial Communication Interface) stub.
+//!
+//! SCI0: 0xFFFFB0-B5, SCI1: 0xFFFFC8-CD (overlap with Port 9).
+//! Firmware uses polled I/O for adapter communication.
+//! Stub: return "no data available" (SSR flags clear).
 
 pub struct Sci {
     pub smr: u8,

@@ -1,14 +1,14 @@
-/// H8/300H instruction decoder.
-///
-/// Clean-room implementation from Hitachi H8/300H Programming Manual (ADE-602-053A).
-/// Instruction encoding: variable length 2/4/6/8/10 bytes.
-/// First byte (or first nibble pair) identifies the instruction group.
-///
-/// Encoding convention used here:
-///   opcode[15:12] = first nibble (bits 15..12 of first word)
-///   opcode[11:8]  = second nibble
-///   opcode[7:4]   = third nibble
-///   opcode[3:0]   = fourth nibble
+//! H8/300H instruction decoder.
+//!
+//! Clean-room implementation from Hitachi H8/300H Programming Manual (ADE-602-053A).
+//! Instruction encoding: variable length 2/4/6/8/10 bytes.
+//! First byte (or first nibble pair) identifies the instruction group.
+//!
+//! Encoding convention used here:
+//!   opcode[15:12] = first nibble (bits 15..12 of first word)
+//!   opcode[11:8]  = second nibble
+//!   opcode[7:4]   = third nibble
+//!   opcode[3:0]   = fourth nibble
 
 use crate::memory::MemoryBus;
 
@@ -532,26 +532,26 @@ fn decode_group_0(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
             }
         }
         0xF => {
-            // DAA / MOV.L ERs, ERd / MULXU etc
-            match nib2 {
-                0xA => {
-                    // DAA Rd (0F Ar)
-                    Decoded {
-                        insn: Instruction::Daa(Operand::Reg8(nib3)),
-                        len: 2,
-                    }
+            // DAA / MOV.L ERs, ERd
+            // MOV.L ERs, ERd: encoding 0F (8+s)(d) — nib2 bit 3 is set, s = nib2 & 7
+            // DAA Rd: encoding 0F A(r) — nib2 = 0xA
+            // Priority: DAA is a subset of MOV.L range (nib2=0xA has bit 3 set),
+            // but DAA is the correct decode for 0x0FAr per the H8/300H manual.
+            if nib2 == 0xA {
+                // DAA Rd (0F Ar)
+                Decoded {
+                    insn: Instruction::Daa(Operand::Reg8(nib3)),
+                    len: 2,
                 }
-                0x8 => {
-                    // MOV.L ERs, ERd (0F 8s d) — only nib2=0x8 is valid per H8/300H manual
-                    let rs = nib2 & 0x7;
-                    Decoded {
-                        insn: Instruction::Mov(Size::Long, Operand::Reg32(rs), Operand::Reg32(nib3)),
-                        len: 2,
-                    }
+            } else if nib2 & 0x8 != 0 {
+                // MOV.L ERs, ERd (0F (8+s)d) — bit 3 set = 32-bit register move
+                let rs = nib2 & 0x7;
+                Decoded {
+                    insn: Instruction::Mov(Size::Long, Operand::Reg32(rs), Operand::Reg32(nib3)),
+                    len: 2,
                 }
-                // nib2 values 0x9, 0xB-0xF are undefined in the 0F group
-                0x9 | 0xB..=0xF => Decoded { insn: Instruction::Unknown(w0), len: 2 },
-                _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },
+            } else {
+                Decoded { insn: Instruction::Unknown(w0), len: 2 }
             }
         }
         _ => Decoded { insn: Instruction::Unknown(w0), len: 2 },

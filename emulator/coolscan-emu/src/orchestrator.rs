@@ -1,4 +1,4 @@
-/// Emulator orchestrator — wires CPU, memory, peripherals, and bridges together.
+//! Emulator orchestrator — wires CPU, memory, peripherals, and bridges together.
 
 use h8300h_core::cpu::Cpu;
 use h8300h_core::decode;
@@ -13,6 +13,23 @@ use peripherals::bus::PeripheralBus;
 use std::net::TcpListener;
 
 use crate::config::Config;
+
+/// Result of a SCSI command executed via the emulator's internal handler.
+pub struct ScsiResult {
+    /// Sense key (0 = GOOD, 5 = ILLEGAL REQUEST, etc.)
+    pub sense_key: u8,
+    /// Additional sense code
+    pub asc: u8,
+    /// Data-in response (empty for commands with no data phase)
+    pub data: Vec<u8>,
+}
+
+impl ScsiResult {
+    /// Returns true if the command completed with GOOD status.
+    pub fn is_good(&self) -> bool {
+        self.sense_key == 0
+    }
+}
 
 // --- Firmware RAM addresses (from RE analysis, see docs/kb/) ---
 const FW_CMD_PENDING: u32 = 0x400082;     // CDB available flag (1 = pending)
@@ -127,19 +144,19 @@ impl Emulator {
         // because the RAM test overwrites 0x400000-0x420000 during early boot.
 
         // Set up TCP listener if port configured
-        let tcp_listener = if config._tcp_port > 0 {
-            match TcpListener::bind(format!("127.0.0.1:{}", config._tcp_port)) {
+        let tcp_listener = if config.tcp_port > 0 {
+            match TcpListener::bind(format!("127.0.0.1:{}", config.tcp_port)) {
                 Ok(listener) => {
                     if let Err(e) = listener.set_nonblocking(true) {
                         log::error!("Failed to set TCP listener non-blocking: {}. Aborting TCP bridge.", e);
                         None
                     } else {
-                        log::info!("TCP bridge listening on port {}", config._tcp_port);
+                        log::info!("TCP bridge listening on port {}", config.tcp_port);
                         Some(listener)
                     }
                 }
                 Err(e) => {
-                    log::error!("Failed to bind TCP port {}: {}. No TCP bridge.", config._tcp_port, e);
+                    log::error!("Failed to bind TCP port {}: {}. No TCP bridge.", config.tcp_port, e);
                     None
                 }
             }
@@ -212,11 +229,9 @@ impl Emulator {
             }
 
             // JIT init: context system + flash patches, triggered before first TRAPA #0.
-            if !self.context_initialized {
-                if let decode::Instruction::Trapa(0) = &decoded.insn {
-                    self.jit_context_init();
-                    self.apply_flash_nop_patches();
-                }
+            if !self.context_initialized && matches!(&decoded.insn, decode::Instruction::Trapa(0)) {
+                self.jit_context_init();
+                self.apply_flash_nop_patches();
             }
 
             let pre_exec_pc = self.cpu.pc;
@@ -412,7 +427,7 @@ impl Emulator {
         let switching_to = if ctx_idx == 0 { "A->B" } else { "B->A" };
 
         // Log first 10 switches, then every 10000th
-        if self.ctx_switch_count <= 10 || self.ctx_switch_count % 10000 == 0 {
+        if self.ctx_switch_count <= 10 || self.ctx_switch_count.is_multiple_of(10000) {
             log::info!(
                 "CTX#{} {} at insn {} | SP={:06X} idx={:04X} A_SP={:06X} B_SP={:06X}",
                 self.ctx_switch_count, switching_to, insn_count,
@@ -604,13 +619,11 @@ impl Emulator {
                     let mut data = vec![0u8; xfer_len];
                     data[0] = (xfer_len - 1) as u8; // Mode data length
                     // Mode page data (simplified)
-                    if xfer_len > 4 && (page_code == 0x03 || page_code == 0x3F) {
-                        if xfer_len >= 16 {
-                            data[4] = 0x03; // Page code
-                            data[5] = 0x0A; // Page length (10)
-                            data[8] = 0x01; data[9] = 0x2C; // X res = 300
-                            data[10] = 0x01; data[11] = 0x2C; // Y res = 300
-                        }
+                    if xfer_len > 4 && (page_code == 0x03 || page_code == 0x3F) && xfer_len >= 16 {
+                        data[4] = 0x03; // Page code
+                        data[5] = 0x0A; // Page length (10)
+                        data[8] = 0x01; data[9] = 0x2C; // X res = 300
+                        data[10] = 0x01; data[11] = 0x2C; // Y res = 300
                     }
                     self.bus.isp1581_push_to_host(&data);
                     log::info!("SCSI EMU: MODE SENSE page=0x{:02X} → {} bytes", page_code, xfer_len);
@@ -1194,16 +1207,15 @@ impl Emulator {
     /// Called periodically during emulation (every N instructions).
     fn poll_tcp(&mut self) {
         // Accept new connections
-        if self.tcp_client.is_none() {
-            if let Some(ref listener) = self.tcp_listener {
-                if let Ok((stream, addr)) = listener.accept() {
-                    if let Err(e) = stream.set_nonblocking(true) {
-                        log::error!("Failed to set TCP client non-blocking: {}. Rejecting connection.", e);
-                    } else {
-                        log::info!("TCP client connected from {}", addr);
-                        self.tcp_client = Some(stream);
-                    }
-                }
+        if self.tcp_client.is_none()
+            && let Some(ref listener) = self.tcp_listener
+            && let Ok((stream, addr)) = listener.accept()
+        {
+            if let Err(e) = stream.set_nonblocking(true) {
+                log::error!("Failed to set TCP client non-blocking: {}. Rejecting connection.", e);
+            } else {
+                log::info!("TCP client connected from {}", addr);
+                self.tcp_client = Some(stream);
             }
         }
 
@@ -1227,12 +1239,12 @@ impl Emulator {
                             break;
                         }
                         let mut payload = vec![0u8; payload_len];
-                        if payload_len > 0 {
-                            if let Err(e) = stream.read_exact(&mut payload) {
-                                log::warn!("TCP read payload error: {}. Disconnecting.", e);
-                                disconnect = true;
-                                break;
-                            }
+                        if payload_len > 0
+                            && let Err(e) = stream.read_exact(&mut payload)
+                        {
+                            log::warn!("TCP read payload error: {}. Disconnecting.", e);
+                            disconnect = true;
+                            break;
                         }
                         frames.push((msg_type, payload));
                     }
@@ -1289,7 +1301,7 @@ impl Emulator {
                 }
 
                 log::info!("TCP: Received CDB [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X}{}]",
-                    payload.get(0).copied().unwrap_or(0),
+                    payload.first().copied().unwrap_or(0),
                     payload.get(1).copied().unwrap_or(0),
                     payload.get(2).copied().unwrap_or(0),
                     payload.get(3).copied().unwrap_or(0),
@@ -1406,8 +1418,8 @@ impl Emulator {
                 let len = u16::from_be_bytes([payload[4], payload[5]]) as usize;
                 let len = len.min(4096); // Cap at 4KB
                 let mut data = vec![0u8; len];
-                for i in 0..len {
-                    data[i] = self.bus.read_byte(addr + i as u32);
+                for (i, byte) in data.iter_mut().enumerate() {
+                    *byte = self.bus.read_byte(addr + i as u32);
                 }
                 log::info!("TCP: RAM read 0x{:06X} +{} bytes", addr, len);
                 self.send_tcp_frame(0x88, &data);
@@ -1433,11 +1445,11 @@ impl Emulator {
                 self.tcp_client = None;
                 return;
             }
-            if !payload.is_empty() {
-                if let Err(e) = stream.write_all(payload) {
-                    log::warn!("TCP write error: {}. Disconnecting.", e);
-                    self.tcp_client = None;
-                }
+            if !payload.is_empty()
+                && let Err(e) = stream.write_all(payload)
+            {
+                log::warn!("TCP write error: {}. Disconnecting.", e);
+                self.tcp_client = None;
             }
         }
     }
@@ -1496,6 +1508,106 @@ impl Emulator {
         self.cpu.cycle_count += 1;
 
         Some(decoded)
+    }
+
+    // --- Public API for integration tests ---
+
+    /// Boot the firmware: run until main loop is reached or max_instructions exceeded.
+    /// Returns true if main loop was reached.
+    pub fn boot_to_main_loop(&mut self, max_instructions: u64) -> bool {
+        for i in 0..max_instructions {
+            if self.cpu.sleeping {
+                self.check_peripherals();
+                if !self.irq.has_pending() || self.cpu.interrupt_masked() {
+                    continue;
+                }
+            }
+
+            self.irq.check_and_service(&mut self.cpu, &mut self.bus);
+
+            let decoded = decode::decode(&mut self.bus, self.cpu.pc);
+
+            if let decode::Instruction::Unknown(w) = &decoded.insn {
+                log::error!("boot: Unknown instruction 0x{:04X} at PC=0x{:06X} after {} insns", w, self.cpu.pc, i);
+                return false;
+            }
+
+            if !self.context_initialized && matches!(&decoded.insn, decode::Instruction::Trapa(0)) {
+                self.jit_context_init();
+                self.apply_flash_nop_patches();
+            }
+
+            let insn_pc = self.cpu.pc;
+            let new_pc = execute::execute(&mut self.cpu, &mut self.bus, &decoded.insn, insn_pc, decoded.len);
+            self.cpu.pc = new_pc;
+            self.cpu.cycle_count += 1;
+
+            self.sync_peripherals();
+            self.check_peripherals();
+            self.handle_oneshot_actions(insn_pc, i);
+            self.log_milestone(i);
+
+            // Force USB session state periodically (same as run())
+            if i.is_multiple_of(1000) {
+                self.force_usb_session_state();
+            }
+
+            // Check if main loop was reached (0xDEAD0001 is the oneshot marker
+            // inserted by handle_oneshot_actions when PC == FW_MAIN_LOOP)
+            if self.milestones_seen.contains(&0xDEAD0001) {
+                log::info!("boot: Reached main loop after {} instructions", i);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Send a SCSI command (no data-out phase) and return response data.
+    /// The command is processed synchronously by the emulator's SCSI handler.
+    pub fn scsi_command(&mut self, cdb: &[u8]) -> ScsiResult {
+        for (j, &b) in cdb.iter().enumerate().take(16) {
+            self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
+        }
+        self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
+        self.bus.write_word(FW_SENSE_CODE, 0x0000);
+
+        self.handle_scsi_command(cdb[0]);
+
+        let sense = self.bus.read_word(FW_SENSE_CODE);
+        let data = self.bus.isp1581_drain(256 * 1024);
+
+        ScsiResult {
+            sense_key: ((sense >> 8) & 0x0F) as u8,
+            asc: (sense & 0xFF) as u8,
+            data,
+        }
+    }
+
+    /// Send a SCSI command with data-out phase (e.g., SET WINDOW, MODE SELECT, WRITE).
+    pub fn scsi_command_out(&mut self, cdb: &[u8], data_out: &[u8]) -> ScsiResult {
+        for (j, &b) in cdb.iter().enumerate().take(16) {
+            self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
+        }
+        self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
+        self.bus.write_word(FW_SENSE_CODE, 0x0000);
+
+        // Push data-out to EP1 OUT FIFO before handling command
+        self.bus.isp1581_inject(data_out);
+        self.handle_scsi_command(cdb[0]);
+
+        let sense = self.bus.read_word(FW_SENSE_CODE);
+        let data = self.bus.isp1581_drain(256 * 1024);
+
+        ScsiResult {
+            sense_key: ((sense >> 8) & 0x0F) as u8,
+            asc: (sense & 0xFF) as u8,
+            data,
+        }
+    }
+
+    /// Check if scan is currently active.
+    pub fn is_scan_active(&self) -> bool {
+        self.scan_active
     }
 
     /// Execute one CPU instruction with full peripheral handling.

@@ -1,12 +1,12 @@
-/// H8/300H CPU state.
-///
-/// Register model:
-///   ER0-ER7 are 32-bit general registers.
-///   Each ERn contains En (high 16) and Rn (low 16).
-///   Each Rn contains RnH (high 8) and RnL (low 8).
-///   ER7 is the stack pointer (SP).
-///   PC is 24-bit (stored in u32, top 8 bits always 0).
-///   CCR is 8-bit: I UI H U N Z V C (bits 7..0).
+//! H8/300H CPU state.
+//!
+//! Register model:
+//!   ER0-ER7 are 32-bit general registers.
+//!   Each ERn contains En (high 16) and Rn (low 16).
+//!   Each Rn contains RnH (high 8) and RnL (low 8).
+//!   ER7 is the stack pointer (SP).
+//!   PC is 24-bit (stored in u32, top 8 bits always 0).
+//!   CCR is 8-bit: I UI H U N Z V C (bits 7..0).
 
 /// CCR flag bit positions.
 pub const CCR_C: u8 = 0;

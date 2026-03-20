@@ -1,17 +1,14 @@
-/// Coolscan V Firmware Emulator — Main Entry Point
-///
-/// Loads the actual LS-50 firmware binary (512KB) and runs it on an
-/// emulated H8/3003 CPU with virtual peripherals.
-
-mod config;
-mod orchestrator;
+//! Coolscan V Firmware Emulator — Main Entry Point
+//!
+//! Loads the actual LS-50 firmware binary (512KB) and runs it on an
+//! emulated H8/3003 CPU with virtual peripherals.
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
 
-    let config = config::Config::from_args();
+    let config = coolscan_emu::config::Config::from_args();
 
     log::info!("Coolscan V Emulator v{}", env!("CARGO_PKG_VERSION"));
     log::info!("Firmware: {}", config.firmware_path.display());
@@ -53,7 +50,7 @@ fn main() {
         None
     };
 
-    let mut emu = orchestrator::Emulator::new(&firmware, &config);
+    let mut emu = coolscan_emu::orchestrator::Emulator::new(&firmware, &config);
 
     log::info!("Reset vector: 0x{:06X}", emu.reset_vector());
     log::info!("Starting emulation...");

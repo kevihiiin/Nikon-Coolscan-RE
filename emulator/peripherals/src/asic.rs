@@ -1,13 +1,13 @@
-/// Custom ASIC model (0x200000-0x200FFF).
-///
-/// 172 register addresses across blocks 0x00-0x0F.
-/// Most are write-accept/read-back. Key behavioral registers:
-///   0x200001: Master enable (0x80=enable)
-///   0x200002: Status — bit 3 = DMA busy
-///   0x2000C2: DAC mode (0x20=init, 0x22=scan, 0xA2=cal)
-///   0x200147-149: DMA buffer address (24-bit)
-///   0x20014B-14D: DMA transfer count (24-bit)
-///   0x2001C1: CCD line timing trigger
+//! Custom ASIC model (0x200000-0x200FFF).
+//!
+//! 172 register addresses across blocks 0x00-0x0F.
+//! Most are write-accept/read-back. Key behavioral registers:
+//!   0x200001: Master enable (0x80=enable)
+//!   0x200002: Status — bit 3 = DMA busy
+//!   0x2000C2: DAC mode (0x20=init, 0x22=scan, 0xA2=cal)
+//!   0x200147-149: DMA buffer address (24-bit)
+//!   0x20014B-14D: DMA transfer count (24-bit)
+//!   0x2001C1: CCD line timing trigger
 
 pub struct Asic {
     /// All registers stored as raw bytes (4KB).

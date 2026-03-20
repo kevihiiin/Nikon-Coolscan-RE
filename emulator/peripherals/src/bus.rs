@@ -1,7 +1,7 @@
-/// Memory-mapped I/O bus — routes on-chip I/O register accesses to peripheral models.
-///
-/// On-chip I/O: 0xFFFF00-0xFFFFFF (256 bytes)
-/// Each peripheral owns a range of addresses within this space.
+//! Memory-mapped I/O bus — routes on-chip I/O register accesses to peripheral models.
+//!
+//! On-chip I/O: 0xFFFF00-0xFFFFFF (256 bytes)
+//! Each peripheral owns a range of addresses within this space.
 
 use crate::itu::TimerUnit;
 use crate::gpio::GpioPorts;

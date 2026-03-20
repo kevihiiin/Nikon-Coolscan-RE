@@ -1,13 +1,13 @@
-/// H8/3003 interrupt controller.
-///
-/// Interrupt behavior:
-///   - Between each instruction, check for pending interrupts
-///   - If CCR.I = 0 (interrupts enabled), service the highest-priority pending interrupt
-///   - On service: push [CCR:8|PC:24] packed longword (4 bytes), load PC from vector table, set CCR.I = 1
-///   - TRAPA is synchronous (handled in executor, not here)
-///   - No interrupt nesting (all ISRs set I=1 on entry)
-///
-/// Vector table: vec_num * 4 = address in flash containing handler address (32-bit BE).
+//! H8/3003 interrupt controller.
+//!
+//! Interrupt behavior:
+//!   - Between each instruction, check for pending interrupts
+//!   - If CCR.I = 0 (interrupts enabled), service the highest-priority pending interrupt
+//!   - On service: push [CCR:8|PC:24] packed longword (4 bytes), load PC from vector table, set CCR.I = 1
+//!   - TRAPA is synchronous (handled in executor, not here)
+//!   - No interrupt nesting (all ISRs set I=1 on entry)
+//!
+//! Vector table: vec_num * 4 = address in flash containing handler address (32-bit BE).
 
 use crate::cpu::{Cpu, CCR_I};
 use crate::memory::MemoryBus;

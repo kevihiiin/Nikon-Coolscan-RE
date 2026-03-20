@@ -1,6 +1,6 @@
-/// USB bridge trait — connects the ISP1581 model to the outside world.
-///
-/// Implementations: TCP socket bridge, Linux USB gadget bridge.
+//! USB bridge trait — connects the ISP1581 model to the outside world.
+//!
+//! Implementations: TCP socket bridge, Linux USB gadget bridge.
 
 pub trait UsbBridge {
     /// Receive data from host on EP1 OUT (CDB / data-out / phase query).

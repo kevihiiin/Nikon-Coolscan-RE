@@ -1,8 +1,8 @@
-/// Watchdog Timer stub.
-///
-/// Address 0xFFFFA8 (TCSR via on-chip I/O).
-/// Firmware writes 0x5A00 during every context switch to reset the watchdog.
-/// Disabled by default in emulator.
+//! Watchdog Timer stub.
+//!
+//! Address 0xFFFFA8 (TCSR via on-chip I/O).
+//! Firmware writes 0x5A00 during every context switch to reset the watchdog.
+//! Disabled by default in emulator.
 
 pub struct Watchdog {
     pub enabled: bool,

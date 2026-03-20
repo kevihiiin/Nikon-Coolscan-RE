@@ -1,14 +1,14 @@
-/// Memory subsystem for the H8/3003.
-///
-/// Address decode (from BSC configuration):
-///   0x000000-0x07FFFF  Flash ROM (512KB, read-only)
-///   0x200000-0x200FFF  Custom ASIC (16-bit, memory-mapped I/O)
-///   0x400000-0x41FFFF  External RAM (128KB)
-///   0x600000-0x6000FF  ISP1581 USB controller (16-bit)
-///   0x800000-0x837FFF  ASIC RAM (224KB)
-///   0xC00000-0xC0FFFF  Buffer RAM (64KB)
-///   0xFFFB80-0xFFFEFF  On-chip RAM (896 bytes, includes trampoline area)
-///   0xFFFF00-0xFFFFFF  On-chip I/O registers
+//! Memory subsystem for the H8/3003.
+//!
+//! Address decode (from BSC configuration):
+//!   0x000000-0x07FFFF  Flash ROM (512KB, read-only)
+//!   0x200000-0x200FFF  Custom ASIC (16-bit, memory-mapped I/O)
+//!   0x400000-0x41FFFF  External RAM (128KB)
+//!   0x600000-0x6000FF  ISP1581 USB controller (16-bit)
+//!   0x800000-0x837FFF  ASIC RAM (224KB)
+//!   0xC00000-0xC0FFFF  Buffer RAM (64KB)
+//!   0xFFFB80-0xFFFEFF  On-chip RAM (896 bytes, includes trampoline area)
+//!   0xFFFF00-0xFFFFFF  On-chip I/O registers
 
 /// Trait for memory-mapped I/O peripherals.
 pub trait MmioDevice {
@@ -231,10 +231,10 @@ impl MemoryBus {
     pub fn read_word(&mut self, addr: u32) -> u16 {
         let addr = addr & 0x00FF_FFFF;
         // ISP1581 region: dispatch as word read (EP Data FIFO pops on word access)
-        if let MemoryRegion::Isp1581 = decode_address(addr) {
-            if let Some(ref mut dev) = self.isp1581_device {
-                return dev.read_word(addr - 0x600000);
-            }
+        if let MemoryRegion::Isp1581 = decode_address(addr)
+            && let Some(ref mut dev) = self.isp1581_device
+        {
+            return dev.read_word(addr - 0x600000);
         }
         let hi = self.read_byte(addr) as u16;
         let lo = self.read_byte(addr + 1) as u16;
@@ -245,11 +245,11 @@ impl MemoryBus {
     pub fn write_word(&mut self, addr: u32, val: u16) {
         let addr_masked = addr & 0x00FF_FFFF;
         // ISP1581 region: dispatch as word write
-        if let MemoryRegion::Isp1581 = decode_address(addr_masked) {
-            if let Some(ref mut dev) = self.isp1581_device {
-                dev.write_word(addr_masked - 0x600000, val);
-                return;
-            }
+        if let MemoryRegion::Isp1581 = decode_address(addr_masked)
+            && let Some(ref mut dev) = self.isp1581_device
+        {
+            dev.write_word(addr_masked - 0x600000, val);
+            return;
         }
         self.write_byte(addr, (val >> 8) as u8);
         self.write_byte(addr + 1, val as u8);
@@ -333,7 +333,7 @@ impl MemoryBus {
 
     /// Check if ISP1581 has data ready for host.
     pub fn isp1581_has_response(&self) -> bool {
-        self.isp1581_device.as_ref().map_or(false, |dev| dev.has_data_for_host())
+        self.isp1581_device.as_ref().is_some_and(|dev| dev.has_data_for_host())
     }
 
     /// Push raw bytes to ISP1581 EP2 IN FIFO (intercepted data transfers).
@@ -351,8 +351,10 @@ impl MemoryBus {
         let offset = (addr - 0xFFFF00) as usize;
         // Port 7 (0xFFFF8E) shares address with ITU4 TIER.
         // Port 7 value is stored in port7_override; return it for reads.
-        if offset == 0x8E && self.port7_override.is_some() {
-            return self.port7_override.unwrap();
+        if offset == 0x8E
+            && let Some(val) = self.port7_override
+        {
+            return val;
         }
         self.onchip_io[offset]
     }

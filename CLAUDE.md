@@ -182,10 +182,10 @@ emulator/
 | 0 | Setup | Manual review, Rust workspace, enum skeleton | COMPLETE |
 | 1 | CPU Core | Firmware boots to 0x020334 | COMPLETE (insn 8) |
 | 2 | Interrupts | Context switch works | COMPLETE (insn 356K) |
-| 3 | USB | TUR response via TCP + USB gadget |
-| 4 | SCSI | Full init sequence passes |
-| 5 | Scan | Full scan returns image data |
-| 6 | Polish | End-to-end validation |
+| 3 | USB | TUR response via TCP + USB gadget | COMPLETE |
+| 4 | SCSI | Full init sequence passes | COMPLETE |
+| 5 | Scan | Full scan returns image data | COMPLETE |
+| 6 | Polish | End-to-end validation | COMPLETE (63 tests) |
 
 ### Emulator Key Constants
 

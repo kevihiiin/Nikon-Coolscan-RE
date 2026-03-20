@@ -1,16 +1,16 @@
-/// ISP1581 USB controller model.
-///
-/// Memory-mapped at 0x600000-0x6000FF. 16-bit bus, little-endian.
-/// The H8/3003 is big-endian, so firmware explicitly byte-swaps when reading/writing.
-///
-/// Register map (7 active addresses from firmware analysis):
-///   0x600008  IRQ Status (R/W) — read to check, write-back to clear
-///   0x60000C  Mode (R/W) — bit 4 (SOFTCT) = soft connect
-///   0x600018  DMA Config (W) — 0x8000 = host-read direction
-///   0x60001C  EP Index/Count (W) — endpoint select + byte count
-///   0x600020  EP Data Port (R/W) — 16-bit, LE byte order
-///   0x60002C  EP Control (W) — DMA mode
-///   0x600084  DMA Count (W) — transfer byte count
+//! ISP1581 USB controller model.
+//!
+//! Memory-mapped at 0x600000-0x6000FF. 16-bit bus, little-endian.
+//! The H8/3003 is big-endian, so firmware explicitly byte-swaps when reading/writing.
+//!
+//! Register map (7 active addresses from firmware analysis):
+//!   0x600008  IRQ Status (R/W) — read to check, write-back to clear
+//!   0x60000C  Mode (R/W) — bit 4 (SOFTCT) = soft connect
+//!   0x600018  DMA Config (W) — 0x8000 = host-read direction
+//!   0x60001C  EP Index/Count (W) — endpoint select + byte count
+//!   0x600020  EP Data Port (R/W) — 16-bit, LE byte order
+//!   0x60002C  EP Control (W) — DMA mode
+//!   0x600084  DMA Count (W) — transfer byte count
 
 use std::collections::VecDeque;
 

@@ -1,11 +1,11 @@
-/// GPIO port models.
-///
-/// Active ports:
-///   Port A (0xFFFFA2/A3): Motor stepper phase output
-///   Port 3 (0xFFFF83/84): Motor direction
-///   Port 4 (0xFFFF85): Lamp control (bit 0: BCLR=ON, BSET=OFF)
-///   Port 7 (0xFFFF8E): Adapter detection input (configurable)
-///   Port 9 (0xFFFFC7/C8): Encoder + stepper
+//! GPIO port models.
+//!
+//! Active ports:
+//!   Port A (0xFFFFA2/A3): Motor stepper phase output
+//!   Port 3 (0xFFFF83/84): Motor direction
+//!   Port 4 (0xFFFF85): Lamp control (bit 0: BCLR=ON, BSET=OFF)
+//!   Port 7 (0xFFFF8E): Adapter detection input (configurable)
+//!   Port 9 (0xFFFFC7/C8): Encoder + stepper
 
 /// Adapter types for Port 7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

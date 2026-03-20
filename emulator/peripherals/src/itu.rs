@@ -1,12 +1,12 @@
-/// ITU (Integrated Timer Unit) 0-4 model.
-///
-/// Each timer has: TCR, TIOR, TIER, TSR, TCNT(16-bit), GRA(16-bit), GRB(16-bit).
-/// TSTR (0xFFFF60) starts/stops timers with per-bit enable.
-///
-/// Active timers in Coolscan V firmware:
-///   ITU2: Motor stepping (Vec 32 = IMIA2)
-///   ITU3: DMA burst counter (Vec 36 = IMIA3)
-///   ITU4: System tick (Vec 40 = IMIA4)
+//! ITU (Integrated Timer Unit) 0-4 model.
+//!
+//! Each timer has: TCR, TIOR, TIER, TSR, TCNT(16-bit), GRA(16-bit), GRB(16-bit).
+//! TSTR (0xFFFF60) starts/stops timers with per-bit enable.
+//!
+//! Active timers in Coolscan V firmware:
+//!   ITU2: Motor stepping (Vec 32 = IMIA2)
+//!   ITU3: DMA burst counter (Vec 36 = IMIA3)
+//!   ITU4: System tick (Vec 40 = IMIA4)
 
 /// Timer interrupt vectors.
 pub const ITU2_IMIA_VEC: u8 = 32;

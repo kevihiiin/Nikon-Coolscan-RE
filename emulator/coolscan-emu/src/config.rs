@@ -1,4 +1,4 @@
-/// Emulator configuration.
+//! Emulator configuration.
 
 use std::path::PathBuf;
 use peripherals::gpio::AdapterType;
@@ -8,7 +8,7 @@ pub struct Config {
     pub adapter: AdapterType,
     pub trace: bool,
     pub max_instructions: u64,
-    pub _tcp_port: u16,
+    pub tcp_port: u16,
     pub watchdog: bool,
     pub gadget: bool,
 }
@@ -28,6 +28,10 @@ impl Config {
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
+                "--help" | "-h" => {
+                    print_usage();
+                    std::process::exit(0);
+                }
                 "--firmware" if i + 1 < args.len() => {
                     firmware_path = Some(PathBuf::from(&args[i + 1]));
                     i += 2;
@@ -100,9 +104,36 @@ impl Config {
             adapter,
             trace,
             max_instructions,
-            _tcp_port: tcp_port,
+            tcp_port,
             watchdog,
             gadget,
         }
     }
+}
+
+fn print_usage() {
+    eprintln!("coolscan-emu — Nikon Coolscan V firmware emulator");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  coolscan-emu [OPTIONS] [FIRMWARE_PATH]");
+    eprintln!();
+    eprintln!("ARGS:");
+    eprintln!("  FIRMWARE_PATH  Path to 512KB firmware binary");
+    eprintln!("                 [default: ../binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin]");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  --firmware <PATH>    Firmware binary path (alternative to positional arg)");
+    eprintln!("  --adapter <TYPE>     Simulated film adapter [default: mount]");
+    eprintln!("                       Values: none, mount/sa21, strip/sf210, aps/ia20, feeder/sa30, test");
+    eprintln!("  --port <PORT>        TCP bridge port [default: 6581]");
+    eprintln!("  --max <N>            Max instructions to execute [default: 10000000]");
+    eprintln!("  --trace              Enable instruction-level tracing");
+    eprintln!("  --watchdog           Enable watchdog timer");
+    eprintln!("  --gadget             Enable Linux USB gadget bridge (requires root)");
+    eprintln!("  -h, --help           Show this help");
+    eprintln!();
+    eprintln!("TCP BRIDGE:");
+    eprintln!("  The emulator listens on TCP port 6581 for SCSI command injection.");
+    eprintln!("  Use emulator/scripts/tcp_test_client.py to interact:");
+    eprintln!("    python3 scripts/tcp_test_client.py 6581 scan");
 }

@@ -1,8 +1,8 @@
 # Emulator Development Log
 
-**Current Phase**: 5 — Scan (COMPLETE)
-**Status**: Phases 1-5 complete. Full scan sequence verified end-to-end: 300x300 8bpp RGB → 270KB image data via TCP.
-**Last Updated**: 2026-03-17
+**Current Phase**: 6 — Polish (COMPLETE)
+**Status**: Phases 1-6 complete. 63 tests passing (44 unit + 3 ISP1581 + 16 e2e integration). Zero clippy warnings. Full scan pipeline validated end-to-end programmatically.
+**Last Updated**: 2026-03-19
 
 ---
 
@@ -582,3 +582,39 @@ context switching, timer interrupts, etc.) but SCSI is fully emulated.
 
 **Next Steps:**
 - Phase 6: Polish and end-to-end validation
+
+---
+
+## Session 11 — 2026-03-19
+
+**Goals**: Phase 6 — Polish, end-to-end validation, code quality
+
+**Accomplished**:
+
+### Phase 6 — Polish (COMPLETE)
+
+**Code quality (45 → 0 clippy warnings):**
+- Fixed all warnings across 23 .rs files: doc comments, collapsible ifs, unnecessary casts,
+  map_or simplification, unwrap-after-is_some, Default impls, loop variable indexing
+
+**CLI improvements:**
+- Added --help/-h with full usage documentation
+- Removed dead TcpBridge stub, renamed _tcp_port → tcp_port
+
+**Crate restructure:**
+- Created lib.rs to expose modules for integration testing
+- Added public API: ScsiResult, boot_to_main_loop(), scsi_command(), scsi_command_out()
+
+**Bug fix — MOV.L ERs, ERd decoder regression:**
+- Commit 3bf52c9 incorrectly marked 0F 9x/Bx-Fx as Unknown (they are MOV.L ERs, ERd)
+- Firmware was halting at 0x0203FE (MOV.L ER6, ER0) during RAM test
+- Fixed: any nib2 with bit 3 set (except 0xA=DAA) decodes as MOV.L
+
+**End-to-end integration test (16 tests):**
+- Boots real firmware, validates full SCSI init + scan sequence programmatically
+- Verifies INQUIRY identification, scan dimensions (300×300), image data (270KB)
+- Tests all SCSI opcodes: TUR, INQUIRY, REQUEST SENSE, RESERVE/RELEASE,
+  MODE SENSE/SELECT, SET/GET WINDOW, SEND DIAGNOSTIC, READ, WRITE, SCAN,
+  VENDOR C0/C1/E0/E1, plus illegal opcode handling
+
+**Final test results: 63 tests, 0 failures, 0 clippy warnings**

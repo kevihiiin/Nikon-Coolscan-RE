@@ -1,7 +1,7 @@
-/// H8/300H instruction executor.
-///
-/// Each instruction modifies CPU registers, memory, and/or CCR flags
-/// according to the Hitachi H8/300H Programming Manual.
+//! H8/300H instruction executor.
+//!
+//! Each instruction modifies CPU registers, memory, and/or CCR flags
+//! according to the Hitachi H8/300H Programming Manual.
 
 use crate::cpu::*;
 use crate::decode::*;
@@ -95,7 +95,7 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
         Instruction::MulxuB(src, dst) => {
             let s = read_operand_b(cpu, bus, src) as u16;
             let d = read_operand_w(cpu, bus, dst);
-            let dl = (d & 0xFF) as u16;
+            let dl = d & 0xFF;
             let result = dl * s;
             write_operand_w(cpu, bus, dst, result);
             // No flags affected
@@ -104,7 +104,7 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
         Instruction::MulxuW(src, dst) => {
             let s = read_operand_w(cpu, bus, src) as u32;
             let d = read_operand_l(cpu, bus, dst);
-            let dl = (d & 0xFFFF) as u32;
+            let dl = d & 0xFFFF;
             let result = dl * s;
             write_operand_l(cpu, bus, dst, result);
             next_pc

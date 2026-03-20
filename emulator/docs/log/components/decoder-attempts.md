@@ -71,3 +71,23 @@
 ### Added: 78+6B prefix — MOV.L @(d:24, ERn) without 0100 prefix (8-byte instruction)
 - Format: 78 [r]0 6B [2|A]s [pad] [d23:16] [d15:8] [d7:0]
 - Same as 0100+78 variant but for standalone 78 prefix context
+
+## 2026-03-19 — Bug Fix: MOV.L ERs, ERd decoder regression
+
+**Problem**: Commit 3bf52c9 (code review) incorrectly marked opcodes 0F 9x/Bx-Fx as Unknown.
+These are valid MOV.L ERs, ERd (32-bit register move) instructions.
+
+**Encoding**: `0F (8+s)(d)` — nib2 bit 3 is set, s = nib2 & 0x7, d = nib3.
+- 0F 80 = MOV.L ER0, ER0
+- 0F 91 = MOV.L ER1, ER1
+- 0F E0 = MOV.L ER6, ER0 ← the instruction that triggered discovery
+
+**Impact**: Firmware halted at 0x0203FE (during RAM test pattern setup) because
+MOV.L ER6, ER0 was decoded as Unknown. Both `run()` and `boot_to_main_loop()` affected.
+
+**Fix**: Changed match from `nib2 == 0x8` to `nib2 & 0x8 != 0`, with DAA (nib2=0xA)
+handled first as a special case. All MOV.L ERs, ERd variants (ER0-ER7 as source) now
+decode correctly.
+
+**Confidence**: Verified — firmware boots to main loop (instruction 2,783,761) and all
+63 tests pass.
