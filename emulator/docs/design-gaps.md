@@ -1,165 +1,391 @@
-# Emulator Design Gap Analysis
+# Emulator Roadmap: Phases 7-11
 
-Analysis of the 5 intentional design gaps and how each could be addressed.
-
-## Gap 1: Hybrid SCSI (Emulator Handles Commands, Not Firmware)
-
-**Current**: All 17 SCSI opcodes are handled by Rust code in `orchestrator.rs::handle_scsi_command()`. The firmware's SCSI dispatcher at `0x020AE2` is never invoked. The 26 NOP patches in `apply_flash_nop_patches()` disable the USB response manager (`0x01374A`) and data transfer (`0x014090`) calls inside the firmware's handlers.
-
-**Why it's this way**: The firmware's SCSI handlers call USB I/O functions (`JSR @0x01374A`, `JSR @0x014090`) that interact directly with the ISP1581 hardware for DMA data transfers. These require a fully operational ISP1581 DMA engine, which the emulator's ISP1581 model does not implement (it only models FIFO read/write, not DMA control registers).
-
-**How to implement firmware-dispatched SCSI**:
-
-### Option A: Selective Un-NOP (Medium complexity)
-
-1. Remove the 11 dispatch-level NOP patches (the `JSR @0x01374A` calls at `0x020B22` etc.)
-2. Keep the handler-internal patches for now
-3. Write the CDB to `FW_CDB_BUFFER` and set `FW_CMD_PENDING = 1`
-4. Run the CPU until it reaches the dispatch function at `0x020AE2`
-5. The dispatch function will do the table lookup at `0x49834`, validate permissions, and call the handler
-6. The handler runs but its USB I/O calls are NOPed, so it just computes the response data and writes it to RAM
-7. Read the response from the handler's RAM buffer and push to EP2 IN
-
-**Problem**: Without USB I/O, handlers can't actually transfer data to the host. The response stays in RAM. We'd need to intercept the handler's return and scrape the response from wherever it was placed.
-
-### Option B: ISP1581 DMA Completion (High complexity)
-
-1. Un-NOP ALL patches, including handler-internal USB calls
-2. Implement DMA completion signaling in the ISP1581 model:
-   - When firmware writes DMA config (0x600018) + DMA count (0x600084), mark transfer as pending
-   - When firmware writes EP control (0x60002C), execute the DMA: copy `dma_count` bytes from/to the EP data port
-   - Signal completion via DcInterrupt bit
-3. The firmware's handler writes data to the ISP1581 data port word-by-word, and the ISP1581 model collects it in EP2 IN FIFO
-4. After handler returns, drain EP2 IN FIFO as the response
-
-**Problem**: The firmware uses a complex multi-step DMA setup that interacts with the ASIC's DMA controller (registers at 0x200147-0x20014D). For scan data, the ASIC DMA reads CCD data from buffer RAM and streams it through the ISP1581. This requires modeling the ASIC DMA engine.
-
-### Option C: Handler Hooking (Recommended — Low complexity)
-
-1. Keep all NOP patches (firmware USB I/O stays disabled)
-2. Instead of calling `handle_scsi_command()` from Rust, set up the CDB in RAM and call the firmware handler directly by setting PC to the handler address from the dispatch table
-3. Run the CPU for N instructions until the handler returns (detected by SP returning to original value or PC reaching a known return address)
-4. Read the handler's output from RAM (sense code at `0x4007B0`, response data from the handler's stack/buffer)
-5. Push the response to EP2 IN ourselves
-
-**Dispatch table** at `0x49834`: 21 entries, 10 bytes each:
-```
-[opcode:1][flags:2][reserved:1][handler_addr:4][exec_mode:1][reserved:1]
-```
-
-This gives us the exact handler address for each opcode. We call it directly, bypassing the firmware's dispatcher overhead but still exercising the handler's CDB parsing and response generation.
-
-**Benefit**: Validates that firmware handlers correctly parse CDBs and generate responses. Doesn't require ISP1581 DMA.
-
-**Remaining gap**: Handler-internal logic that depends on scanner state (motor position, CCD data, calibration values) would still produce stub results.
+**Status**: Planning complete, ready for implementation
+**Last Updated**: 2026-03-24
+**Predecessor**: Phases 0-6 complete (~9500 lines Rust, 193 tests, 17 SCSI opcodes via Rust emulation)
 
 ---
 
-## Gap 2: No CCD/Motor Hardware
+## Context
 
-**Current**: Scan data is a synthesized test pattern (gradient/flat/checkerboard/bars). Motor position, CCD sensor data, and calibration are not modeled.
+Phases 0-6 are complete: ~9500 lines of Rust, 193 tests, boots real LS-50 firmware, handles 17 SCSI opcodes. But all SCSI is handled by Rust code — the firmware's own handlers are never used. No motor, no CCD, no calibration. It's a protocol emulator, not a hardware replica.
 
-**Why it's this way**: The CCD sensor produces analog signals converted by a 14-bit ADC. The motor subsystem involves stepper control, encoder feedback, and position tracking. These are deeply physical systems.
-
-**How to implement (levels of fidelity)**:
-
-### Level 1: Static Scan Data from File (Easy)
-- Add `--scan-data <file>` CLI flag that loads raw pixel data from a file instead of generating patterns
-- The file would contain pre-captured scan data (e.g., from a real scanner)
-- Useful for: replay testing, comparing emulator output with real hardware
-
-### Level 2: Motor Position State Machine (Medium)
-- Track motor position as an integer (steps from home)
-- Model the home sensor (Port B GPIO or encoder input)
-- SEND DIAGNOSTIC handler sets motor targets; motor "moves" instantly
-- Position affects which VPD page (boundary) data is returned
-- Useful for: testing multi-frame scans, adapter eject sequences
-
-### Level 3: CCD Data Synthesis with Calibration (Hard)
-- Model the CCD as a 1D array of pixel values (e.g., 4000 pixels for the LS-50's sensor)
-- Generate per-line data with configurable offset/gain per channel
-- Apply the firmware's calibration tables to produce corrected output
-- Useful for: testing ICE (infrared) channel, calibration sequences
-
-**Recommendation**: Level 1 is straightforward and immediately useful. Level 2 adds value for driver developers testing positioning. Level 3 is diminishing returns unless testing the full image pipeline.
+This plan bridges that gap across 5 phases, culminating in a firmware-driven emulator where the CPU executes the real SCSI handlers and the orchestrator only provides hardware stimuli (CCD data, motor feedback, USB transport).
 
 ---
 
-## Gap 3: Warm-Boot Only
+## Phase 7: ISP1581 DMA & Firmware SCSI Handlers
 
-**Current**: `Emulator::new()` sets ASIC ready bit (`0x200041 |= 0x02`) immediately. The firmware sees "ASIC ready" on first check and takes the warm-boot path, skipping cold-boot hardware initialization.
+**Goal**: Get firmware's own SCSI handlers running for data-lookup commands (INQUIRY, REQUEST SENSE, MODE SENSE, RESERVE/RELEASE, GET WINDOW) by implementing ISP1581 DMA completion.
 
-**Why it's this way**: Cold boot requires the ASIC to complete a hardware initialization sequence (master enable → wait → ready). The real hardware takes ~100ms. The firmware polls the ready bit in a tight loop. Without setting it, the firmware hangs.
+**Why this first**: Every subsequent phase depends on the firmware being able to send response data through its USB I/O path. The 26 NOP patches are the single biggest fidelity gap.
 
-**How to implement cold boot**:
+### How It Works Today (the problem)
 
-1. Remove the immediate ready-bit set in `Asic::write()` for offset `0x0001`
-2. Instead, set `ready_countdown = N` (e.g., 50,000 instructions ≈ ~2ms at 25MHz)
-3. `Asic::tick()` already decrements `ready_countdown` and sets the bit when it reaches 0
-4. The firmware's polling loop runs for N iterations, then continues
+The firmware's SCSI handlers call two functions:
+- `JSR @0x01374A` — USB response manager (sets up DMA direction/phase)
+- `JSR @0x014090` — USB data transfer (writes data word-by-word to ISP1581)
 
-**Benefit**: Tests the firmware's cold-boot path, which includes:
-- Trampoline installation (currently pre-installed by emulator)
-- RAM test (already runs in warm boot too)
-- Full timer initialization (partially handled by JIT context init)
+Both are NOPed out (26 patches total). Handlers run but can't send data.
 
-**Risk**: The cold-boot path may access hardware we haven't modeled (flash programming, VPD reads from flash log areas at 0x60000/0x70000).
+### What We Build
 
-**Recommendation**: Add `--cold-boot` flag. Default stays warm boot. Cold boot would be experimental.
+**7.0 GATE: Trace Response Manager Register Access** (before any code changes)
+- Run `--firmware-dispatch --trace` for a single INQUIRY
+- Log all ISP1581 reads/writes (0x600000-0x6000FF) during dispatch
+- Log DcInterrupt bit checks in 0x01374A -> 0x13C70 chain
+- Check if PC enters 0x4010A0-0x401270 (RAM-resident USB code)
+- Catalog any unmodeled ISP1581 offsets that get read
+- This 30-minute investigation gates all Phase 7 implementation work
+
+**7.1 ISP1581 DMA State Machine** (`peripherals/src/isp1581.rs`, +250 lines)
+- Add `DmaState` enum: `Idle → Configured → Transferring → Complete`
+- DMA config write (0x600024) → `Configured`
+- DMA count write (0x600084) → record expected transfer size
+- EP control write (0x60002C, mode 5) → `Transferring`
+- Track bytes written to EP Data Port (0x600020); when count == dma_count → set DMA completion bit in DcInterrupt, transition to `Complete`
+- `DcBufferStatus` (0x60001E): return 0 when writable, non-zero when full
+
+**7.2 Endpoint Configuration Registers** (`peripherals/src/isp1581.rs`, +30 lines)
+- Offset 0x14: endpoint config (accept writes)
+- Offset 0x2E: endpoint index select
+- Offset 0x04: endpoint max packet size
+- The response manager reads these back during setup
+
+**7.3 Un-NOP Dispatch-Level Response Manager** (`orchestrator.rs`)
+- Remove the 11 `JSR @0x01374A` patches at 0x020B22-0x020D9E
+- Keep handler-internal patches initially — un-NOP per-handler in 7.5
+
+**7.4 USB State Variables** (`orchestrator.rs`, +50 lines)
+- Model `0x40049A` (USB txn active): set on response start, clear on DMA complete
+- Model `0x407DC6` (command phase) transitions properly
+- Remove periodic `force_usb_session_state()` hack for these specific vars
+
+**7.5 Un-NOP Handler-Internal USB Calls** (incremental)
+- Start with INQUIRY: un-NOP 0x026042 + 0x02604A, compare output vs Rust emulation
+- Then REQUEST SENSE: un-NOP 0x021932 + 0x02193A
+- Then MODE SENSE: un-NOP 0x02209E + 0x0220A8
+- Then GET WINDOW: un-NOP 0x0279AE
+- Each handler verified by data comparison test
+
+**7.6 Hybrid Dispatch** (`orchestrator.rs`, +50 lines)
+- Data-lookup commands → firmware dispatch
+- Data-out + scan commands → Rust emulation (until Phases 9-10)
+- New `--emulated-scsi` flag forces old behavior for all commands
+
+### Completion Criteria
+1. INQUIRY via firmware handler returns identical 36 bytes to Rust emulation
+2. REQUEST SENSE via firmware returns correct 18-byte sense data
+3. MODE SENSE via firmware returns correct mode page
+4. 11 dispatch-level NOP patches removed, dispatcher runs without hang
+5. At least 6 handler-internal patches removed (3 handlers x 2 patches each)
+6. All 193+ tests still pass in both modes
+7. ISP1581 DMA state machine has unit tests
+
+### Estimated: +530 lines, +8 tests
+### Risk: Response manager polling loop hangs if DMA completion signal wrong. Fallback: timeout in mini-loop + trace logging of stuck PC. Also: increase `firmware_dispatch_scsi` timeout from 500K to 5M instructions for cal/scan commands, and auto-feed WDT every 50K instructions in the mini-loop.
 
 ---
 
-## Gap 4: USB Fast-Path NOPed
+## Phase 8: Motor & Position Subsystem
 
-**Current**: Two NOP patches at `0x012EC6` and `0x012ECE` disable USB bus initialization in the timer ISR path. Three more patches at `0x02080E`, `0x020820`, `0x020824` disable main-loop USB configure calls.
+**Goal**: Model stepper motor position, encoder feedback, and adapter geometry. SEND DIAGNOSTIC motor commands work. VPD boundary pages return real data.
 
-**Why it's this way**: The firmware's USB initialization sequence interacts with ISP1581 control registers (Mode, Address, Endpoint Configuration) that require multi-step handshakes. The emulator's ISP1581 model doesn't implement these configuration registers — it only models the data path (EP1 OUT/EP2 IN FIFOs) and interrupt flags.
+**Why**: The firmware's scan setup requires motor positioning. Without it, SCAN handlers hang waiting for motor completion flags.
 
-**How to implement**:
+### What We Build
 
-### ISP1581 Configuration Registers
-The firmware writes to these ISP1581 registers during USB init:
-- `0x60000C` Mode: SOFTCT (bit 4), GLINTENA (bit 3)
-- `0x600028` Address: device address assignment
-- `0x600014` Endpoint configuration
+**8.1 Motor Position Model** (NEW `peripherals/src/motor.rs`, +350 lines)
+- `MotorSubsystem` struct: `position: i32`, `target: i32`, `direction: i8`, `running: bool`, `mode: u8`
+- Two motors: `scan_motor` (carriage) and `af_motor` (autofocus), selected by `motor_mode` at RAM 0x400774
+- Monitor Port A writes (0xFFFFA3): each stepper phase cycle (01→02→04→08) = 1 step
+- Home sensor: when position reaches 0, set GPIO flag
 
-Implementation:
-1. Add `address`, `endpoint_config` fields to `Isp1581`
-2. Handle writes to configuration registers (accept and store)
-3. Make SOFTCT reflect connection state
-4. Un-NOP the USB init patches
-5. The firmware's init sequence should complete because all register writes are accepted
+**8.2 Encoder Feedback Injection** (`orchestrator.rs`, +80 lines)
+- On motor step, update firmware's encoder RAM:
+  - `0x40530E` (encoder_count) = motor position
+  - `0x405314` (encoder_delta) = timing value from ITU2 period
+  - `0x405318` (encoder_timestamp) = current system tick
+- Fire IRQ3 (Vec 15) on step so encoder ISR at 0x033444 runs
 
-**Benefit**: The firmware would go through its real USB enumeration sequence, validating the ISP1581 interaction protocol documented in `docs/kb/components/firmware/isp1581-usb.md`.
+**8.3 Motor State Machine** (`orchestrator.rs`, +70 lines)
+- Monitor RAM 0x400774 (motor_mode) for movement start
+- When motor reaches target, set completion flags:
+  - `0x4052EB` (motor_running) = 0
+  - `0x4052EC` (motor_state) = done
+  - `0x4052EE` (motor_error) = 0
+- Stop ITU2 (clear TSTR bit 2)
 
-**Risk**: Low — the init sequence is mostly register writes. If a step reads back a config register expecting a specific value, we'd need to return the correct default.
+**8.4 SEND DIAGNOSTIC Motor Commands** (`orchestrator.rs`, +50 lines)
+- Task codes 0x0400 (stop), 0x0430 (home), 0x0440 (relative move), 0x0450 (absolute move)
+- For firmware-dispatched SEND DIAGNOSTIC, motor model provides completion signals
+- For Rust-emulated SEND DIAGNOSTIC, add motor position tracking
+
+**8.5 Adapter Scan Geometry** (`gpio.rs` + `orchestrator.rs`, +60 lines)
+- Per-adapter boundary data for VPD page 0xC0/0xC1
+- SA-21 (mount): single frame, fixed position
+- SF-210 (strip): 6 frames, sequential
+- IA-20 (APS): cartridge geometry
+
+**8.6 Home Sensor in Port 7** (`gpio.rs`, +20 lines)
+- Dynamic home sensor bit in Port 7 based on motor position
+
+### Completion Criteria
+1. Motor position tracks correctly with stepper phase writes
+2. Encoder RAM vars update with position
+3. Motor home sequence completes (position → 0)
+4. SEND DIAGNOSTIC motor commands complete without timeout
+5. VPD page 0xC0 returns adapter-appropriate boundary data
+
+### Estimated: +636 lines, +8 tests
+### Depends: Phase 7 (partial — motor model itself is independent, but SEND DIAGNOSTIC via firmware needs ISP1581 DMA)
+### Risk: Motor timing sensitivity. Fallback: `--motor-instant` flag that teleports motor to target.
 
 ---
 
-## Gap 5: SCI (Serial I/O) — Polled Stub Only
+## Phase 9: CCD & Scan Pipeline
 
-**Current**: `peripherals/src/sci.rs` is a 33-line stub. It provides DDR/DR register storage but no FIFO, no baud rate generation, no interrupt-driven receive/transmit. SCI vectors 52-59 are all inactive in the firmware.
+**Goal**: Model CCD capture → ASIC DMA → buffer so firmware's SCAN handler produces pixel data through the firmware path, not Rust emulation.
 
-**Why it's this way**: The firmware doesn't use serial I/O for normal operation. SCI may be used for factory debug/programming, but all operational communication is via USB.
+**Why**: This replaces the synthetic test pattern with firmware-processed scan data, exercising the real pixel processing code at 0x36C90.
 
-**How to implement**:
-1. Add TX/RX FIFOs to the SCI model
-2. Implement TDRE (transmit data register empty) and RDRF (receive data register full) flags
-3. Connect to a host-side PTY or TCP socket for debug console access
-4. Fire TXI/RXI interrupts when enabled
+### What We Build
 
-**Benefit**: Minimal for normal emulation. Useful only if reverse-engineering the factory debug interface.
+**9.1 CCD Data Injection** (`peripherals/src/asic.rs`, +120 lines)
+- On ASIC register 0x2001C1 write (CCD trigger), generate one scan line
+- Write to ASIC RAM at address from DMA registers (0x200147/148/149)
+- Format: 16-bit words, 14-bit CCD data in bits [15:2], 4 channels (R/G/B/IR)
+- Data source: configurable via `--ccd-source` (pattern/file/noise)
 
-**Recommendation**: Keep as stub. Not worth implementing unless factory debug protocol becomes relevant.
+**9.2 ASIC DMA Completion** (`peripherals/src/asic.rs`, +80 lines)
+- Replace hardcoded 50-instruction countdown with transfer-size-based countdown
+- Clear DMA busy (0x200002 bit 3) on completion
+- Fire Vec 49 (CCD line readout) on line complete
+- Fire Vec 45/47 (DEND0B/DEND1B) for DMA end
+
+**9.3 H8 DMA Controller** (REPLACE `peripherals/src/dma.rs`, +250 lines)
+- 2 channels: source addr, dest addr, transfer count, control register
+- Firmware uses this for ASIC RAM → Buffer RAM transfers
+- Instant copy between memory regions on start
+- DEND interrupt on completion
+- Registers: MAR (0xFFFF20/28), ETCR (0xFFFF24/2C), DTCR (0xFFFF27/2F), DMAOR (0xFFFF90)
+
+**9.4 Scan State Coordination** (`orchestrator.rs`, +150 lines)
+- Monitor firmware scan state variables:
+  - `0x4052D6` (dma_mode), `0x4052F1` (scan_active), `0x405302` (scan_complete)
+  - `0x406374` (dma_burst_counter), `0x4064E6` (line_counter)
+- Provide CCD trigger signal at correct points in pipeline
+- Let firmware manage state transitions naturally once ASIC/DMA hardware responds correctly
+
+**9.5 Pixel Processing Verification** (tests only)
+- Firmware code at 0x36C90 reads ASIC RAM with `mov.w @er+, rN`, does `shlr.w`
+- Writes processed pixels to Buffer RAM (0xC00000)
+- Verify by checking Buffer RAM contents after processing runs
+
+### Completion Criteria
+1. CCD trigger generates pixel data in ASIC RAM
+2. DMA busy clears after transfer
+3. H8 DMA copies ASIC RAM → Buffer RAM
+4. Firmware pixel processing at 0x36C90 produces output in Buffer RAM
+5. SCAN via firmware handler initiates full pipeline
+6. READ DTC=0x00 returns firmware-processed data (not Rust-synthesized)
+7. End-to-end: SET WINDOW → SCAN → READ produces correct pixel count
+
+### Estimated: +820 lines, +7 tests
+### Depends: Phase 7 (ISP1581 DMA), Phase 8 (motor for scan start position — partial)
+### Risk: Multi-interrupt timing coordination (ITU3 + DMA completion + CCD readout). Fallback: `--scan-timing-instant` accelerates all DMA/CCD to 1 instruction.
 
 ---
 
-## Priority Ranking
+## Phase 10: Calibration & Full Fidelity
 
-| Gap | Effort | Value | Recommendation |
-|-----|--------|-------|----------------|
-| 1 (Firmware SCSI) | Medium | High | Option C: Handler hooking |
-| 2 (CCD/Motor) | Easy-Hard | Medium | Level 1: File-based scan data |
-| 3 (Warm boot) | Easy | Low | Add --cold-boot flag |
-| 4 (USB fast-path) | Medium | Medium | ISP1581 config registers |
-| 5 (SCI serial) | Low | Minimal | Keep as stub |
+**Goal**: Firmware calibration task codes (0x0500-0x0502) work. Dark frame, white reference, per-channel gain/offset. Complete NikonScan init sequence runs autonomously.
+
+**Why**: NikonScan always calibrates before scanning. Without this, the firmware can't complete a real init sequence.
+
+### What We Build
+
+**10.1 DAC Mode Gating** (`peripherals/src/asic.rs`, +80 lines)
+- Check DAC mode at 0x2000C2 when generating CCD data:
+  - 0x22 (scan): normal pixel data (from Phase 9)
+  - 0xA2 (calibration): calibration-specific data
+- Dark frame: low pixel values (0x0010-0x0040)
+- White reference: high pixel values (0x3F00-0x3FFF)
+- Per-pixel variation to simulate CCD non-uniformity
+
+**10.2 CCD Characterization Data** (verification only)
+- Flash data at 0x4A8BC-0x528BD is already in the firmware binary
+- Verify firmware access path works: pointer table at 0x4A37E → correction levels (0-11)
+- No emulation code needed — just confirm the read path isn't broken
+
+**10.3 Calibration Task Execution** (`orchestrator.rs`, +60 lines)
+- Task codes 0x0500/0x0501/0x0502 triggered by SEND DIAGNOSTIC
+- Motor moves to calibration position (requires Phase 8)
+- CCD capture in DAC mode 0xA2 (requires Phase 9 + 10.1)
+- Firmware routines at 0x3D12D/0x3DE51/0x3EEF9/0x3F897 compute min/max
+
+**10.4 Calibration RAM Defaults** (`orchestrator.rs`, +30 lines)
+- Pre-populate input parameters at 0x400F56-0x400F9D with mid-range defaults at boot
+- After calibration runs, firmware writes computed results to 0x400F0A (min), 0x400F12 (mid), 0x400F1A (max)
+
+**10.5 LS-50 vs LS-5000 Config** (`orchestrator.rs`, +30 lines)
+- Set `0x404E96` (model flag) from `--model` CLI flag
+- LS-50: fine DAC 0x08, coarse gain 0x64
+- LS-5000: fine DAC 0x00, coarse gain 0xB4
+
+### Completion Criteria
+1. DAC mode 0xA2 produces calibration CCD data
+2. All four calibration routines complete without error
+3. Calibration RAM (0x400F0A-0x400F1A) populated with computed values
+4. Task codes 0x0500-0x0502 complete via SEND DIAGNOSTIC
+5. Both LS-50 and LS-5000 configs work
+6. Full NikonScan sequence: TUR → INQUIRY → calibrate → SET WINDOW → SCAN → READ
+
+### Estimated: +380 lines, +7 tests
+### Depends: Phase 8 (motor), Phase 9 (CCD pipeline)
+### Risk: Calibration data sensitivity — firmware may div-by-zero on bad data. Fallback: `--skip-calibration` flag + pre-populated RAM defaults.
+
+---
+
+## Phase 11: Real USB & Integration
+
+**Goal**: Full ISP1581 USB enumeration, un-NOP ALL patches, connect via USB gadget to NikonScan or custom driver. Zero training wheels.
+
+**Why**: This is the endgame — a drop-in hardware replacement that runs the real firmware.
+
+### What We Build
+
+**11.1 Un-NOP USB Init** (`orchestrator.rs`)
+- Remove all 5 USB init patches
+- Firmware runs its real USB init sequence (0x12660-0x12800)
+
+**11.2 USB Enumeration Flow** (`peripherals/src/isp1581.rs`, +200 lines)
+- Full register flow: Reset → Chip ID → Mode (SOFTCT) → Address → Endpoint Config → Interrupt Enable
+- Bus reset bit in DcInterrupt (bit 6)
+- Missing registers: DcHardwareConfiguration (0x16), Unlock (0x7C), EndpointMaxPacketSize (0x04)
+
+**11.3 CDB via Firmware IRQ1** (`orchestrator.rs`, +100 lines)
+- Host sends CDB → EP1 OUT FIFO → ISP1581 asserts IRQ1
+- Firmware ISR at 0x014E00 reads CDB from 0x600020
+- Writes to 0x4007DE, sets cmd_pending
+- Main loop dispatcher picks it up
+- Remove all Rust SCSI intercept code (or gate behind `--emulated-scsi`)
+
+**11.4 Un-NOP All Handler Patches** (`orchestrator.rs`)
+- Remove all 16 remaining handler-internal patches
+- Every handler sends its own response through USB
+
+**11.5 Gadget Bridge Integration** (`bridge/src/gadget.rs`, +50 lines)
+- `gadget.recv()` → inject into ISP1581 EP1 OUT FIFO
+- ISP1581 EP2 IN FIFO drain → `gadget.send()`
+- Poll loop in `run()`: check gadget for data, inject, drain responses
+
+**11.6 Phase Query (0xD0) + Sense (0x06)** (verification)
+- NKDUSCAN.dll uses 0xD0 (phase query) and 0x06 (sense retrieval)
+- Both are in firmware dispatch table — verify they work through firmware path
+
+**11.7 Remove force_usb_session_state()** (`orchestrator.rs`, -30 lines)
+- With real USB enum, firmware manages 0x407DC7 itself
+
+### Completion Criteria
+1. **Zero NOP patches** in `apply_flash_nop_patches()`
+2. Firmware handles USB enumeration autonomously
+3. CDBs arrive via IRQ1 (firmware reads from ISP1581 FIFO)
+4. All 21 SCSI handlers run through firmware code
+5. USB gadget connects to real host, completes full scan
+6. TCP bridge still works as alternative
+7. `force_usb_session_state()` removed
+
+### Estimated: +440 net lines (+640, -200 removing Rust SCSI), +7 tests
+### Depends: All previous phases
+### Risk: USB protocol timing with real host. Fallback: `dummy_hcd` (software USB host, no timing constraints) for testing; keep `--emulated-scsi` forever as safety net.
+
+---
+
+## Summary
+
+| Phase | Name | Lines | Tests | Key Deliverable |
+|-------|------|-------|-------|-----------------|
+| **7** | ISP1581 DMA + FW Handlers | +530 | +8 | Firmware sends SCSI responses through USB path |
+| **8** | Motor & Position | +636 | +8 | Motor moves, encoder feedback, VPD pages |
+| **9** | CCD & Scan Pipeline | +820 | +7 | Firmware-driven scan produces pixel data |
+| **10** | Calibration | +380 | +7 | Dark frame, white ref, CCD characterization |
+| **11** | Real USB & Integration | +440 net | +7 | Zero patches, NikonScan compatible |
+| | **Total** | **~2,800** | **~37** | **Full hardware replica** |
+
+After Phase 11: ~12,300 lines of Rust, ~230 tests, zero NOP patches, firmware handles everything, connects to real host software.
+
+### Verification Strategy (all phases)
+- Each phase adds e2e tests comparing firmware-dispatched output against known-good Rust emulation output
+- `cargo test` must pass at every phase boundary
+- `cargo clippy --all-targets` must be clean
+- `--emulated-scsi` flag preserved as regression safety net through all phases
+- Each phase maintains backward compatibility: old CLI invocations produce identical behavior
+
+---
+
+## Assumptions and Edge Cases
+
+### Verification Status (post-KB audit)
+
+All firmware RAM addresses and hardware register assumptions have been cross-checked against the KB documentation.
+
+**CONFIRMED (no action needed):**
+- Encoder: 0x40530E (count), 0x405314 (delta), 0x405318 (timestamp) — ISR disassembly in motor-control.md
+- Motor flags: 0x4052EB (running), 0x4052EC (state), 0x4052EE (error) — motor-control.md
+- Motor mode: 0x400774 — ITU2 dispatch code confirmed
+- Scan pipeline: 0x4052D6, 0x4052F1, 0x405302, 0x406374, 0x4064E6 — scan-pipeline.md
+- CCD format: 14-bit in 16-bit words, bits [15:2] significant — shlr.w at 0x36C90 confirmed
+- ASIC DMA addr: 0x200147/148/149 = big-endian 24-bit — asic-registers.md + scan-pipeline.md
+- ASIC DMA count: 0x20014B/14C/14D — confirmed
+- CCD trigger: write 0x80 to 0x2001C1 — scan-pipeline.md
+- DMA busy: 0x200002 bit 3 — scan-pipeline.md
+- DAC modes: 0x20 (init), 0x22 (scan), 0xA2 (cal) — calibration.md + 16 code refs
+- Calibration routines: 0x3D12D, 0x3DE51, 0x3EEF9, 0x3F897 — calibration.md
+- CCD characterization: 0x4A8BC-0x528BD, 2 sections, 4095 groups x 4 bytes — calibration.md
+- Model flag: 0x404E96, LS-50 fine=0x08/gain=0x64, LS-5000 fine=0x00/gain=0xB4 — confirmed
+- Response manager: 0x01374A called BEFORE 0x014090 — scsi-handler.md verified
+- Response manager steps: save phase -> check 0x40049A -> store 0x407DC6 -> call 0x13C70 -> wait -> mark active
+
+**CORRECTION applied to plan:**
+- Calibration RAM: results written to 0x400F0A/0x400F12/0x400F1A (outputs), parameters read from 0x400F56-0x400F9D (inputs). Phase 10.4 pre-populates 0x400F56-0x400F9D, checks 0x400F0A-0x400F1A for outputs.
+
+### Remaining Items Requiring Runtime Verification
+
+These cannot be verified from static KB analysis alone. Each has a concrete first-step action built into Phase 7:
+
+1. **DcInterrupt bit mask for DMA completion** (Phase 7 blocker)
+   - KB confirms: endpoint event is bit 3, bus reset bit exists, write-back-clear semantics
+   - KB silent on: exact DMA completion bit
+   - **Action (Phase 7.0)**: Trace all ISP1581 register reads in the response manager call chain (0x01374A → 0x13C70). Log which DcInterrupt bits are checked.
+
+2. **RAM-resident USB code (0x4010A0) involvement** (Phase 7 risk)
+   - KB confirms: 414 bytes copied from flash 0x124BA to RAM 0x4010A0, jump table at 0x01247E/0x012482
+   - KB silent on: whether response manager calls it
+   - **Action (Phase 7.0)**: PC-range check: if PC enters 0x4010A0-0x401270 during firmware dispatch, the RAM code is invoked and must model its ISP1581 accesses.
+
+3. **ISP1581 registers read by response manager beyond what we model** (Phase 7 risk)
+   - **Action (Phase 7.0)**: Log every ISP1581 read (0x600000-0x6000FF) during dispatch. Catalog unmodeled offsets.
+
+### Items Requiring Outside Information
+
+4. **VPD pages 0xC0/0xC1 per-adapter format** (Phase 8.5)
+   - Pages 0xC0 and 0xC1 are NOT in the standard VPD table at 0x49C74. Page 0xC1 has a special pre-table handler.
+   - **Recommendation**: Trace firmware INQUIRY with EVPD=1, page=0xC0 for each adapter type after Phase 7.
+
+5. **ISP1581 USB init register sequence** (Phase 11 only)
+   - **Action**: Not needed until Phase 11. Cross-reference firmware writes against ISP1581 datasheet Table 60.
+
+### Edge Case Handling
+
+| Edge Case | Handling | Phase |
+|-----------|----------|-------|
+| **Multi-pass scanning** | Single-pass only. Multi-pass deferred. If firmware requests re-SCAN, reset scan state and re-inject CCD data. | 9 |
+| **Firmware error paths** | Handler errors write sense code to 0x4007B0. Errors propagate naturally through dispatch mini-loop. | 7 |
+| **Concurrent SCSI commands** | Mutex: `scsi_command()` / `scsi_command_out()` process synchronously. Cannot overlap by design. | All |
+| **Flash writes (WRITE BUFFER 0x3B)** | Log warning + return CHECK CONDITION (write-protect sense). Not an emulation goal. | 11 |
+| **Watchdog during long ops** | Increase dispatch timeout to 5M. Auto-feed WDT every 50K instructions in mini-loop. | 7, 10 |
+| **USB speed negotiation** | Gadget bridge advertises both full/high-speed. Phase 11 reads max-packet-size from 0x600004. | 11 |
+| **Adapter hot-plug** | Not supported. Static adapter type at boot. Known limitation. | N/A |
+| **SCI serial** | Intentionally stub. SSR=0x84 (TDRE=1, RDRF=0). Firmware never blocks on SCI. | N/A |
+| **Calibration data sensitivity** | Pre-populate 0x400F56-0x400F9D with mid-range defaults. `--skip-calibration` flag as fallback. | 10 |

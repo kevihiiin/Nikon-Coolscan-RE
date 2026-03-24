@@ -1,8 +1,8 @@
 # Emulator Development Log
 
-**Current Phase**: 6 — Polish (COMPLETE)
-**Status**: Phases 1-6 complete. 63 tests passing (44 unit + 3 ISP1581 + 16 e2e integration). Zero clippy warnings. Full scan pipeline validated end-to-end programmatically.
-**Last Updated**: 2026-03-19
+**Current Phase**: 7 — ISP1581 DMA + FW Handlers (NOT STARTED)
+**Status**: Phases 0-6 complete. 193 tests passing (133 h8300h-core + 33 peripherals + 27 e2e integration). Phases 7-11 roadmap approved.
+**Last Updated**: 2026-03-24
 
 ---
 
@@ -618,3 +618,42 @@ context switching, timer interrupts, etc.) but SCSI is fully emulated.
   VENDOR C0/C1/E0/E1, plus illegal opcode handling
 
 **Final test results: 63 tests, 0 failures, 0 clippy warnings**
+
+---
+
+## Session 12 — 2026-03-24
+
+**Goals**: Plan Phases 7-11 roadmap — transition from protocol emulator to hardware replica
+
+**Accomplished**:
+
+### Roadmap: Phases 7-11 (Approved)
+
+Planned 5 phases to bridge the gap from Rust SCSI emulation to firmware-driven hardware replica:
+
+| Phase | Name | Lines | Tests | Key Deliverable |
+|-------|------|-------|-------|-----------------|
+| **7** | ISP1581 DMA + FW Handlers | +530 | +8 | Firmware sends SCSI responses through USB path |
+| **8** | Motor & Position | +636 | +8 | Motor moves, encoder feedback, VPD pages |
+| **9** | CCD & Scan Pipeline | +820 | +7 | Firmware-driven scan produces pixel data |
+| **10** | Calibration | +380 | +7 | Dark frame, white ref, CCD characterization |
+| **11** | Real USB & Integration | +440 net | +7 | Zero patches, NikonScan compatible |
+
+Total: ~2,800 new lines, ~37 new tests → ~12,300 LOC, ~230 tests, zero NOP patches.
+
+**All firmware RAM addresses cross-checked against KB docs.** One correction found: calibration RAM outputs at 0x400F0A-0x400F1A, inputs at 0x400F56-0x400F9D.
+
+**5 items require runtime verification** (built into Phase 7.0 gate step):
+1. DcInterrupt bit mask for DMA completion
+2. RAM-resident USB code (0x4010A0) involvement in response manager
+3. ISP1581 register reads beyond current model
+4. VPD pages 0xC0/0xC1 per-adapter format (deferred to post-Phase 7)
+5. ISP1581 USB init register sequence (deferred to Phase 11)
+
+### Files Updated
+- `emulator/docs/design-gaps.md` — replaced with full Phases 7-11 roadmap
+- `emulator/docs/log/general.md` — this session entry
+- `CLAUDE.md` — emulator phases table extended with Phases 7-11
+- Created 5 phase log files: `phase-7-isp1581-dma.md` through `phase-11-real-usb.md`
+
+**Next Steps**: Begin Phase 7.0 (gate step: trace ISP1581 register access during firmware dispatch)

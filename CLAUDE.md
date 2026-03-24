@@ -185,7 +185,14 @@ emulator/
 | 3 | USB | TUR response via TCP + USB gadget | COMPLETE |
 | 4 | SCSI | Full init sequence passes | COMPLETE |
 | 5 | Scan | Full scan returns image data | COMPLETE |
-| 6 | Polish | End-to-end validation | COMPLETE (63 tests) |
+| 6 | Polish | End-to-end validation | COMPLETE (193 tests) |
+| 7 | ISP1581 DMA + FW Handlers | Firmware sends SCSI responses through USB path | |
+| 8 | Motor & Position | Motor moves, encoder feedback, VPD pages | |
+| 9 | CCD & Scan Pipeline | Firmware-driven scan produces pixel data | |
+| 10 | Calibration | Dark frame, white ref, CCD characterization | |
+| 11 | Real USB & Integration | Zero patches, NikonScan compatible | |
+
+**Roadmap details**: See `emulator/docs/design-gaps.md` for full Phase 7-11 plan.
 
 ### Emulator Key Constants
 
