@@ -43,6 +43,16 @@ pub struct Isp1581 {
 
     /// Whether IRQ1 should be asserted to the CPU.
     pub irq_pending: bool,
+
+    // --- Configuration registers (for full USB init, names per ISP1581 datasheet) ---
+    /// Address register at offset 0x00 (device address + enable).
+    pub address: u16,
+    /// Interrupt Configuration register at offset 0x10 (debug mode + polarity).
+    pub interrupt_config: u16,
+    /// Interrupt Enable register at offset 0x14 (per-endpoint interrupt enables).
+    pub interrupt_enable: u16,
+    /// Control Function register at offset 0x28 (CLBUF/VENDP/STATUS/STALL).
+    pub control_function: u16,
 }
 
 impl Isp1581 {
@@ -60,6 +70,10 @@ impl Isp1581 {
             ep1_out_fifo: VecDeque::new(),
             ep2_in_fifo: VecDeque::new(),
             irq_pending: false,
+            address: 0,
+            interrupt_config: 0,
+            interrupt_enable: 0,
+            control_function: 0,
         };
         // Set SOFTCT bit (bit 4) in Mode register to indicate USB connected.
         // Without this, firmware skips all USB processing.
@@ -99,6 +113,11 @@ impl Isp1581 {
                 let hi = self.ep1_out_fifo.pop_front().unwrap_or(0);
                 (hi as u16) << 8 | lo as u16
             }
+            0x00 => self.address,
+            0x10 => self.interrupt_config,
+            0x14 => self.interrupt_enable,
+            0x28 => self.control_function,
+            0x70 => 0x1581, // Chip ID (ISP1581 datasheet Table 60: CHIPID[15:0])
             _ => {
                 log::trace!("ISP1581: unmodeled register read at offset 0x{:02X}", offset);
                 0
@@ -137,7 +156,11 @@ impl Isp1581 {
                 // permanent IRQ1 flooding (firmware write-back only clears observed bits).
                 self.dc_interrupt |= IRQ_EP_EVENT | 0x1000;
             }
+            0x00 => self.address = val,
+            0x10 => self.interrupt_config = val,
+            0x14 => self.interrupt_enable = val,
             0x24 => self.dma_config = val,
+            0x28 => self.control_function = val,
             0x2C => self.ep_control = val,
             0x84 => self.dma_count = val,
             _ => {
@@ -194,6 +217,12 @@ impl Default for Isp1581 {
 impl h8300h_core::memory::MmioDevice for Isp1581 {
     fn read_byte(&mut self, offset: u32) -> u8 {
         let word_offset = offset & !1;
+        // Guard: byte reads on EP Data Port (0x20) would trigger FIFO pop side effects.
+        // The firmware always uses word reads here; a byte read is likely a decoder bug.
+        if word_offset == 0x20 {
+            log::warn!("ISP1581: byte read on EP Data Port (offset 0x{:02X}) — returning 0 to avoid FIFO corruption", offset);
+            return 0;
+        }
         let word = Isp1581::read_word(self, word_offset);
         let byte = if offset & 1 == 0 { (word >> 8) as u8 } else { word as u8 };
         log::trace!("ISP1581 read_byte [0x{:02X}] = 0x{:02X} (word 0x{:04X})", offset, byte, word);
@@ -204,6 +233,11 @@ impl h8300h_core::memory::MmioDevice for Isp1581 {
         // ISP1581 writes are always 16-bit from firmware.
         // For byte writes, reconstruct the word.
         let word_offset = offset & !1;
+        // Guard: byte write on EP Data Port would read_word (popping FIFO) as side effect
+        if word_offset == 0x20 {
+            log::warn!("ISP1581: byte write on EP Data Port (offset 0x{:02X}) — skipping to avoid FIFO corruption", offset);
+            return;
+        }
         let old_word = Isp1581::read_word(self, word_offset);
         let new_word = if offset & 1 == 0 {
             (old_word & 0x00FF) | ((val as u16) << 8)

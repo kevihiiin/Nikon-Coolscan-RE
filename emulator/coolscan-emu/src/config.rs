@@ -3,6 +3,26 @@
 use std::path::PathBuf;
 use peripherals::gpio::AdapterType;
 
+/// Scan test pattern type for synthesized image data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanPattern {
+    /// RGB gradient: R=left-right, G=top-bottom, B=diagonal (default)
+    Gradient,
+    /// Uniform mid-gray (128) — for calibration testing
+    Flat,
+    /// 8x8 pixel checkerboard — for resolution/alignment testing
+    Checkerboard,
+    /// SMPTE-style color bars (8 vertical bars)
+    ColorBars,
+}
+
+/// Scanner model identity (affects INQUIRY strings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScannerModel {
+    Ls50,
+    Ls5000,
+}
+
 pub struct Config {
     pub firmware_path: PathBuf,
     pub adapter: AdapterType,
@@ -11,9 +31,36 @@ pub struct Config {
     pub tcp_port: u16,
     pub watchdog: bool,
     pub gadget: bool,
+    pub pattern: ScanPattern,
+    pub model: ScannerModel,
+    pub benchmark: bool,
+    pub scan_data_path: Option<PathBuf>,
+    pub cold_boot: bool,
+    pub full_usb_init: bool,
+    pub firmware_dispatch: bool,
 }
 
 impl Config {
+    /// Default config for tests — no TCP, no gadget, no trace.
+    pub fn test_default() -> Self {
+        Self {
+            firmware_path: PathBuf::from("../../binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin"),
+            adapter: AdapterType::SaMount,
+            trace: false,
+            max_instructions: 10_000_000,
+            tcp_port: 0,
+            watchdog: false,
+            gadget: false,
+            pattern: ScanPattern::Gradient,
+            model: ScannerModel::Ls50,
+            benchmark: false,
+            scan_data_path: None,
+            cold_boot: false,
+            full_usb_init: false,
+            firmware_dispatch: false,
+        }
+    }
+
     pub fn from_args() -> Self {
         let args: Vec<String> = std::env::args().collect();
 
@@ -24,6 +71,13 @@ impl Config {
         let mut tcp_port = 6581;
         let mut watchdog = false;
         let mut gadget = false;
+        let mut pattern = ScanPattern::Gradient;
+        let mut model = ScannerModel::Ls50;
+        let mut benchmark = false;
+        let mut scan_data_path: Option<PathBuf> = None;
+        let mut cold_boot = false;
+        let mut full_usb_init = false;
+        let mut firmware_dispatch = false;
 
         let mut i = 1;
         while i < args.len() {
@@ -75,16 +129,41 @@ impl Config {
                     };
                     i += 2;
                 }
-                "--watchdog" => {
-                    watchdog = true;
-                    i += 1;
+                "--watchdog" => { watchdog = true; i += 1; }
+                "--gadget" => { gadget = true; i += 1; }
+                "--benchmark" => { benchmark = true; i += 1; }
+                "--cold-boot" => { cold_boot = true; i += 1; }
+                "--full-usb-init" => { full_usb_init = true; i += 1; }
+                "--firmware-dispatch" => { firmware_dispatch = true; i += 1; }
+                "--pattern" if i + 1 < args.len() => {
+                    pattern = match args[i + 1].as_str() {
+                        "gradient" => ScanPattern::Gradient,
+                        "flat" => ScanPattern::Flat,
+                        "checkerboard" | "checker" => ScanPattern::Checkerboard,
+                        "bars" | "colorbars" => ScanPattern::ColorBars,
+                        other => {
+                            eprintln!("Warning: unknown pattern '{}', using 'gradient'. Valid: gradient, flat, checkerboard, bars", other);
+                            ScanPattern::Gradient
+                        }
+                    };
+                    i += 2;
                 }
-                "--gadget" => {
-                    gadget = true;
-                    i += 1;
+                "--model" if i + 1 < args.len() => {
+                    model = match args[i + 1].as_str() {
+                        "ls50" | "ls-50" => ScannerModel::Ls50,
+                        "ls5000" | "ls-5000" => ScannerModel::Ls5000,
+                        other => {
+                            eprintln!("Warning: unknown model '{}', using 'ls50'. Valid: ls50, ls5000", other);
+                            ScannerModel::Ls50
+                        }
+                    };
+                    i += 2;
+                }
+                "--scan-data" if i + 1 < args.len() => {
+                    scan_data_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 2;
                 }
                 other => {
-                    // Treat first positional argument as firmware path (backwards compat)
                     if firmware_path.is_none() && !other.starts_with("--") {
                         firmware_path = Some(PathBuf::from(other));
                     } else {
@@ -100,13 +179,9 @@ impl Config {
         });
 
         Self {
-            firmware_path,
-            adapter,
-            trace,
-            max_instructions,
-            tcp_port,
-            watchdog,
-            gadget,
+            firmware_path, adapter, trace, max_instructions, tcp_port,
+            watchdog, gadget, pattern, model, benchmark,
+            scan_data_path, cold_boot, full_usb_init, firmware_dispatch,
         }
     }
 }
@@ -130,6 +205,15 @@ fn print_usage() {
     eprintln!("  --trace              Enable instruction-level tracing");
     eprintln!("  --watchdog           Enable watchdog timer");
     eprintln!("  --gadget             Enable Linux USB gadget bridge (requires root)");
+    eprintln!("  --pattern <TYPE>     Scan test pattern [default: gradient]");
+    eprintln!("                       Values: gradient, flat, checkerboard, bars");
+    eprintln!("  --model <MODEL>      Scanner model identity [default: ls50]");
+    eprintln!("                       Values: ls50, ls5000");
+    eprintln!("  --scan-data <FILE>   Load raw scan data from file instead of generating pattern");
+    eprintln!("  --benchmark          Print performance stats after execution");
+    eprintln!("  --cold-boot          Use cold-boot path (skip warm-boot shortcuts)");
+    eprintln!("  --full-usb-init      Let firmware run USB initialization (un-NOP USB init patches)");
+    eprintln!("  --firmware-dispatch  Route SCSI commands through firmware handlers");
     eprintln!("  -h, --help           Show this help");
     eprintln!();
     eprintln!("TCP BRIDGE:");

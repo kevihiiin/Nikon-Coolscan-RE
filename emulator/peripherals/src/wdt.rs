@@ -51,3 +51,67 @@ impl Default for Watchdog {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_disabled_never_fires() {
+        let mut wdt = Watchdog::new();
+        wdt.enabled = false;
+        for _ in 0..1000 {
+            assert!(!wdt.tick());
+        }
+    }
+
+    #[test]
+    fn test_feed_resets_counter() {
+        let mut wdt = Watchdog::new();
+        wdt.enabled = true;
+        for _ in 0..1000 {
+            wdt.tick();
+        }
+        assert!(wdt.counter > 0);
+        wdt.write(0x5A); // feed
+        assert_eq!(wdt.counter, 0);
+        assert!(wdt.fed);
+    }
+
+    #[test]
+    fn test_timeout_fires() {
+        let mut wdt = Watchdog::new();
+        wdt.enabled = true;
+        for i in 0..70000 {
+            if wdt.tick() {
+                assert!(i >= 65535, "timeout fires after 65535 ticks");
+                return;
+            }
+        }
+        panic!("watchdog did not fire within 70000 ticks");
+    }
+
+    #[test]
+    fn test_feed_prevents_timeout() {
+        let mut wdt = Watchdog::new();
+        wdt.enabled = true;
+        for i in 0..200000 {
+            if i % 60000 == 0 {
+                wdt.write(0x5A); // feed periodically
+            }
+            assert!(!wdt.tick(), "should not fire when fed regularly");
+        }
+    }
+
+    #[test]
+    fn test_wrong_feed_value_ignored() {
+        let mut wdt = Watchdog::new();
+        wdt.enabled = true;
+        for _ in 0..1000 {
+            wdt.tick();
+        }
+        let before = wdt.counter;
+        wdt.write(0x42); // wrong value — should NOT feed
+        assert_eq!(wdt.counter, before, "counter unchanged by non-0x5A write");
+    }
+}

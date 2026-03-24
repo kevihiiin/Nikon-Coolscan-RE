@@ -164,8 +164,7 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
                     cpu.set_flag(CCR_V, false);
                 }
                 Size::Byte => {
-                    log::error!("EXTU.B is invalid per H8/300H manual at PC=0x{:06X}", insn_pc);
-                    debug_assert!(false, "EXTU.B is invalid");
+                    panic!("EXTU.B is invalid per H8/300H manual at PC=0x{:06X}", insn_pc);
                 }
             }
             next_pc
@@ -191,8 +190,7 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
                     cpu.set_flag(CCR_V, false);
                 }
                 Size::Byte => {
-                    log::error!("EXTS.B is invalid per H8/300H manual at PC=0x{:06X}", insn_pc);
-                    debug_assert!(false, "EXTS.B is invalid");
+                    panic!("EXTS.B is invalid per H8/300H manual at PC=0x{:06X}", insn_pc);
                 }
             }
             next_pc
@@ -413,8 +411,7 @@ pub fn execute(cpu: &mut Cpu, bus: &mut MemoryBus, insn: &Instruction, insn_pc: 
         }
 
         Instruction::Unknown(w) => {
-            log::error!("Unknown instruction 0x{:04X} at PC=0x{:06X}", w, insn_pc);
-            next_pc
+            panic!("Unknown instruction 0x{:04X} at PC=0x{:06X}", w, insn_pc);
         }
     }
 }
@@ -735,11 +732,7 @@ fn get_bit_num(cpu: &Cpu, op: &Operand) -> u8 {
     match op {
         Operand::Imm8(n) => *n & 0x7,
         Operand::Reg8(r) => cpu.read_r8(*r) & 0x7,
-        _ => {
-            log::error!("get_bit_num: unexpected operand {:?}, expected Imm8 or Reg8", op);
-            debug_assert!(false, "get_bit_num: unexpected operand {:?}", op);
-            0
-        }
+        _ => panic!("get_bit_num: unexpected operand {:?}, expected Imm8 or Reg8", op),
     }
 }
 
@@ -799,11 +792,7 @@ fn resolve_jump_target(cpu: &Cpu, bus: &mut MemoryBus, target: &Operand) -> u32 
             let vec_addr = *abs as u32;
             bus.read_long(vec_addr) & 0x00FF_FFFF
         }
-        _ => {
-            log::error!("resolve_jump_target: unexpected operand {:?}", target);
-            debug_assert!(false, "resolve_jump_target: unexpected operand {:?}", target);
-            0
-        }
+        _ => panic!("resolve_jump_target: unexpected operand {:?}", target),
     }
 }
 
@@ -861,9 +850,7 @@ pub fn read_operand_b(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u8 {
         _ => if let Some(addr) = resolve_read_address(cpu, op, 1) {
             bus.read_byte(addr)
         } else {
-            log::error!("Unhandled byte read operand: {:?}", op);
-            debug_assert!(false, "Unhandled byte read operand: {:?}", op);
-            0
+            panic!("Unhandled byte read operand: {:?}", op);
         }
     }
 }
@@ -875,8 +862,7 @@ pub fn write_operand_b(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand, val: u8
         _ => if let Some(addr) = resolve_write_address(cpu, op, 1) {
             bus.write_byte(addr, val);
         } else {
-            log::error!("Unhandled byte write operand: {:?}", op);
-            debug_assert!(false, "Unhandled byte write operand: {:?}", op);
+            panic!("Unhandled byte write operand: {:?}", op);
         }
     }
 }
@@ -888,9 +874,7 @@ pub fn read_operand_w(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u16 {
         _ => if let Some(addr) = resolve_read_address(cpu, op, 2) {
             bus.read_word(addr)
         } else {
-            log::error!("Unhandled word read operand: {:?}", op);
-            debug_assert!(false, "Unhandled word read operand: {:?}", op);
-            0
+            panic!("Unhandled word read operand: {:?}", op);
         }
     }
 }
@@ -901,8 +885,7 @@ pub fn write_operand_w(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand, val: u1
         _ => if let Some(addr) = resolve_write_address(cpu, op, 2) {
             bus.write_word(addr, val);
         } else {
-            log::error!("Unhandled word write operand: {:?}", op);
-            debug_assert!(false, "Unhandled word write operand: {:?}", op);
+            panic!("Unhandled word write operand: {:?}", op);
         }
     }
 }
@@ -914,9 +897,7 @@ pub fn read_operand_l(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand) -> u32 {
         _ => if let Some(addr) = resolve_read_address(cpu, op, 4) {
             bus.read_long(addr)
         } else {
-            log::error!("Unhandled long read operand: {:?}", op);
-            debug_assert!(false, "Unhandled long read operand: {:?}", op);
-            0
+            panic!("Unhandled long read operand: {:?}", op);
         }
     }
 }
@@ -927,8 +908,7 @@ pub fn write_operand_l(cpu: &mut Cpu, bus: &mut MemoryBus, op: &Operand, val: u3
         _ => if let Some(addr) = resolve_write_address(cpu, op, 4) {
             bus.write_long(addr, val);
         } else {
-            log::error!("Unhandled long write operand: {:?}", op);
-            debug_assert!(false, "Unhandled long write operand: {:?}", op);
+            panic!("Unhandled long write operand: {:?}", op);
         }
     }
 }
@@ -938,10 +918,7 @@ fn read_operand_b_direct(cpu: &Cpu, op: &Operand) -> u8 {
     match op {
         Operand::Reg8(r) => cpu.read_r8(*r),
         Operand::Imm8(v) => *v,
-        _ => {
-            log::error!("read_operand_b_direct: unexpected operand {:?}, expected Reg8 or Imm8", op);
-            0
-        }
+        _ => panic!("read_operand_b_direct: unexpected operand {:?}, expected Reg8 or Imm8", op),
     }
 }
 
@@ -949,7 +926,7 @@ fn write_operand_b_direct(cpu: &mut Cpu, op: &Operand, val: u8) {
     if let Operand::Reg8(r) = op {
         cpu.write_r8(*r, val);
     } else {
-        log::error!("write_operand_b_direct: unexpected operand {:?}, expected Reg8", op);
+        panic!("write_operand_b_direct: unexpected operand {:?}, expected Reg8", op);
     }
 }
 
@@ -957,11 +934,7 @@ fn write_operand_b_direct(cpu: &mut Cpu, op: &Operand, val: u8) {
 fn extract_reg(op: &Operand) -> u8 {
     match op {
         Operand::Reg8(r) | Operand::Reg16(r) | Operand::Reg32(r) => *r,
-        _ => {
-            log::error!("extract_reg: unexpected operand {:?}, expected register", op);
-            debug_assert!(false, "extract_reg: unexpected operand {:?}", op);
-            0
-        }
+        _ => panic!("extract_reg: unexpected operand {:?}, expected register", op),
     }
 }
 
@@ -1131,5 +1104,582 @@ mod tests {
         let bclr = Instruction::Bclr(Operand::Imm8(3), Operand::Reg8(8));
         execute(&mut cpu, &mut bus, &bclr, 0, 2);
         assert_eq!(cpu.read_r8(8), 0x00);
+    }
+
+    // --- SUB flag tests ---
+
+    #[test]
+    fn test_sub_b_borrow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x00); // R0L = 0
+        cpu.write_r8(9, 0x01); // R1L = 1
+        let insn = Instruction::Sub(Size::Byte, Operand::Reg8(9), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0xFF);
+        assert!(cpu.carry(), "borrow on 0 - 1");
+        assert!(cpu.negative());
+        assert!(!cpu.zero());
+    }
+
+    #[test]
+    fn test_sub_b_overflow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x80); // R0L = -128
+        cpu.write_r8(9, 0x01); // R1L = 1
+        let insn = Instruction::Sub(Size::Byte, Operand::Reg8(9), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x7F); // -128 - 1 = 127 (overflow)
+        assert!(cpu.overflow(), "signed overflow: negative became positive");
+        assert!(!cpu.negative());
+    }
+
+    #[test]
+    fn test_sub_w_zero() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r16(0, 0x1234);
+        cpu.write_r16(1, 0x1234);
+        let insn = Instruction::Sub(Size::Word, Operand::Reg16(1), Operand::Reg16(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r16(0), 0x0000);
+        assert!(cpu.zero());
+        assert!(!cpu.carry());
+    }
+
+    // --- NEG flag tests ---
+
+    #[test]
+    fn test_neg_b_msb_overflow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x80); // R0L = -128
+        let insn = Instruction::Neg(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x80); // NEG(0x80) = 0x80
+        assert!(cpu.overflow(), "V set when input == MSB");
+        assert!(cpu.carry(), "C set when input != 0");
+    }
+
+    #[test]
+    fn test_neg_b_zero() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x00);
+        let insn = Instruction::Neg(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x00);
+        assert!(!cpu.carry(), "C clear when input == 0");
+        assert!(cpu.zero());
+        assert!(!cpu.overflow());
+    }
+
+    #[test]
+    fn test_neg_b_normal() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x42);
+        let insn = Instruction::Neg(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0xBE); // -0x42 = 0xBE
+        assert!(cpu.carry(), "C set when input != 0");
+        assert!(!cpu.overflow());
+        assert!(cpu.negative());
+    }
+
+    // --- INC/DEC overflow tests ---
+
+    #[test]
+    fn test_inc_b_overflow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x7F); // R0L = 127
+        let insn = Instruction::Inc(Size::Byte, Operand::Reg8(8), 1);
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x80);
+        assert!(cpu.overflow(), "V on 0x7F → 0x80 (positive → negative)");
+        assert!(cpu.negative());
+    }
+
+    #[test]
+    fn test_inc_b_no_overflow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0xFF);
+        let insn = Instruction::Inc(Size::Byte, Operand::Reg8(8), 1);
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x00);
+        assert!(!cpu.overflow(), "no V on 0xFF → 0x00");
+        assert!(cpu.zero());
+    }
+
+    #[test]
+    fn test_dec_b_overflow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x80); // -128
+        let insn = Instruction::Dec(Size::Byte, Operand::Reg8(8), 1);
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x7F);
+        assert!(cpu.overflow(), "V on 0x80 → 0x7F (negative → positive)");
+        assert!(!cpu.negative());
+    }
+
+    // --- ADDX/SUBX carry chain tests ---
+
+    #[test]
+    fn test_addx_z_flag_only_clears() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.set_flag(CCR_Z, true);
+        cpu.set_flag(CCR_C, false);
+        cpu.write_r8(8, 0x00);
+        let insn = Instruction::Addx(Operand::Imm8(0), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x00);
+        // ADDX only clears Z, never sets it -- Z stays true because result == 0
+        assert!(cpu.zero(), "Z preserved (not cleared) when result is 0");
+    }
+
+    #[test]
+    fn test_addx_z_flag_clears_on_nonzero() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.set_flag(CCR_Z, true);
+        cpu.set_flag(CCR_C, false);
+        cpu.write_r8(8, 0x01);
+        let insn = Instruction::Addx(Operand::Imm8(0), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x01);
+        assert!(!cpu.zero(), "Z cleared when result is non-zero");
+    }
+
+    #[test]
+    fn test_addx_carry_chain() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.set_flag(CCR_C, true);
+        cpu.write_r8(8, 0xFF);
+        let insn = Instruction::Addx(Operand::Imm8(0x00), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x00); // 0xFF + 0 + C(1) = 0x100 → 0x00
+        assert!(cpu.carry(), "carry out from 0xFF + 1");
+    }
+
+    #[test]
+    fn test_subx_borrow_chain() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.set_flag(CCR_C, true); // borrow-in
+        cpu.write_r8(8, 0x00);
+        let insn = Instruction::Subx(Operand::Imm8(0x00), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0xFF); // 0 - 0 - C(1) = -1
+        assert!(cpu.carry(), "borrow out");
+        assert!(cpu.negative());
+    }
+
+    // --- DIVXU edge cases ---
+
+    #[test]
+    fn test_divxu_b_by_zero() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r16(0, 0x1234);
+        cpu.write_r8(9, 0x00); // divisor = 0
+        let insn = Instruction::DivxuB(Operand::Reg8(9), Operand::Reg16(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert!(cpu.zero(), "Z set on division by zero");
+        assert_eq!(cpu.read_r16(0), 0x1234, "result unchanged on div-by-zero");
+    }
+
+    #[test]
+    fn test_divxu_b_normal() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r16(0, 0x000A); // dividend = 10
+        cpu.write_r8(9, 0x03);    // divisor = 3
+        let insn = Instruction::DivxuB(Operand::Reg8(9), Operand::Reg16(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        let result = cpu.read_r16(0);
+        assert_eq!(result & 0xFF, 0x03, "quotient = 10/3 = 3");
+        assert_eq!((result >> 8) & 0xFF, 0x01, "remainder = 10%3 = 1");
+    }
+
+    // --- Shift/rotate tests ---
+
+    #[test]
+    fn test_shar_b_preserves_sign() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x80); // -128
+        let insn = Instruction::Shar(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0xC0); // sign-extended: 1100_0000
+        assert!(!cpu.carry(), "LSB was 0");
+        assert!(cpu.negative());
+    }
+
+    #[test]
+    fn test_shar_b_carry() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x81); // 1000_0001
+        let insn = Instruction::Shar(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0xC0); // 1100_0000
+        assert!(cpu.carry(), "LSB was 1");
+    }
+
+    #[test]
+    fn test_shlr_b() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x81);
+        let insn = Instruction::Shlr(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x40); // logical: no sign extension
+        assert!(cpu.carry());
+        assert!(!cpu.negative());
+    }
+
+    #[test]
+    fn test_rotxl_b_through_carry() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x00);
+        cpu.set_flag(CCR_C, true); // old carry = 1
+        let insn = Instruction::Rotxl(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x01); // old carry rotated into bit 0
+        assert!(!cpu.carry(), "MSB was 0");
+    }
+
+    #[test]
+    fn test_rotxr_b_through_carry() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x00);
+        cpu.set_flag(CCR_C, true);
+        let insn = Instruction::Rotxr(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x80); // old carry rotated into bit 7
+        assert!(!cpu.carry(), "LSB was 0");
+    }
+
+    #[test]
+    fn test_rotl_b() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x81); // 1000_0001
+        let insn = Instruction::Rotl(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x03); // MSB wraps to bit 0: 0000_0011
+        assert!(cpu.carry(), "old MSB was 1");
+    }
+
+    #[test]
+    fn test_rotr_b() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x81); // 1000_0001
+        let insn = Instruction::Rotr(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0xC0); // LSB wraps to bit 7: 1100_0000
+        assert!(cpu.carry(), "old LSB was 1");
+    }
+
+    #[test]
+    fn test_shal_b_overflow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x40); // 0100_0000
+        let insn = Instruction::Shal(Size::Byte, Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x80);
+        assert!(!cpu.carry(), "old MSB was 0");
+        assert!(cpu.overflow(), "V = N xor C (sign bit changed: 0→1)");
+    }
+
+    // --- Branch condition evaluation ---
+
+    /// Execute a Bcc with PcRel8(4) at PC=0x1000, len=2. Returns the resulting PC.
+    /// Taken = 0x1006, not taken = 0x1002.
+    fn run_branch(flags: &[(u8, bool)], cond: Condition) -> u32 {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        for &(flag, val) in flags {
+            cpu.set_flag(flag, val);
+        }
+        let insn = Instruction::Bcc(cond, Operand::PcRel8(4));
+        execute(&mut cpu, &mut bus, &insn, 0x1000, 2)
+    }
+
+    const TAKEN: u32 = 0x1006;
+    const NOT_TAKEN: u32 = 0x1002;
+
+    #[test]
+    fn test_bhi_taken() {
+        assert_eq!(run_branch(&[(CCR_C, false), (CCR_Z, false)], Condition::Hi), TAKEN);
+    }
+
+    #[test]
+    fn test_bhi_not_taken_c() {
+        assert_eq!(run_branch(&[(CCR_C, true), (CCR_Z, false)], Condition::Hi), NOT_TAKEN);
+    }
+
+    #[test]
+    fn test_bgt_taken() {
+        assert_eq!(run_branch(&[(CCR_Z, false), (CCR_N, false), (CCR_V, false)], Condition::Gt), TAKEN);
+    }
+
+    #[test]
+    fn test_bgt_not_taken_z() {
+        assert_eq!(run_branch(&[(CCR_Z, true), (CCR_N, false), (CCR_V, false)], Condition::Gt), NOT_TAKEN);
+    }
+
+    #[test]
+    fn test_ble_taken() {
+        assert_eq!(run_branch(&[(CCR_Z, false), (CCR_N, true), (CCR_V, false)], Condition::Le), TAKEN);
+    }
+
+    #[test]
+    fn test_bge_taken() {
+        assert_eq!(run_branch(&[(CCR_N, true), (CCR_V, true)], Condition::Ge), TAKEN);
+    }
+
+    #[test]
+    fn test_blt_taken() {
+        assert_eq!(run_branch(&[(CCR_N, true), (CCR_V, false)], Condition::Lt), TAKEN);
+    }
+
+    #[test]
+    fn test_bls_taken() {
+        assert_eq!(run_branch(&[(CCR_C, false), (CCR_Z, true)], Condition::Ls), TAKEN);
+    }
+
+    #[test]
+    fn test_backward_branch() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        let insn = Instruction::Bcc(Condition::Always, Operand::PcRel8(-4));
+        let new_pc = execute(&mut cpu, &mut bus, &insn, 0x1000, 2);
+        assert_eq!(new_pc, 0x0FFE); // 0x1002 + (-4)
+    }
+
+    // --- Memory addressing in execute ---
+
+    #[test]
+    fn test_mov_b_through_memory() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0x400100);
+        bus.write_byte(0x400100, 0x42);
+        let insn = Instruction::Mov(Size::Byte, Operand::RegIndirect(0), Operand::Reg8(9));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(9), 0x42);
+    }
+
+    #[test]
+    fn test_mov_b_post_inc() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        // Use ER1 as source to avoid aliasing with R0L destination
+        cpu.write_er(1, 0x400100);
+        bus.write_byte(0x400100, 0xAA);
+        let insn = Instruction::Mov(Size::Byte, Operand::PostInc(1), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0xAA);
+        assert_eq!(cpu.read_er(1), 0x400101, "ER1 incremented by 1 (byte)");
+    }
+
+    #[test]
+    fn test_mov_b_pre_dec() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(7, 0x410000);
+        cpu.write_r8(8, 0x55);
+        let insn = Instruction::Mov(Size::Byte, Operand::Reg8(8), Operand::PreDec(7));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.sp(), 0x40FFFF, "SP decremented by 1 (byte)");
+        assert_eq!(bus.read_byte(0x40FFFF), 0x55);
+    }
+
+    #[test]
+    fn test_mov_w_post_inc() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0x400100);
+        bus.write_word(0x400100, 0x1234);
+        let insn = Instruction::Mov(Size::Word, Operand::PostInc(0), Operand::Reg16(1));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r16(1), 0x1234);
+        assert_eq!(cpu.read_er(0), 0x400102, "ER0 incremented by 2 (word)");
+    }
+
+    #[test]
+    fn test_mov_l_pre_dec() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(7, 0x410000);
+        cpu.write_er(0, 0xDEADBEEF);
+        let insn = Instruction::Mov(Size::Long, Operand::Reg32(0), Operand::PreDec(7));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.sp(), 0x40FFFC, "SP decremented by 4 (long)");
+        assert_eq!(bus.read_long(0x40FFFC), 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_mov_b_disp16() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0x400000);
+        bus.write_byte(0x400010, 0xBB);
+        let insn = Instruction::Mov(Size::Byte, Operand::RegIndirectDisp16(0, 0x0010), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 4);
+        assert_eq!(cpu.read_r8(8), 0xBB);
+    }
+
+    #[test]
+    fn test_mov_b_abs8() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        bus.write_byte(0xFFFF85, 0x42); // Port 4 DR
+        let insn = Instruction::Mov(Size::Byte, Operand::Abs8(0x85), Operand::Reg8(8));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(8), 0x42);
+    }
+
+    // --- ADD.W/ADD.L flag tests ---
+
+    #[test]
+    fn test_add_w_overflow() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r16(0, 0x7FFF);
+        let insn = Instruction::Add(Size::Word, Operand::Imm16(0x0001), Operand::Reg16(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 4);
+        assert_eq!(cpu.read_r16(0), 0x8000);
+        assert!(cpu.overflow(), "0x7FFF + 1 overflows (positive → negative)");
+        assert!(cpu.negative());
+        assert!(!cpu.carry());
+    }
+
+    #[test]
+    fn test_add_l_carry() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0xFFFF_FFFF);
+        let insn = Instruction::Add(Size::Long, Operand::Imm32(0x0000_0001), Operand::Reg32(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 6);
+        assert_eq!(cpu.read_er(0), 0x0000_0000);
+        assert!(cpu.carry(), "unsigned carry on 0xFFFFFFFF + 1");
+        assert!(cpu.zero());
+    }
+
+    // --- EXTU/EXTS tests ---
+
+    #[test]
+    fn test_extu_w() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r16(0, 0xFF42); // R0 = 0xFF42
+        let insn = Instruction::Extu(Size::Word, Operand::Reg16(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r16(0), 0x0042); // zero-extend low byte
+        assert!(!cpu.negative());
+        assert!(!cpu.zero());
+        assert!(!cpu.overflow());
+    }
+
+    #[test]
+    fn test_exts_w() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r16(0, 0x0080); // R0 low byte = 0x80 (negative)
+        let insn = Instruction::Exts(Size::Word, Operand::Reg16(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r16(0), 0xFF80); // sign-extend 0x80
+        assert!(cpu.negative());
+        assert!(!cpu.zero());
+    }
+
+    // --- Bit-on-memory tests ---
+
+    #[test]
+    fn test_bset_bclr_memory() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        bus.write_byte(0xFFFF85, 0x00); // Port 4 DR = 0
+        let bset = Instruction::Bset(Operand::Imm8(0), Operand::Abs8(0x85));
+        execute(&mut cpu, &mut bus, &bset, 0, 4);
+        assert_eq!(bus.read_byte(0xFFFF85), 0x01);
+
+        let bclr = Instruction::Bclr(Operand::Imm8(0), Operand::Abs8(0x85));
+        execute(&mut cpu, &mut bus, &bclr, 0, 4);
+        assert_eq!(bus.read_byte(0xFFFF85), 0x00);
+    }
+
+    #[test]
+    fn test_btst_memory() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        bus.write_byte(0xFFFF8E, 0x04); // Port 7
+        let btst = Instruction::Btst(Operand::Imm8(2), Operand::Abs8(0x8E));
+        execute(&mut cpu, &mut bus, &btst, 0, 4);
+        assert!(!cpu.zero(), "bit 2 is set");
+
+        let btst2 = Instruction::Btst(Operand::Imm8(0), Operand::Abs8(0x8E));
+        execute(&mut cpu, &mut bus, &btst2, 0, 4);
+        assert!(cpu.zero(), "bit 0 is clear");
+    }
+
+    // --- DIVXU.W ---
+
+    #[test]
+    fn test_divxu_w_normal() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0x0000000A); // dividend = 10
+        cpu.write_r16(1, 0x0003);     // divisor = 3
+        let insn = Instruction::DivxuW(Operand::Reg16(1), Operand::Reg32(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        let result = cpu.read_er(0);
+        assert_eq!(result & 0xFFFF, 0x0003, "quotient = 10/3 = 3");
+        assert_eq!((result >> 16) & 0xFFFF, 0x0001, "remainder = 10%3 = 1");
+    }
+
+    #[test]
+    fn test_divxu_w_by_zero() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0x12345678);
+        cpu.write_r16(1, 0x0000);
+        let insn = Instruction::DivxuW(Operand::Reg16(1), Operand::Reg32(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert!(cpu.zero());
+        assert_eq!(cpu.read_er(0), 0x12345678, "result unchanged on div-by-zero");
+    }
+
+    // --- EXTU.L / EXTS.L ---
+
+    #[test]
+    fn test_extu_l() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0xFFFF8042);
+        let insn = Instruction::Extu(Size::Long, Operand::Reg32(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_er(0), 0x00008042); // zero-extend low word
+        assert!(!cpu.negative());
+        assert!(!cpu.zero());
+    }
+
+    #[test]
+    fn test_exts_l() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_er(0, 0x00008000); // low word = 0x8000 (negative)
+        let insn = Instruction::Exts(Size::Long, Operand::Reg32(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_er(0), 0xFFFF8000); // sign-extend 0x8000
+        assert!(cpu.negative());
+    }
+
+    // --- Word-size shift ---
+
+    #[test]
+    fn test_shar_w() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r16(0, 0x8001);
+        let insn = Instruction::Shar(Size::Word, Operand::Reg16(0));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r16(0), 0xC000); // sign-extended right shift, bit 0 → carry
+        assert!(cpu.carry());
+        assert!(cpu.negative());
+    }
+
+    // --- MOV sets N/Z and clears V ---
+
+    #[test]
+    fn test_mov_flags() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.set_flag(CCR_V, true); // pre-set V
+        cpu.write_r8(8, 0x80);
+        let insn = Instruction::Mov(Size::Byte, Operand::Reg8(8), Operand::Reg8(9));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert_eq!(cpu.read_r8(9), 0x80);
+        assert!(cpu.negative(), "N set for 0x80");
+        assert!(!cpu.zero());
+        assert!(!cpu.overflow(), "V cleared by MOV");
+    }
+
+    #[test]
+    fn test_mov_zero_flag() {
+        let (mut cpu, mut bus) = make_cpu_bus();
+        cpu.write_r8(8, 0x00);
+        let insn = Instruction::Mov(Size::Byte, Operand::Reg8(8), Operand::Reg8(9));
+        execute(&mut cpu, &mut bus, &insn, 0, 2);
+        assert!(cpu.zero());
+        assert!(!cpu.negative());
     }
 }

@@ -6,7 +6,6 @@
 
 use coolscan_emu::config::Config;
 use coolscan_emu::orchestrator::Emulator;
-use peripherals::gpio::AdapterType;
 use std::path::PathBuf;
 
 /// Path to the firmware binary (relative to workspace root).
@@ -20,15 +19,7 @@ fn load_firmware() -> Vec<u8> {
 }
 
 fn make_config() -> Config {
-    Config {
-        firmware_path: PathBuf::from(FIRMWARE_PATH),
-        adapter: AdapterType::SaMount,
-        trace: false,
-        max_instructions: 10_000_000,
-        tcp_port: 0, // Disable TCP for tests
-        watchdog: false,
-        gadget: false,
-    }
+    Config::test_default()
 }
 
 fn boot_emulator() -> Emulator {
@@ -428,4 +419,225 @@ fn test_vendor_commands() {
     let r = emu.scsi_command(&[0xE1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00]);
     assert!(r.is_good(), "VENDOR E1 should return GOOD");
     assert_eq!(r.data.len(), 6, "VENDOR E1 should return 6 bytes");
+}
+
+// --- Nice-to-have feature tests ---
+
+fn make_config_with(pattern: coolscan_emu::config::ScanPattern, model: coolscan_emu::config::ScannerModel) -> Config {
+    let mut c = Config::test_default();
+    c.pattern = pattern;
+    c.model = model;
+    c
+}
+
+fn boot_with_config(config: &Config) -> Emulator {
+    let firmware = load_firmware();
+    let mut emu = Emulator::new(&firmware, config);
+    let ok = emu.boot_to_main_loop(5_000_000);
+    assert!(ok, "Firmware failed to reach main loop");
+    emu
+}
+
+#[test]
+fn test_flat_pattern() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let config = make_config_with(
+        coolscan_emu::config::ScanPattern::Flat,
+        coolscan_emu::config::ScannerModel::Ls50,
+    );
+    let mut emu = boot_with_config(&config);
+
+    emu.scsi_command(&cdb_reserve());
+    let wd = build_window_descriptor();
+    emu.scsi_command_out(&cdb_set_window(wd.len() as u32), &wd);
+    emu.scsi_command(&cdb_scan(0));
+
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 4096));
+    assert!(r.is_good());
+    assert!(r.data.iter().all(|&b| b == 128), "flat pattern should be uniform 128");
+}
+
+#[test]
+fn test_checkerboard_pattern() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let config = make_config_with(
+        coolscan_emu::config::ScanPattern::Checkerboard,
+        coolscan_emu::config::ScannerModel::Ls50,
+    );
+    let mut emu = boot_with_config(&config);
+
+    emu.scsi_command(&cdb_reserve());
+    let wd = build_window_descriptor();
+    emu.scsi_command_out(&cdb_set_window(wd.len() as u32), &wd);
+    emu.scsi_command(&cdb_scan(0));
+
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 4096));
+    assert!(r.is_good());
+    // Checkerboard: first pixel (0,0) is in block (0,0) -> white (255)
+    assert_eq!(r.data[0], 255, "checkerboard (0,0) R should be 255");
+    assert_eq!(r.data[1], 255, "checkerboard (0,0) G should be 255");
+    assert_eq!(r.data[2], 255, "checkerboard (0,0) B should be 255");
+}
+
+#[test]
+fn test_colorbars_pattern() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let config = make_config_with(
+        coolscan_emu::config::ScanPattern::ColorBars,
+        coolscan_emu::config::ScannerModel::Ls50,
+    );
+    let mut emu = boot_with_config(&config);
+
+    emu.scsi_command(&cdb_reserve());
+    let wd = build_window_descriptor();
+    emu.scsi_command_out(&cdb_set_window(wd.len() as u32), &wd);
+    emu.scsi_command(&cdb_scan(0));
+
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 4096));
+    assert!(r.is_good());
+    // First bar (leftmost) = White (255, 255, 255)
+    assert_eq!(r.data[0], 255, "colorbars bar 0 R = 255 (white)");
+    assert_eq!(r.data[1], 255, "colorbars bar 0 G = 255 (white)");
+    assert_eq!(r.data[2], 255, "colorbars bar 0 B = 255 (white)");
+}
+
+#[test]
+fn test_ls5000_model_inquiry() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let config = make_config_with(
+        coolscan_emu::config::ScanPattern::Gradient,
+        coolscan_emu::config::ScannerModel::Ls5000,
+    );
+    let mut emu = boot_with_config(&config);
+
+    let r = emu.scsi_command(&cdb_inquiry(36));
+    assert!(r.is_good());
+    assert_eq!(r.data.len(), 36);
+    let product = std::str::from_utf8(&r.data[16..32]).unwrap().trim();
+    assert_eq!(product, "LS-5000 ED", "model override should produce LS-5000 in INQUIRY");
+}
+
+// --- Design gap feature tests ---
+
+#[test]
+fn test_firmware_dispatch_tur() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    let r = emu.scsi_command(&cdb_tur());
+    assert!(r.is_good(), "FW dispatch: TUR should return GOOD, got SK={}", r.sense_key);
+}
+
+#[test]
+fn test_firmware_dispatch_inquiry() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    let r = emu.scsi_command(&cdb_inquiry(36));
+    // Handler runs but USB data transfer calls are NOPed, so INQUIRY
+    // completes without error but may not produce data output.
+    assert_eq!(r.sense_key, 0, "FW dispatch INQUIRY should return GOOD, got SK={}", r.sense_key);
+}
+
+#[test]
+fn test_scan_data_from_file() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Create a temp file with known data
+    let dir = std::env::temp_dir();
+    let path = dir.join("coolscan_test_scan_data.raw");
+    // 300*300*3 = 270000 bytes of value 0x42
+    let data = vec![0x42u8; 270_000];
+    std::fs::write(&path, &data).expect("write temp scan data");
+
+    let mut config = Config::test_default();
+    config.scan_data_path = Some(path.clone());
+    let mut emu = boot_with_config(&config);
+
+    emu.scsi_command(&cdb_reserve());
+    let wd = build_window_descriptor();
+    emu.scsi_command_out(&cdb_set_window(wd.len() as u32), &wd);
+    emu.scsi_command(&cdb_scan(0));
+
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 4096));
+    assert!(r.is_good());
+    assert!(r.data.iter().all(|&b| b == 0x42), "scan data from file should all be 0x42");
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn test_isp1581_config_registers() {
+    // Verify ISP1581 config registers accept writes and return correct values
+    let mut isp = peripherals::isp1581::Isp1581::new();
+
+    // Address register (offset 0x00)
+    isp.write_word(0x00, 0x0042);
+    assert_eq!(isp.read_word(0x00), 0x0042);
+
+    // Interrupt Configuration (offset 0x10)
+    isp.write_word(0x10, 0x00FF);
+    assert_eq!(isp.read_word(0x10), 0x00FF);
+
+    // Interrupt Enable (offset 0x14)
+    isp.write_word(0x14, 0x1234);
+    assert_eq!(isp.read_word(0x14), 0x1234);
+
+    // Control Function (offset 0x28)
+    isp.write_word(0x28, 0x0007);
+    assert_eq!(isp.read_word(0x28), 0x0007);
+
+    // Chip ID (read-only, ISP1581 datasheet Table 60: CHIPID[15:0] = 0x1581)
+    assert_eq!(isp.read_word(0x70), 0x1581);
+}
+
+#[test]
+fn test_asic_cold_boot_mode() {
+    let mut asic = peripherals::asic::Asic::new();
+    asic.cold_boot_mode = true;
+
+    // Master enable should NOT set ready immediately
+    asic.write(0x0001, 0x80);
+    assert_eq!(asic.read(0x0041) & 0x02, 0x00, "ready bit NOT set immediately in cold boot");
+
+    // After 49999 ticks, still not ready
+    for _ in 0..49_999 {
+        asic.tick();
+    }
+    assert_eq!(asic.read(0x0041) & 0x02, 0x00, "ready bit NOT set after 49999 ticks");
+
+    // One more tick completes the countdown
+    asic.tick();
+    assert_eq!(asic.read(0x0041) & 0x02, 0x02, "ready bit set after 50000 ticks");
+}
+
+#[test]
+fn test_firmware_dispatch_illegal_opcode() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // 0xFF is not in the firmware dispatch table — should get ILLEGAL REQUEST
+    let r = emu.scsi_command(&[0xFF, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(r.sense_key, 5, "unknown opcode via FW dispatch should return ILLEGAL REQUEST");
+}
+
+#[test]
+fn test_scan_data_file_missing() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.scan_data_path = Some(std::path::PathBuf::from("/tmp/nonexistent_coolscan_test_data.raw"));
+    let mut emu = boot_with_config(&config);
+
+    emu.scsi_command(&cdb_reserve());
+    let wd = build_window_descriptor();
+    emu.scsi_command_out(&cdb_set_window(wd.len() as u32), &wd);
+
+    let r = emu.scsi_command(&cdb_scan(0));
+    assert_ne!(r.sense_key, 0, "SCAN with missing file should fail, not silently succeed");
 }

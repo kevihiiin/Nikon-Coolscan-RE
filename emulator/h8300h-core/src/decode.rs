@@ -1625,7 +1625,7 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                     let w3 = bus.read_word(pc + 6);
                     let w4 = bus.read_word(pc + 8);
 
-                    let disp = sign_extend_24(((w2 as u32) << 8) | ((w3 >> 8) as u32) & 0x00FFFFFF);
+                    let disp = sign_extend_24((((w2 as u32) << 8) | ((w3 >> 8) as u32)) & 0x00FFFFFF);
 
                     let bit_op = (w3 & 0xFF) as u8;
                     let bit_nib = (w4 >> 8) as u8;
@@ -2027,5 +2027,245 @@ mod tests {
         // BSET #3, R0L = 70 38
         let d = decode_bytes(&[0x70, 0x38]);
         assert_eq!(d.insn, Instruction::Bset(Operand::Imm8(3), Operand::Reg8(8)));
+    }
+
+    // --- MOV addressing modes ---
+
+    #[test]
+    fn test_decode_mov_b_post_inc() {
+        // MOV.B @ER0+, R1L = 6C 09
+        let d = decode_bytes(&[0x6C, 0x09]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Byte, Operand::PostInc(0), Operand::Reg8(9)));
+        assert_eq!(d.len, 2);
+    }
+
+    #[test]
+    fn test_decode_mov_b_pre_dec() {
+        // MOV.B R0L, @-ER0 = 6C 88
+        let d = decode_bytes(&[0x6C, 0x88]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Byte, Operand::Reg8(8), Operand::PreDec(0)));
+        assert_eq!(d.len, 2);
+    }
+
+    #[test]
+    fn test_decode_mov_b_abs16() {
+        // MOV.B @0x4000:16, R0L = 6A 08 40 00
+        let d = decode_bytes(&[0x6A, 0x08, 0x40, 0x00]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Byte, Operand::Abs16(0x4000), Operand::Reg8(8)));
+        assert_eq!(d.len, 4);
+    }
+
+    #[test]
+    fn test_decode_mov_b_disp16() {
+        // MOV.B @(0x0010:16, ER0), R1L = 6E 09 00 10
+        let d = decode_bytes(&[0x6E, 0x09, 0x00, 0x10]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Byte, Operand::RegIndirectDisp16(0, 0x0010), Operand::Reg8(9)));
+        assert_eq!(d.len, 4);
+    }
+
+    #[test]
+    fn test_decode_mov_w_reg_indirect() {
+        // MOV.W @ER0, R1 = 69 01
+        let d = decode_bytes(&[0x69, 0x01]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Word, Operand::RegIndirect(0), Operand::Reg16(1)));
+    }
+
+    #[test]
+    fn test_decode_mov_w_post_inc() {
+        // MOV.W @ER0+, R1 = 6D 01
+        let d = decode_bytes(&[0x6D, 0x01]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Word, Operand::PostInc(0), Operand::Reg16(1)));
+    }
+
+    #[test]
+    fn test_decode_mov_w_pre_dec() {
+        // MOV.W R1, @-ER7 (PUSH) = 6D F1
+        let d = decode_bytes(&[0x6D, 0xF1]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Word, Operand::Reg16(1), Operand::PreDec(7)));
+    }
+
+    #[test]
+    fn test_decode_mov_l_reg_indirect() {
+        // MOV.L @ER0, ER1 = 01 00 69 01
+        let d = decode_bytes(&[0x01, 0x00, 0x69, 0x01]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Long, Operand::RegIndirect(0), Operand::Reg32(1)));
+        assert_eq!(d.len, 4);
+    }
+
+    #[test]
+    fn test_decode_mov_l_post_inc() {
+        // MOV.L @ER7+, ER0 (POP.L) = 01 00 6D 70
+        let d = decode_bytes(&[0x01, 0x00, 0x6D, 0x70]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Long, Operand::PostInc(7), Operand::Reg32(0)));
+    }
+
+    #[test]
+    fn test_decode_mov_l_pre_dec() {
+        // MOV.L ER0, @-ER7 (PUSH.L) = 01 00 6D F0
+        let d = decode_bytes(&[0x01, 0x00, 0x6D, 0xF0]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Long, Operand::Reg32(0), Operand::PreDec(7)));
+    }
+
+    #[test]
+    fn test_decode_mov_b_abs8() {
+        // MOV.B @0x85:8, R0L = 28 85  (reads from 0xFFFF85, Port 4 DR)
+        let d = decode_bytes(&[0x28, 0x85]);
+        assert_eq!(d.insn, Instruction::Mov(Size::Byte, Operand::Abs8(0x85), Operand::Reg8(8)));
+    }
+
+    // --- 7C-7F bit-on-memory operations ---
+
+    #[test]
+    fn test_decode_bclr_imm_abs8() {
+        // BCLR #0, @0xFF85:8 = 7F 85 72 00
+        let d = decode_bytes(&[0x7F, 0x85, 0x72, 0x00]);
+        assert_eq!(d.insn, Instruction::Bclr(Operand::Imm8(0), Operand::Abs8(0x85)));
+        assert_eq!(d.len, 4);
+    }
+
+    #[test]
+    fn test_decode_bset_imm_abs8() {
+        // BSET #3, @0xFF85:8 = 7F 85 70 30
+        let d = decode_bytes(&[0x7F, 0x85, 0x70, 0x30]);
+        assert_eq!(d.insn, Instruction::Bset(Operand::Imm8(3), Operand::Abs8(0x85)));
+        assert_eq!(d.len, 4);
+    }
+
+    #[test]
+    fn test_decode_btst_imm_abs8() {
+        // BTST #7, @0xFF8E:8 = 7E 8E 73 70
+        let d = decode_bytes(&[0x7E, 0x8E, 0x73, 0x70]);
+        assert_eq!(d.insn, Instruction::Btst(Operand::Imm8(7), Operand::Abs8(0x8E)));
+        assert_eq!(d.len, 4);
+    }
+
+    #[test]
+    fn test_decode_btst_reg_indirect() {
+        // BTST #0, @ER0 = 7C 00 73 00
+        let d = decode_bytes(&[0x7C, 0x00, 0x73, 0x00]);
+        assert_eq!(d.insn, Instruction::Btst(Operand::Imm8(0), Operand::RegIndirect(0)));
+        assert_eq!(d.len, 4);
+    }
+
+    // --- Arithmetic decode ---
+
+    #[test]
+    fn test_decode_sub_w_reg() {
+        // SUB.W R0, R1 = 19 01
+        let d = decode_bytes(&[0x19, 0x01]);
+        assert_eq!(d.insn, Instruction::Sub(Size::Word, Operand::Reg16(0), Operand::Reg16(1)));
+    }
+
+    #[test]
+    fn test_decode_cmp_w_imm() {
+        // CMP.W #0x0100, R0 = 79 20 01 00
+        let d = decode_bytes(&[0x79, 0x20, 0x01, 0x00]);
+        assert_eq!(d.insn, Instruction::Cmp(Size::Word, Operand::Imm16(0x0100), Operand::Reg16(0)));
+    }
+
+    #[test]
+    fn test_decode_inc_b() {
+        // INC.B R0L = 0A 08
+        let d = decode_bytes(&[0x0A, 0x08]);
+        assert_eq!(d.insn, Instruction::Inc(Size::Byte, Operand::Reg8(8), 1));
+    }
+
+    #[test]
+    fn test_decode_dec_b() {
+        // DEC.B R0L = 1A 08
+        let d = decode_bytes(&[0x1A, 0x08]);
+        assert_eq!(d.insn, Instruction::Dec(Size::Byte, Operand::Reg8(8), 1));
+    }
+
+    #[test]
+    fn test_decode_neg_b() {
+        // NEG.B R0L = 17 88
+        let d = decode_bytes(&[0x17, 0x88]);
+        assert_eq!(d.insn, Instruction::Neg(Size::Byte, Operand::Reg8(8)));
+    }
+
+    #[test]
+    fn test_decode_addx() {
+        // ADDX R1L, R0L = 0E 98
+        let d = decode_bytes(&[0x0E, 0x98]);
+        assert_eq!(d.insn, Instruction::Addx(Operand::Reg8(9), Operand::Reg8(8)));
+    }
+
+    #[test]
+    fn test_decode_subx() {
+        // SUBX R1L, R0L = 1E 98
+        let d = decode_bytes(&[0x1E, 0x98]);
+        assert_eq!(d.insn, Instruction::Subx(Operand::Reg8(9), Operand::Reg8(8)));
+    }
+
+    // --- Shift/rotate decode ---
+
+    #[test]
+    fn test_decode_shar_b() {
+        // SHAR.B R0L = 10 88
+        let d = decode_bytes(&[0x10, 0x88]);
+        assert_eq!(d.insn, Instruction::Shar(Size::Byte, Operand::Reg8(8)));
+    }
+
+    #[test]
+    fn test_decode_rotl_b() {
+        // ROTL.B R0L = 12 08
+        let d = decode_bytes(&[0x12, 0x08]);
+        assert_eq!(d.insn, Instruction::Rotl(Size::Byte, Operand::Reg8(8)));
+    }
+
+    #[test]
+    fn test_decode_rotxl_b() {
+        // ROTXL.B R0L = 13 08
+        let d = decode_bytes(&[0x13, 0x08]);
+        assert_eq!(d.insn, Instruction::Rotxl(Size::Byte, Operand::Reg8(8)));
+    }
+
+    // --- Branch condition decode ---
+
+    #[test]
+    fn test_decode_bhi() {
+        // BHI .+6 = 42 04
+        let d = decode_bytes(&[0x42, 0x04]);
+        assert_eq!(d.insn, Instruction::Bcc(Condition::Hi, Operand::PcRel8(4)));
+    }
+
+    #[test]
+    fn test_decode_bgt() {
+        // BGT .+6 = 4E 04
+        let d = decode_bytes(&[0x4E, 0x04]);
+        assert_eq!(d.insn, Instruction::Bcc(Condition::Gt, Operand::PcRel8(4)));
+    }
+
+    #[test]
+    fn test_decode_ble() {
+        // BLE .+6 = 4F 04
+        let d = decode_bytes(&[0x4F, 0x04]);
+        assert_eq!(d.insn, Instruction::Bcc(Condition::Le, Operand::PcRel8(4)));
+    }
+
+    #[test]
+    fn test_decode_bne_16bit() {
+        // BNE .+256 = 58 60 01 00
+        let d = decode_bytes(&[0x58, 0x60, 0x01, 0x00]);
+        assert_eq!(d.insn, Instruction::Bcc(Condition::Ne, Operand::PcRel16(0x0100)));
+        assert_eq!(d.len, 4);
+    }
+
+    // --- EEPMOV ---
+
+    #[test]
+    fn test_decode_eepmov_b() {
+        // EEPMOV.B = 7B 5C 59 8F
+        let d = decode_bytes(&[0x7B, 0x5C, 0x59, 0x8F]);
+        assert_eq!(d.insn, Instruction::EepmovB);
+        assert_eq!(d.len, 4);
+    }
+
+    #[test]
+    fn test_decode_eepmov_unknown() {
+        // Not EEPMOV: wrong second word
+        let d = decode_bytes(&[0x7B, 0x5C, 0x59, 0x8E]);
+        assert!(matches!(d.insn, Instruction::Unknown(_)));
     }
 }

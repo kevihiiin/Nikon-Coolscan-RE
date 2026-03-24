@@ -57,3 +57,50 @@ impl Default for Adc {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_conversion_trigger() {
+        let mut adc = Adc::new();
+        // Write ADST (bit 5) to trigger conversion
+        adc.write(0xE8, 0x20);
+        assert!(adc.conversion_done);
+        assert_eq!(adc.adcsr & 0x80, 0x80, "ADF set after conversion");
+    }
+
+    #[test]
+    fn test_irq_fires_when_adie_enabled() {
+        let mut adc = Adc::new();
+        // ADST + ADIE (bit 6)
+        adc.write(0xE8, 0x60);
+        assert!(adc.take_irq(), "IRQ fires with ADIE enabled and conversion done");
+        assert!(!adc.conversion_done, "conversion_done cleared after take_irq");
+    }
+
+    #[test]
+    fn test_irq_no_fire_when_adie_disabled() {
+        let mut adc = Adc::new();
+        // ADST only (no ADIE)
+        adc.write(0xE8, 0x20);
+        assert!(!adc.take_irq(), "no IRQ without ADIE");
+    }
+
+    #[test]
+    fn test_read_result() {
+        let adc = Adc::new();
+        // Default result = 0x0200
+        assert_eq!(adc.read(0xE0), 0x02);  // ADDRAH
+        assert_eq!(adc.read(0xE1), 0x00);  // ADDRAL
+    }
+
+    #[test]
+    fn test_irq_single_shot() {
+        let mut adc = Adc::new();
+        adc.write(0xE8, 0x60); // ADST + ADIE
+        assert!(adc.take_irq());
+        assert!(!adc.take_irq(), "second take_irq returns false (no double fire)");
+    }
+}

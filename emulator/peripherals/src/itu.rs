@@ -217,3 +217,119 @@ impl Default for TimerUnit {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timer_prescaler_div1() {
+        let mut t = Timer::new();
+        t.tcr = 0x00; // phi/1
+        t.gra = 0x0003;
+        t.tier = 0x01; // IMIEA enabled
+        // Ticks: 1,2,3 → compare-match at 3
+        assert!(!t.tick());
+        assert!(!t.tick());
+        assert!(t.tick(), "compare-match A fires at TCNT==GRA");
+        assert_eq!(t.tsr & 0x01, 0x01, "IMFA flag set");
+    }
+
+    #[test]
+    fn test_timer_prescaler_div8() {
+        let mut t = Timer::new();
+        t.tcr = 0x03; // phi/8
+        t.gra = 0x0001;
+        t.tier = 0x01;
+        // Need 8 ticks to advance TCNT once
+        for _ in 0..7 {
+            assert!(!t.tick());
+        }
+        // 8th tick: TCNT goes from 0 to 1 → match GRA=1
+        assert!(t.tick());
+    }
+
+    #[test]
+    fn test_timer_clear_on_compare_match() {
+        let mut t = Timer::new();
+        t.tcr = 0x20; // CCLR=1 (clear on GRA match), phi/1
+        t.gra = 0x0002;
+        t.tier = 0x01;
+        t.tick(); // TCNT=1
+        t.tick(); // TCNT=2=GRA → match, TCNT cleared to 0
+        assert_eq!(t.tcnt, 0, "TCNT cleared on compare-match A");
+    }
+
+    #[test]
+    fn test_timer_no_irq_when_disabled() {
+        let mut t = Timer::new();
+        t.tcr = 0x00;
+        t.gra = 0x0001;
+        t.tier = 0x00; // IMIEA disabled
+        assert!(!t.tick(), "tick returns false when IMIEA disabled");
+        assert_eq!(t.tsr & 0x01, 0x01, "IMFA flag still set despite no IRQ");
+    }
+
+    #[test]
+    fn test_timer_unit_tstr() {
+        let mut tu = TimerUnit::new();
+        tu.timers[2].tcr = 0x00;
+        tu.timers[2].gra = 0x0001;
+        tu.timers[2].tier = 0x01;
+
+        // Timer 2 not started yet
+        tu.tstr = 0x00;
+        let irqs = tu.tick();
+        assert!(irqs[2].is_none());
+
+        // Start timer 2 (bit 2)
+        tu.tstr = 0x04;
+        let irqs = tu.tick();
+        assert_eq!(irqs[2], Some(ITU2_IMIA_VEC));
+    }
+
+    #[test]
+    fn test_timer_compare_match_b() {
+        let mut t = Timer::new();
+        t.tcr = 0x00;
+        t.grb = 0x0002;
+        t.tick();
+        assert_eq!(t.tsr & 0x02, 0x00);
+        t.tick(); // TCNT=2=GRB
+        assert_eq!(t.tsr & 0x02, 0x02, "IMFB flag set");
+    }
+
+    #[test]
+    fn test_timer_register_rw() {
+        let mut tu = TimerUnit::new();
+        // Write TSTR
+        tu.write(0x60, 0x1F);
+        assert_eq!(tu.read(0x60), 0x1F);
+
+        // Write ITU2 GRA (0x7E-0x7F)
+        tu.write(0x7E, 0x12); // GRA high
+        tu.write(0x7F, 0x34); // GRA low
+        assert_eq!(tu.timers[2].gra, 0x1234);
+        assert_eq!(tu.read(0x7E), 0x12);
+        assert_eq!(tu.read(0x7F), 0x34);
+    }
+
+    #[test]
+    fn test_timer_tsr_clear_on_write_0() {
+        let mut tu = TimerUnit::new();
+        tu.timers[0].tsr = 0x03; // IMFA + IMFB set
+        // TSR write: writing 0 to a bit clears it
+        tu.write(0x67, 0x01); // Clear IMFB (bit 1 → write 0), keep IMFA (bit 0 → write 1)
+        assert_eq!(tu.timers[0].tsr, 0x01);
+    }
+
+    #[test]
+    fn test_timer_external_clock_stops() {
+        let mut t = Timer::new();
+        t.tcr = 0x04; // external clock
+        t.gra = 0x0001;
+        t.tier = 0x01;
+        assert!(!t.tick(), "external clock source stops timer");
+        assert_eq!(t.tcnt, 0);
+    }
+}

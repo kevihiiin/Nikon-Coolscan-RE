@@ -112,3 +112,63 @@ impl Default for GpioPorts {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_adapter_port7_values() {
+        assert_eq!(AdapterType::None.port7_value(), 0x01);
+        assert_eq!(AdapterType::SaMount.port7_value(), 0x04);
+        assert_eq!(AdapterType::SfStrip.port7_value(), 0x08);
+        assert_eq!(AdapterType::IaAps.port7_value(), 0x20);
+        assert_eq!(AdapterType::SaFeeder.port7_value(), 0x40);
+        assert_eq!(AdapterType::TestJig.port7_value(), 0x00);
+    }
+
+    #[test]
+    fn test_set_adapter_updates_port7() {
+        let mut gpio = GpioPorts::new();
+        gpio.set_adapter(AdapterType::SfStrip);
+        assert_eq!(gpio.port_7_input, 0x08);
+        assert_eq!(gpio.read(0x8E), 0x08);
+
+        gpio.set_adapter(AdapterType::None);
+        assert_eq!(gpio.port_7_input, 0x01);
+    }
+
+    #[test]
+    fn test_port7_write_ignored() {
+        let mut gpio = GpioPorts::new();
+        gpio.set_adapter(AdapterType::SaMount);
+        gpio.write(0x8E, 0xFF); // write to input port
+        assert_eq!(gpio.port_7_input, 0x04, "Port 7 unchanged after write");
+    }
+
+    #[test]
+    fn test_lamp_control() {
+        let mut gpio = GpioPorts::new();
+        // BCLR → bit 0 = 0 → lamp ON
+        gpio.write(0x85, 0x00);
+        assert!(gpio.lamp_on);
+        // BSET → bit 0 = 1 → lamp OFF
+        gpio.write(0x85, 0x01);
+        assert!(!gpio.lamp_on);
+    }
+
+    #[test]
+    fn test_port_a_motor_rw() {
+        let mut gpio = GpioPorts::new();
+        gpio.write(0xA2, 0xFF); // DDR
+        gpio.write(0xA3, 0x42); // DR
+        assert_eq!(gpio.read(0xA2), 0xFF);
+        assert_eq!(gpio.read(0xA3), 0x42);
+    }
+
+    #[test]
+    fn test_unknown_offset_returns_zero() {
+        let gpio = GpioPorts::new();
+        assert_eq!(gpio.read(0x00), 0);
+    }
+}

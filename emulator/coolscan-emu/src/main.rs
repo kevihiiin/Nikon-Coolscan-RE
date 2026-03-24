@@ -53,7 +53,23 @@ fn main() {
     let mut emu = coolscan_emu::orchestrator::Emulator::new(&firmware, &config);
 
     log::info!("Reset vector: 0x{:06X}", emu.reset_vector());
+    log::info!("Model: {:?}, Pattern: {:?}", config.model, config.pattern);
     log::info!("Starting emulation...");
 
+    let start = std::time::Instant::now();
     emu.run(config.max_instructions);
+    let elapsed = start.elapsed();
+
+    if config.benchmark {
+        let insns = emu.cpu.cycle_count;
+        let secs = elapsed.as_secs_f64();
+        let mips = insns as f64 / secs / 1_000_000.0;
+        eprintln!();
+        eprintln!("=== Benchmark Results ===");
+        eprintln!("  Instructions: {}", insns);
+        eprintln!("  Wall time:    {:.3}s", secs);
+        eprintln!("  Throughput:   {:.2} MIPS", mips);
+        eprintln!("  Final PC:     0x{:06X}", emu.cpu.pc);
+        eprintln!("  Unmapped R/W: {}/{}", emu.bus.unmapped_reads, emu.bus.unmapped_writes);
+    }
 }

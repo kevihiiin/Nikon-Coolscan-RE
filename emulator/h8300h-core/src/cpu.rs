@@ -69,20 +69,24 @@ impl Cpu {
     }
 
     pub fn read_r(&self, n: u8) -> u16 {
-        self.er[n as usize] as u16
+        debug_assert!(n < 8, "read_r: register index {} out of range", n);
+        self.er[(n & 7) as usize] as u16
     }
 
     pub fn write_r(&mut self, n: u8, val: u16) {
-        let er = &mut self.er[n as usize];
+        debug_assert!(n < 8, "write_r: register index {} out of range", n);
+        let er = &mut self.er[(n & 7) as usize];
         *er = (*er & 0xFFFF_0000) | val as u32;
     }
 
     pub fn read_e(&self, n: u8) -> u16 {
-        (self.er[n as usize] >> 16) as u16
+        debug_assert!(n < 8, "read_e: register index {} out of range", n);
+        (self.er[(n & 7) as usize] >> 16) as u16
     }
 
     pub fn write_e(&mut self, n: u8, val: u16) {
-        let er = &mut self.er[n as usize];
+        debug_assert!(n < 8, "write_e: register index {} out of range", n);
+        let er = &mut self.er[(n & 7) as usize];
         *er = ((val as u32) << 16) | (*er & 0x0000_FFFF);
     }
 

@@ -19,6 +19,8 @@ pub struct Asic {
     /// Countdown until ASIC reports ready (0x200041 bit 1).
     /// Simulates hardware init time after master enable.
     ready_countdown: u32,
+    /// Cold boot mode: delay ready bit instead of setting it immediately.
+    pub cold_boot_mode: bool,
 }
 
 impl Asic {
@@ -28,6 +30,7 @@ impl Asic {
             dma_busy_countdown: 0,
             ccd_trigger_pending: false,
             ready_countdown: 0,
+            cold_boot_mode: false,
         }
     }
 
@@ -47,10 +50,15 @@ impl Asic {
 
         match offset {
             0x0001 => {
-                // Master enable register.
-                // Writing 0x80 = enable ASIC. Set ready immediately (warm boot simulation).
+                // Master enable register. Writing 0x80 = enable ASIC.
                 if val & 0x80 != 0 {
-                    self.regs[0x0041] |= 0x02;
+                    if self.cold_boot_mode {
+                        // Cold boot: delay ready by ~50000 instructions
+                        self.ready_countdown = 50_000;
+                    } else {
+                        // Warm boot: set ready immediately
+                        self.regs[0x0041] |= 0x02;
+                    }
                 }
             }
             0x01C1 => {
@@ -98,5 +106,57 @@ impl Asic {
 impl Default for Asic {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_master_enable() {
+        let mut asic = Asic::new();
+        asic.write(0x0001, 0x80);
+        assert_eq!(asic.read(0x0041) & 0x02, 0x02, "ready bit set after master enable");
+    }
+
+    #[test]
+    fn test_dma_busy_countdown() {
+        let mut asic = Asic::new();
+        // CCD trigger starts DMA busy
+        asic.write(0x01C1, 0x01);
+        assert!(asic.ccd_trigger_pending);
+        assert_eq!(asic.read(0x0002) & 0x08, 0x08, "DMA busy bit set");
+
+        // Tick until busy clears
+        for _ in 0..50 {
+            asic.tick();
+        }
+        assert_eq!(asic.read(0x0002) & 0x08, 0x00, "DMA busy bit cleared after countdown");
+    }
+
+    #[test]
+    fn test_dma_address_assembly() {
+        let mut asic = Asic::new();
+        asic.write(0x0147, 0x80);
+        asic.write(0x0148, 0x12);
+        asic.write(0x0149, 0x34);
+        assert_eq!(asic.dma_address(), 0x801234);
+    }
+
+    #[test]
+    fn test_dma_count_assembly() {
+        let mut asic = Asic::new();
+        asic.write(0x014B, 0x00);
+        asic.write(0x014C, 0x10);
+        asic.write(0x014D, 0x00);
+        assert_eq!(asic.dma_count(), 0x001000);
+    }
+
+    #[test]
+    fn test_register_readback() {
+        let mut asic = Asic::new();
+        asic.write(0x00C2, 0x20);
+        assert_eq!(asic.read(0x00C2), 0x20);
     }
 }

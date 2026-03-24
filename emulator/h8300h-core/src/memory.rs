@@ -199,9 +199,7 @@ impl MemoryBus {
         let addr = addr & 0x00FF_FFFF;
         match decode_address(addr) {
             MemoryRegion::Flash => {
-                if self.trace_enabled {
-                    log::warn!("Write to read-only flash: 0x{:06X} = 0x{:02X}", addr, val);
-                }
+                log::warn!("Write to read-only flash: 0x{:06X} = 0x{:02X}", addr, val);
             }
             MemoryRegion::Ram => self.ram[(addr - 0x400000) as usize] = val,
             MemoryRegion::AsicRam => self.asic_ram[(addr - 0x800000) as usize] = val,
@@ -275,6 +273,7 @@ impl MemoryBus {
     /// Write directly to flash (for test setup only — bypasses read-only protection).
     pub fn flash_write_long(&mut self, addr: u32, val: u32) {
         let a = addr as usize;
+        assert!(a + 3 < self.flash.len(), "flash_write_long: address 0x{:06X} out of range", addr);
         self.flash[a] = (val >> 24) as u8;
         self.flash[a + 1] = (val >> 16) as u8;
         self.flash[a + 2] = (val >> 8) as u8;
@@ -283,6 +282,8 @@ impl MemoryBus {
 
     /// Direct access to RAM for testing/inspection.
     pub fn ram_slice(&self, offset: usize, len: usize) -> &[u8] {
+        assert!(offset + len <= self.ram.len(),
+            "ram_slice: offset 0x{:X} + len 0x{:X} exceeds RAM size 0x{:X}", offset, len, self.ram.len());
         &self.ram[offset..offset + len]
     }
 
@@ -442,5 +443,61 @@ mod tests {
         bus.write_byte(0x400000, 0xAB);
         bus.write_byte(0x400001, 0xCD);
         assert_eq!(bus.read_word(0x400000), 0xABCD);
+    }
+
+    #[test]
+    fn test_port7_override() {
+        let mut bus = MemoryBus::new();
+        bus.onchip_io[0x8E] = 0xFF; // ITU4 TIER value
+        bus.port7_override = Some(0x04); // SA-21 mount adapter
+        assert_eq!(bus.read_byte(0xFFFF8E), 0x04, "port7_override takes precedence");
+
+        bus.port7_override = None;
+        assert_eq!(bus.read_byte(0xFFFF8E), 0xFF, "falls back to onchip_io when no override");
+    }
+
+    #[test]
+    fn test_24bit_address_mask() {
+        let mut bus = MemoryBus::new();
+        bus.write_byte(0x400000, 0x42);
+        // Address 0x01400000 should mask to 0x400000 (24-bit)
+        assert_eq!(bus.read_byte(0x01400000), 0x42);
+    }
+
+    #[test]
+    fn test_unmapped_read_returns_zero() {
+        let mut bus = MemoryBus::new();
+        assert_eq!(bus.read_byte(0x100000), 0x00);
+        assert_eq!(bus.unmapped_reads, 1);
+    }
+
+    #[test]
+    fn test_asic_ram_rw() {
+        let mut bus = MemoryBus::new();
+        bus.write_byte(0x800000, 0xAA);
+        bus.write_byte(0x837FFF, 0xBB);
+        assert_eq!(bus.read_byte(0x800000), 0xAA);
+        assert_eq!(bus.read_byte(0x837FFF), 0xBB);
+    }
+
+    #[test]
+    fn test_buffer_ram_rw() {
+        let mut bus = MemoryBus::new();
+        bus.write_byte(0xC00000, 0x11);
+        bus.write_byte(0xC0FFFF, 0x22);
+        assert_eq!(bus.read_byte(0xC00000), 0x11);
+        assert_eq!(bus.read_byte(0xC0FFFF), 0x22);
+    }
+
+    #[test]
+    fn test_long_rw() {
+        let mut bus = MemoryBus::new();
+        bus.write_long(0x400000, 0xDEADBEEF);
+        assert_eq!(bus.read_long(0x400000), 0xDEADBEEF);
+        // Verify big-endian byte order
+        assert_eq!(bus.read_byte(0x400000), 0xDE);
+        assert_eq!(bus.read_byte(0x400001), 0xAD);
+        assert_eq!(bus.read_byte(0x400002), 0xBE);
+        assert_eq!(bus.read_byte(0x400003), 0xEF);
     }
 }

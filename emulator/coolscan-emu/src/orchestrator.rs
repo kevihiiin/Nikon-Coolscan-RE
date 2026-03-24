@@ -57,6 +57,13 @@ const FW_CTX_SWITCH: u32 = 0x010876;       // Context switch handler entry
 const FW_SCSI_IDLE: u32 = 0x013C70;        // SCSI dispatcher idle point
 const FW_MAIN_LOOP: u32 = 0x0207F2;        // Context A main loop entry
 
+// --- SCSI dispatch table (for firmware-dispatched SCSI) ---
+const FW_DISPATCH_TABLE: u32 = 0x049834;   // 21 entries, 10-byte stride
+const FW_DISPATCH_ENTRIES: usize = 21;
+const FW_DISPATCH_STRIDE: usize = 10;
+// Table layout per entry: [opcode:1][pad:1][perm_flags:2][handler_addr:4][exec_mode:1][pad:1]
+const FW_DISPATCH_SENTINEL: u32 = 0x0DEAD0; // Return address for handler hooking
+
 pub struct Emulator {
     pub cpu: Cpu,
     pub bus: MemoryBus,
@@ -90,6 +97,18 @@ pub struct Emulator {
     scan_data: Vec<u8>,
     /// Current offset into scan_data for chunked READ delivery.
     scan_data_offset: usize,
+    /// Scan test pattern type.
+    scan_pattern: crate::config::ScanPattern,
+    /// Scanner model identity.
+    model: crate::config::ScannerModel,
+    /// Path to raw scan data file (overrides pattern generation).
+    scan_data_path: Option<std::path::PathBuf>,
+    /// Cold boot mode: skip warm-boot shortcuts.
+    cold_boot: bool,
+    /// Full USB init: don't NOP USB init patches.
+    full_usb_init: bool,
+    /// Firmware dispatch: route SCSI through firmware handlers.
+    firmware_dispatch: bool,
 }
 
 impl Emulator {
@@ -113,32 +132,40 @@ impl Emulator {
         bus.isp1581_device = Some(Box::new(Isp1581::new()));
         log::info!("ISP1581 device model installed in memory bus");
 
-        // Pre-install trampolines in on-chip RAM.
-        // The firmware normally installs these during cold boot (0x0204C4-0x0205F7),
-        // but we take the warm-boot path (ASIC ready). Without trampolines,
-        // TRAPA #0 jumps to 0xFFFD10 which would be NOPs.
-        let trampolines: &[(u32, u32)] = &[
-            (0xFFFD10, FW_CTX_SWITCH),  // Vec 8:  TRAP#0 → context switch
-            (0xFFFD14, 0x033444),  // Vec 15: IRQ3 → encoder
-            (0xFFFD18, 0x014D4A),  // Vec 16/17: IRQ4/5 → adapter
-            (0xFFFD1C, 0x010B76),  // Vec 32: IMIA2 → motor dispatcher
-            (0xFFFD20, 0x02D536),  // Vec 36: IMIA3 → DMA burst
-            (0xFFFD24, 0x010A16),  // Vec 40: IMIA4 → system tick
-            (0xFFFD28, 0x02CEF2),  // Vec 45: DEND0B → DMA ch0 done
-            (0xFFFD2C, 0x02E10A),  // Vec 47: DEND1B → DMA ch1 done
-            (0xFFFD30, 0x02E9F8),  // Vec 49: CCD line readout
-            (0xFFFD34, 0x02EDDE),  // Vec 60: ADI → A/D done
-            (0xFFFD38, 0x02B544),  // Vec 19: IRQ7 → motor step
-            (0xFFFD3C, 0x014E00),  // Vec 13: IRQ1 → ISP1581 USB
-        ];
-        for &(ram_addr, handler) in trampolines {
-            // JMP @aa:24 = 5A [addr23:16] [addr15:8] [addr7:0]
-            bus.write_byte(ram_addr, 0x5A);
-            bus.write_byte(ram_addr + 1, (handler >> 16) as u8);
-            bus.write_byte(ram_addr + 2, (handler >> 8) as u8);
-            bus.write_byte(ram_addr + 3, handler as u8);
+        // Pre-install trampolines in on-chip RAM (warm boot only).
+        // In cold boot, the firmware installs these itself (0x0204C4-0x0205F7).
+        if !config.cold_boot {
+            let trampolines: &[(u32, u32)] = &[
+                (0xFFFD10, FW_CTX_SWITCH),  // Vec 8:  TRAP#0 → context switch
+                (0xFFFD14, 0x033444),  // Vec 15: IRQ3 → encoder
+                (0xFFFD18, 0x014D4A),  // Vec 16/17: IRQ4/5 → adapter
+                (0xFFFD1C, 0x010B76),  // Vec 32: IMIA2 → motor dispatcher
+                (0xFFFD20, 0x02D536),  // Vec 36: IMIA3 → DMA burst
+                (0xFFFD24, 0x010A16),  // Vec 40: IMIA4 → system tick
+                (0xFFFD28, 0x02CEF2),  // Vec 45: DEND0B → DMA ch0 done
+                (0xFFFD2C, 0x02E10A),  // Vec 47: DEND1B → DMA ch1 done
+                (0xFFFD30, 0x02E9F8),  // Vec 49: CCD line readout
+                (0xFFFD34, 0x02EDDE),  // Vec 60: ADI → A/D done
+                (0xFFFD38, 0x02B544),  // Vec 19: IRQ7 → motor step
+                (0xFFFD3C, 0x014E00),  // Vec 13: IRQ1 → ISP1581 USB
+            ];
+            for &(ram_addr, handler) in trampolines {
+                bus.write_byte(ram_addr, 0x5A);
+                bus.write_byte(ram_addr + 1, (handler >> 16) as u8);
+                bus.write_byte(ram_addr + 2, (handler >> 8) as u8);
+                bus.write_byte(ram_addr + 3, handler as u8);
+            }
+            log::info!("Pre-installed {} trampolines in on-chip RAM", trampolines.len());
+        } else {
+            log::info!("Cold boot: firmware will install its own trampolines");
         }
-        log::info!("Pre-installed {} trampolines in on-chip RAM", trampolines.len());
+
+        // Cold boot: use ASIC ready countdown instead of immediate ready
+        let mut asic = Asic::new();
+        if config.cold_boot {
+            asic.cold_boot_mode = true;
+            log::info!("Cold boot: ASIC ready will be delayed by ~50000 instructions");
+        }
 
         // Context system and flash NOP patches are applied JIT (just before first TRAPA #0)
         // because the RAM test overwrites 0x400000-0x420000 during early boot.
@@ -168,7 +195,7 @@ impl Emulator {
             cpu,
             bus,
             irq: InterruptController::new(),
-            asic: Asic::new(),
+            asic,
             peripherals,
             trace: config.trace,
             context_initialized: false,
@@ -184,6 +211,12 @@ impl Emulator {
             window_descriptor: Vec::new(),
             scan_data: Vec::new(),
             scan_data_offset: 0,
+            scan_pattern: config.pattern,
+            model: config.model,
+            scan_data_path: config.scan_data_path.clone(),
+            cold_boot: config.cold_boot,
+            full_usb_init: config.full_usb_init,
+            firmware_dispatch: config.firmware_dispatch,
         }
     }
 
@@ -230,8 +263,11 @@ impl Emulator {
 
             // JIT init: context system + flash patches, triggered before first TRAPA #0.
             if !self.context_initialized && matches!(&decoded.insn, decode::Instruction::Trapa(0)) {
-                self.jit_context_init();
+                if !self.cold_boot {
+                    self.jit_context_init();
+                }
                 self.apply_flash_nop_patches();
+                self.context_initialized = true;
             }
 
             let pre_exec_pc = self.cpu.pc;
@@ -301,7 +337,6 @@ impl Emulator {
     /// We defer this until the first TRAPA because the RAM test (which runs
     /// earlier) would overwrite any values set at startup.
     fn jit_context_init(&mut self) {
-        self.context_initialized = true;
 
         // Context B stack frame for RTE:
         // H8/300H Advanced Mode: exception frame = [CCR:8|PC:24] packed longword
@@ -365,14 +400,17 @@ impl Emulator {
         // Since all SCSI commands are emulated directly at FW_SCSI_IDLE, the dispatch
         // path and handler USB calls are never reached — but NOPing them prevents
         // hangs if the firmware accidentally enters these code paths.
-        let patches: &[(u32, u32, &str)] = &[
-            // USB fast-path calls in timer ISR path
+        // USB init patches — skipped when --full-usb-init is set
+        let usb_init_patches: &[(u32, u32, &str)] = &[
             (0x012EC6, 0x5E01350A, "USB setup call (JSR @0x01350A)"),
             (0x012ECE, 0x5E013506, "USB fast-path call (JSR @0x013506)"),
-            // Main loop USB init calls (block on ISP1581 enumeration state)
             (0x02080E, 0x5E010D22, "shared module init (JSR @0x010D22)"),
             (0x020820, 0x5E01233A, "USB configure (JSR @0x01233A)"),
             (0x020824, 0x5E0126EE, "USB endpoint enable (JSR @0x0126EE)"),
+        ];
+
+        // SCSI dispatch/handler patches — always applied (unless firmware-dispatch changes this)
+        let scsi_patches: &[(u32, u32, &str)] = &[
             // Dispatch-level USB response manager calls (JSR @0x01374A)
             (0x020B22, 0x5E01374A, "dispatch response mgr (0x020B22)"),
             (0x020B3A, 0x5E01374A, "dispatch response mgr (0x020B3A)"),
@@ -400,20 +438,35 @@ impl Emulator {
         ];
 
         let mut patched = 0;
-        for &(addr, expected, desc) in patches {
+        let mut total = 0;
+
+        if !self.full_usb_init {
+            for &(addr, expected, desc) in usb_init_patches {
+                total += 1;
+                let actual = self.bus.read_long(addr);
+                if actual != expected {
+                    log::warn!("JIT: SKIP patch {} at 0x{:06X}: found 0x{:08X}, expected 0x{:08X}", desc, addr, actual, expected);
+                    continue;
+                }
+                self.bus.flash_write_long(addr, 0x00000000);
+                patched += 1;
+            }
+        } else {
+            log::info!("JIT: Skipping {} USB init patches (--full-usb-init)", usb_init_patches.len());
+        }
+
+        for &(addr, expected, desc) in scsi_patches {
+            total += 1;
             let actual = self.bus.read_long(addr);
             if actual != expected {
-                log::warn!(
-                    "JIT: SKIP patch {} at 0x{:06X}: found 0x{:08X}, expected 0x{:08X} (wrong firmware version?)",
-                    desc, addr, actual, expected
-                );
+                log::warn!("JIT: SKIP patch {} at 0x{:06X}: found 0x{:08X}, expected 0x{:08X}", desc, addr, actual, expected);
                 continue;
             }
-            self.bus.flash_write_long(addr, 0x00000000); // 2x NOP
+            self.bus.flash_write_long(addr, 0x00000000);
             patched += 1;
         }
 
-        log::info!("JIT: NOPed {}/{} USB calls in flash", patched, patches.len());
+        log::info!("JIT: NOPed {}/{} USB/SCSI calls in flash", patched, total);
     }
 
     // --- Context switch tracing ---
@@ -560,10 +613,15 @@ impl Emulator {
                         data[2] = 0x02; // SCSI-2
                         data[3] = 0x02; // Response format 2
                         if xfer_len > 4 { data[4] = 0x1F; } // Additional length
-                        // Vendor/product/revision from flash
+                        // Vendor/product/revision from flash, with model override
                         if xfer_len >= 36 {
                             for j in 0..28 {
                                 data[8 + j] = self.bus.read_byte(FW_INQUIRY_FLASH + j as u32);
+                            }
+                            // Override product string for LS-5000 model
+                            if self.model == crate::config::ScannerModel::Ls5000 {
+                                let product = b"LS-5000 ED      ";
+                                data[16..32].copy_from_slice(product);
                             }
                         }
                         self.bus.isp1581_push_to_host(&data);
@@ -685,30 +743,83 @@ impl Emulator {
 
     /// Handle SCAN (0x1B) command.
     fn handle_scan(&mut self) {
+        use crate::config::ScanPattern;
+
         let op_type = self.bus.read_byte(FW_CDB_BUFFER + 4);
-        // Synthesize test image data based on window descriptor
         let (width, height, bpp, channels) = self.parse_scan_dimensions();
         let bytes_per_pixel = if bpp > 8 { 2 } else { 1 };
         let image_size = width * height * bytes_per_pixel * channels;
 
-        // Generate gradient test pattern
+        // Try loading scan data from file if configured
+        if let Some(ref path) = self.scan_data_path {
+            match std::fs::read(path) {
+                Ok(file_data) => {
+                    if file_data.len() < image_size {
+                        log::warn!("Scan data file {} is {} bytes, expected {}. Padding with zeros.",
+                            path.display(), file_data.len(), image_size);
+                        let mut padded = file_data;
+                        padded.resize(image_size, 0);
+                        self.scan_data = padded;
+                    } else {
+                        self.scan_data = file_data[..image_size].to_vec();
+                    }
+                    self.scan_data_offset = 0;
+                    self.scan_active = true;
+                    self.scsi_good();
+                    log::info!("SCSI EMU: SCAN op={} → GOOD ({}x{} {}bpp from file, {} bytes)",
+                        op_type, width, height, bpp, self.scan_data.len());
+                    return;
+                }
+                Err(e) => {
+                    log::error!("Failed to read scan data file {}: {}", path.display(), e);
+                    self.bus.write_word(FW_SENSE_CODE, 0x0440); // Hardware Error
+                    self.scan_active = false;
+                    return;
+                }
+            }
+        }
+
         let mut data = Vec::with_capacity(image_size);
         for y in 0..height {
             for x in 0..width {
                 for ch in 0..channels {
+                    let val8 = match self.scan_pattern {
+                        ScanPattern::Gradient => match ch {
+                            0 => (x * 255 / width.max(1)) as u8,
+                            1 => (y * 255 / height.max(1)) as u8,
+                            _ => ((x + y) * 255 / (width + height).max(1)) as u8,
+                        },
+                        ScanPattern::Flat => 128,
+                        ScanPattern::Checkerboard => {
+                            if ((x / 8) + (y / 8)) % 2 == 0 { 255 } else { 0 }
+                        }
+                        ScanPattern::ColorBars => {
+                            // 8 vertical bars: White, Yellow, Cyan, Green, Magenta, Red, Blue, Black
+                            let bar = x * 8 / width.max(1);
+                            match (bar, ch) {
+                                (0, _) => 255,                         // White
+                                (1, 0) | (1, 1) => 255,               // Yellow (R+G)
+                                (1, _) => 0,
+                                (2, 1) | (2, 2) => 255,               // Cyan (G+B)
+                                (2, _) => 0,
+                                (3, 1) => 255,                         // Green
+                                (3, _) => 0,
+                                (4, 0) | (4, 2) => 255,               // Magenta (R+B)
+                                (4, _) => 0,
+                                (5, 0) => 255,                         // Red
+                                (5, _) => 0,
+                                (6, 2) => 255,                         // Blue
+                                (6, _) => 0,
+                                _ => 0,                                // Black
+                            }
+                        }
+                    };
                     if bytes_per_pixel == 2 {
-                        // 16-bit: gradient based on position
-                        let val = ((x * 65535 / width.max(1)) as u16).to_be_bytes();
-                        data.push(val[0]);
-                        data.push(val[1]);
+                        let val16 = (val8 as u16) << 8 | val8 as u16;
+                        data.push((val16 >> 8) as u8);
+                        data.push(val16 as u8);
                     } else {
-                        // 8-bit: RGB gradient
-                        let val = match ch {
-                            0 => (x * 255 / width.max(1)) as u8,        // R: left-right
-                            1 => (y * 255 / height.max(1)) as u8,       // G: top-bottom
-                            _ => ((x + y) * 255 / (width + height).max(1)) as u8, // B: diagonal
-                        };
-                        data.push(val);
+                        data.push(val8);
                     }
                 }
             }
@@ -718,15 +829,15 @@ impl Emulator {
         self.scan_data_offset = 0;
         self.scan_active = true;
         self.scsi_good();
-        log::info!("SCSI EMU: SCAN op={} → GOOD ({}x{} {}bpp, {} bytes image)",
-            op_type, width, height, bpp, self.scan_data.len());
+        log::info!("SCSI EMU: SCAN op={} pattern={:?} → GOOD ({}x{} {}bpp, {} bytes)",
+            op_type, self.scan_pattern, width, height, bpp, self.scan_data.len());
     }
 
     /// Parse scan dimensions from stored window descriptor.
     /// Returns (width_pixels, height_pixels, bits_per_pixel, channels).
     fn parse_scan_dimensions(&self) -> (usize, usize, usize, usize) {
         if self.window_descriptor.len() < 48 {
-            // No window set: return small default
+            log::warn!("SCSI EMU: No window descriptor set, using default 100x100 8bpp RGB");
             return (100, 100, 8, 3);
         }
         // Window descriptor layout (after 8-byte header):
@@ -1496,6 +1607,11 @@ impl Emulator {
 
         let decoded = decode::decode(&mut self.bus, self.cpu.pc);
 
+        // Pre-check: return Unknown without executing so callers can handle gracefully
+        if let decode::Instruction::Unknown(_) = &decoded.insn {
+            return Some(decoded);
+        }
+
         let insn_pc = self.cpu.pc;
         let new_pc = execute::execute(
             &mut self.cpu,
@@ -1533,8 +1649,11 @@ impl Emulator {
             }
 
             if !self.context_initialized && matches!(&decoded.insn, decode::Instruction::Trapa(0)) {
-                self.jit_context_init();
+                if !self.cold_boot {
+                    self.jit_context_init();
+                }
                 self.apply_flash_nop_patches();
+                self.context_initialized = true;
             }
 
             let insn_pc = self.cpu.pc;
@@ -1563,15 +1682,19 @@ impl Emulator {
     }
 
     /// Send a SCSI command (no data-out phase) and return response data.
-    /// The command is processed synchronously by the emulator's SCSI handler.
     pub fn scsi_command(&mut self, cdb: &[u8]) -> ScsiResult {
+        assert!(!cdb.is_empty(), "scsi_command: CDB must not be empty");
         for (j, &b) in cdb.iter().enumerate().take(16) {
             self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
         }
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
 
-        self.handle_scsi_command(cdb[0]);
+        if self.firmware_dispatch {
+            self.firmware_dispatch_scsi(cdb[0]);
+        } else {
+            self.handle_scsi_command(cdb[0]);
+        }
 
         let sense = self.bus.read_word(FW_SENSE_CODE);
         let data = self.bus.isp1581_drain(256 * 1024);
@@ -1585,15 +1708,19 @@ impl Emulator {
 
     /// Send a SCSI command with data-out phase (e.g., SET WINDOW, MODE SELECT, WRITE).
     pub fn scsi_command_out(&mut self, cdb: &[u8], data_out: &[u8]) -> ScsiResult {
+        assert!(!cdb.is_empty(), "scsi_command_out: CDB must not be empty");
         for (j, &b) in cdb.iter().enumerate().take(16) {
             self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
         }
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
 
-        // Push data-out to EP1 OUT FIFO before handling command
         self.bus.isp1581_inject(data_out);
-        self.handle_scsi_command(cdb[0]);
+        if self.firmware_dispatch {
+            self.firmware_dispatch_scsi(cdb[0]);
+        } else {
+            self.handle_scsi_command(cdb[0]);
+        }
 
         let sense = self.bus.read_word(FW_SENSE_CODE);
         let data = self.bus.isp1581_drain(256 * 1024);
@@ -1603,6 +1730,115 @@ impl Emulator {
             asc: (sense & 0xFF) as u8,
             data,
         }
+    }
+
+    /// Look up an opcode in the firmware dispatch table at 0x49834.
+    /// Returns the handler address if found.
+    fn lookup_handler(&mut self, opcode: u8) -> Option<u32> {
+        for i in 0..FW_DISPATCH_ENTRIES {
+            let entry = FW_DISPATCH_TABLE + (i * FW_DISPATCH_STRIDE) as u32;
+            let table_opcode = self.bus.read_byte(entry);
+            if table_opcode == opcode {
+                let handler_addr = self.bus.read_long(entry + 4);
+                return Some(handler_addr & 0x00FFFFFF);
+            }
+            // Check for null handler (end of table)
+            if self.bus.read_long(entry + 4) == 0 {
+                break;
+            }
+        }
+        None
+    }
+
+    /// Route a SCSI command through the firmware handler (handler hooking).
+    /// Saves CPU state, calls the handler directly, runs until RTS, restores state.
+    fn firmware_dispatch_scsi(&mut self, opcode: u8) {
+        let handler_addr = match self.lookup_handler(opcode) {
+            Some(addr) => addr,
+            None => {
+                // Opcode not in firmware table — set ILLEGAL REQUEST instead of
+                // silently falling back to emulator handler.
+                log::error!("FW DISPATCH: opcode 0x{:02X} not in firmware dispatch table", opcode);
+                self.scsi_illegal_request();
+                return;
+            }
+        };
+
+        log::info!("FW DISPATCH: opcode 0x{:02X} → handler at 0x{:06X}", opcode, handler_addr);
+
+        // Save CPU state
+        let saved_pc = self.cpu.pc;
+        let saved_sp = self.cpu.sp();
+        let saved_ccr = self.cpu.ccr;
+        let saved_er: [u32; 8] = self.cpu.er;
+
+        // Set up call frame: push sentinel return address, set PC to handler.
+        // Sentinel 0x0DEAD0 is in unmapped space (between flash 0x07FFFF and RAM 0x400000).
+        let sp = saved_sp - 4;
+        self.cpu.set_sp(sp);
+        self.bus.write_long(sp, FW_DISPATCH_SENTINEL);
+        self.cpu.pc = handler_addr;
+        // Mask interrupts during handler execution to prevent context switches
+        // and TRAPA-triggered control flow changes that would derail the mini-loop.
+        self.cpu.set_flag(h8300h_core::cpu::CCR_I, true);
+
+        let max_handler_insns = 500_000u64;
+        let mut executed = 0u64;
+        let mut error = false;
+
+        loop {
+            if self.cpu.pc == FW_DISPATCH_SENTINEL {
+                log::info!("FW DISPATCH: handler returned after {} instructions", executed);
+                break;
+            }
+            if executed >= max_handler_insns {
+                log::error!("FW DISPATCH: handler timeout after {} instructions at PC=0x{:06X}", executed, self.cpu.pc);
+                error = true;
+                break;
+            }
+            if self.cpu.sleeping {
+                log::error!("FW DISPATCH: handler executed SLEEP at PC=0x{:06X}", self.cpu.pc);
+                error = true;
+                break;
+            }
+
+            let decoded = decode::decode(&mut self.bus, self.cpu.pc);
+            if let decode::Instruction::Unknown(w) = &decoded.insn {
+                log::error!("FW DISPATCH: unknown instruction 0x{:04X} at PC=0x{:06X}", w, self.cpu.pc);
+                error = true;
+                break;
+            }
+            // Block TRAPA instructions — they would trigger context switches
+            if matches!(&decoded.insn, decode::Instruction::Trapa(_)) {
+                log::warn!("FW DISPATCH: skipping TRAPA at PC=0x{:06X}", self.cpu.pc);
+                self.cpu.pc += decoded.len;
+                executed += 1;
+                continue;
+            }
+
+            let insn_pc = self.cpu.pc;
+            let new_pc = execute::execute(&mut self.cpu, &mut self.bus, &decoded.insn, insn_pc, decoded.len);
+            self.cpu.pc = new_pc;
+            executed += 1;
+
+            // Sync peripherals (timers tick, ASIC countdown, etc.)
+            self.sync_peripherals();
+            self.check_peripherals();
+        }
+
+        // On error (timeout, unknown insn, SLEEP), set hardware error sense
+        // and drain any partial FIFO data to prevent stale responses.
+        if error {
+            self.bus.write_word(FW_SENSE_CODE, 0x0440); // SK=4 (Hardware Error), ASC=0x40
+            self.bus.isp1581_drain(256 * 1024); // Discard partial data
+        }
+
+        // Restore CPU state — memory side effects remain.
+        self.cpu.pc = saved_pc;
+        self.cpu.set_sp(saved_sp);
+        self.cpu.ccr = saved_ccr;
+        self.cpu.er = saved_er;
+        self.cpu.sleeping = false;
     }
 
     /// Check if scan is currently active.
