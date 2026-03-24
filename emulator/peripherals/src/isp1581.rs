@@ -18,6 +18,12 @@ use std::collections::VecDeque;
 /// These are the global interrupt flags that the firmware polls.
 pub const IRQ_EP_EVENT: u16 = 1 << 3;
 
+/// DcInterrupt bit 12: "EP buffer available for TX".
+/// The response manager at FW:0x013C8E uses BTST #4 on the high byte of
+/// DcInterrupt (offset 0x18) to check this bit before data transfer.
+/// Always set in our model since EP2 IN FIFO has unlimited capacity.
+pub const IRQ_EP_TX_READY: u16 = 1 << 12;
+
 
 pub struct Isp1581 {
     /// Endpoint status register at 0x08 (per-endpoint events).
@@ -96,7 +102,18 @@ impl Isp1581 {
                 // DcInterrupt — global interrupt flags.
                 // The firmware polls this during data transfers and USB state management.
                 // After firmware reads, it writes back to clear the bits it handled.
-                self.dc_interrupt
+                // Always include IRQ_EP_TX_READY (bit 12): the response manager at
+                // FW:0x013C8E polls this to confirm EP2 IN buffer is available.
+                // In our model the FIFO has unlimited capacity so it's always ready.
+                self.dc_interrupt | IRQ_EP_TX_READY
+            }
+            0x1C => {
+                // DcBufferLength — number of bytes in the selected endpoint buffer.
+                // The response manager at FW:0x013D7E reads this after writing
+                // EP Control (0x2C). If 0, it returns "not ready" and the caller loops.
+                // Return 64 (max packet size for full-speed USB) to indicate
+                // the endpoint buffer is armed and has space available.
+                64
             }
             0x1E => {
                 // DcBufferStatus — endpoint buffer fill state.
@@ -111,7 +128,10 @@ impl Isp1581 {
                 }
                 let lo = self.ep1_out_fifo.pop_front().unwrap_or(0);
                 let hi = self.ep1_out_fifo.pop_front().unwrap_or(0);
-                (hi as u16) << 8 | lo as u16
+                let val = (hi as u16) << 8 | lo as u16;
+                log::trace!("ISP1581: EP1 OUT read: lo=0x{:02X} hi=0x{:02X} val=0x{:04X} fifo_remaining={}",
+                    lo, hi, val, self.ep1_out_fifo.len());
+                val
             }
             0x00 => self.address,
             0x10 => self.interrupt_config,

@@ -641,3 +641,46 @@ fn test_scan_data_file_missing() {
     let r = emu.scsi_command(&cdb_scan(0));
     assert_ne!(r.sense_key, 0, "SCAN with missing file should fail, not silently succeed");
 }
+
+// --- Phase 7 Gate: ISP1581 Register Access Trace ---
+
+/// Phase 7.0 GATE: Trace ISP1581 register accesses during INQUIRY firmware dispatch.
+///
+/// This test un-NOPs the INQUIRY handler's 2 USB call patches, then runs INQUIRY
+/// via firmware dispatch. The ISP1581 trace logs (RUST_LOG=trace) reveal:
+/// 1. Which ISP1581 register offsets the response manager (0x01374A) accesses
+/// 2. Which DcInterrupt bits the firmware checks for completion
+/// 3. Whether execution enters RAM USB code at 0x4010A0-0x4011A2
+///
+/// Run with: RUST_LOG=info,peripherals::isp1581=trace cargo test gate_trace_inquiry -- --nocapture
+#[test]
+fn gate_trace_inquiry_isp1581_access() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // Restore INQUIRY handler's 2 NOPed calls to their original JSR instructions:
+    //   0x026042: JSR @0x01374A (response manager)
+    //   0x02604A: JSR @0x014090 (data transfer)
+    emu.restore_flash_patch(0x026042, 0x5E01374A);
+    emu.restore_flash_patch(0x02604A, 0x5E014090);
+
+    // Run INQUIRY via firmware dispatch with USB calls un-NOPed.
+    // CDB is injected into EP1 OUT FIFO by scsi_command().
+    let r = emu.scsi_command(&cdb_inquiry(36));
+
+    // Handler completes GOOD. USB data transfer doesn't produce output yet
+    // because 0x407DCA (transfer unit size) isn't set by the response manager's
+    // incomplete USB handshake. The data send function at 0x01232E does
+    // DIVXU.W R1,ER0 where R1=@0x407DCA; if R1=0, it returns without writing.
+    //
+    // Phase 7.0 Gate verified:
+    // - DcInterrupt bit 12 (0x1000) = EP TX Ready check
+    // - DcBufferLength (0x1C) must return non-zero
+    // - Firmware uses PIO to EP Data Port, not ISP1581 DMA engine
+    // - No RAM USB code (0x4010A0) involvement
+    // - Register catalog: 0x18, 0x1C, 0x20, 0x28, 0x2C
+    // - Data path requires 0x407DCA set by response manager handshake
+    assert_eq!(r.sense_key, 0, "FW INQUIRY should complete GOOD");
+}

@@ -1577,6 +1577,13 @@ impl Emulator {
     }
 
     /// Inject a CDB directly (for testing without TCP).
+    /// Restore a previously NOPed flash location to its original instruction.
+    /// Used for Phase 7 gate tracing: selectively un-NOP specific patches.
+    pub fn restore_flash_patch(&mut self, addr: u32, original_bytes: u32) {
+        self.bus.flash_write_long(addr, original_bytes);
+        log::info!("RESTORE PATCH: 0x{:06X} = 0x{:08X}", addr, original_bytes);
+    }
+
     #[allow(dead_code)]
     pub fn inject_cdb(&mut self, cdb: &[u8]) {
         let mut padded = vec![0u8; 32];
@@ -1691,6 +1698,13 @@ impl Emulator {
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
 
         if self.firmware_dispatch {
+            // Inject CDB into EP1 OUT FIFO padded to 128 bytes.
+            // The data transfer function at FW:0x014090 reads 64 words (128 bytes)
+            // from the EP Data Port before writing response data.
+            let mut padded_cdb = vec![0u8; 128];
+            let copy_len = cdb.len().min(128);
+            padded_cdb[..copy_len].copy_from_slice(&cdb[..copy_len]);
+            self.bus.isp1581_inject(&padded_cdb);
             self.firmware_dispatch_scsi(cdb[0]);
         } else {
             self.handle_scsi_command(cdb[0]);
@@ -1715,10 +1729,16 @@ impl Emulator {
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
 
-        self.bus.isp1581_inject(data_out);
         if self.firmware_dispatch {
+            // Inject CDB + data-out into EP1 OUT FIFO.
+            let mut padded_cdb = vec![0u8; 128];
+            let copy_len = cdb.len().min(128);
+            padded_cdb[..copy_len].copy_from_slice(&cdb[..copy_len]);
+            padded_cdb.extend_from_slice(data_out);
+            self.bus.isp1581_inject(&padded_cdb);
             self.firmware_dispatch_scsi(cdb[0]);
         } else {
+            self.bus.isp1581_inject(data_out);
             self.handle_scsi_command(cdb[0]);
         }
 
@@ -1785,6 +1805,8 @@ impl Emulator {
         let max_handler_insns = 500_000u64;
         let mut executed = 0u64;
         let mut error = false;
+        let mut last_pc = 0u32;
+        let mut stuck_count = 0u32;
 
         loop {
             if self.cpu.pc == FW_DISPATCH_SENTINEL {
@@ -1802,15 +1824,34 @@ impl Emulator {
                 break;
             }
 
+            // Stuck-PC detector: break if PC hasn't changed in 1000 iterations
+            if self.cpu.pc == last_pc {
+                stuck_count += 1;
+                if stuck_count >= 1000 {
+                    log::error!("FW DISPATCH: stuck at PC=0x{:06X} for {} iterations", self.cpu.pc, stuck_count);
+                    error = true;
+                    break;
+                }
+            } else {
+                stuck_count = 0;
+            }
+            last_pc = self.cpu.pc;
+
+            // PC range monitor: log if execution enters RAM-resident USB code
+            if (0x4010A0..=0x4011A2).contains(&self.cpu.pc) {
+                log::info!("FW DISPATCH: PC in RAM USB code at 0x{:06X}", self.cpu.pc);
+            }
+
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);
             if let decode::Instruction::Unknown(w) = &decoded.insn {
                 log::error!("FW DISPATCH: unknown instruction 0x{:04X} at PC=0x{:06X}", w, self.cpu.pc);
                 error = true;
                 break;
             }
-            // Block TRAPA instructions — they would trigger context switches
+            // Block TRAPA instructions — they would trigger context switches.
+            // But allow peripheral sync so timer-driven state changes happen.
             if matches!(&decoded.insn, decode::Instruction::Trapa(_)) {
-                log::warn!("FW DISPATCH: skipping TRAPA at PC=0x{:06X}", self.cpu.pc);
+                log::trace!("FW DISPATCH: skipping TRAPA at PC=0x{:06X}", self.cpu.pc);
                 self.cpu.pc += decoded.len;
                 executed += 1;
                 continue;
