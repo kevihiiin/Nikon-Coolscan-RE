@@ -1691,17 +1691,20 @@ impl Emulator {
     /// Send a SCSI command (no data-out phase) and return response data.
     pub fn scsi_command(&mut self, cdb: &[u8]) -> ScsiResult {
         assert!(!cdb.is_empty(), "scsi_command: CDB must not be empty");
-        for (j, &b) in cdb.iter().enumerate().take(16) {
-            self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
-        }
+        // Write CDB to parsed-CDB area and opcode. For firmware dispatch, DON'T
+        // write to FW_CDB_BUFFER (0x4007DE) because REQUEST SENSE handler uses
+        // that address for pre-built sense response data. The firmware's dispatcher
+        // reads the opcode from 0x4007B6 and the CDB from EP1 OUT FIFO.
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
-        // Also write CDB to the parsed-CDB area at 0x4007B6. The SCSI dispatcher
-        // normally copies CDB bytes here before calling the handler. Since we call
-        // handlers directly (bypassing the dispatcher), we must populate this area.
-        // Handlers read allocation length and flags from 0x4007B6+offset.
         for (j, &b) in cdb.iter().enumerate().take(16) {
             self.bus.write_byte(0x4007B6 + j as u32, b);
+        }
+        if !self.firmware_dispatch {
+            // Rust emulation reads CDB from FW_CDB_BUFFER
+            for (j, &b) in cdb.iter().enumerate().take(16) {
+                self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
+            }
         }
 
         if self.firmware_dispatch {
@@ -1867,41 +1870,11 @@ impl Emulator {
             }
             last_pc = self.cpu.pc;
 
-            // PC range monitor: log if execution enters key code regions
-            if (0x4010A0..=0x4011A2).contains(&self.cpu.pc) {
-                log::info!("FW DISPATCH: PC in RAM USB code at 0x{:06X}", self.cpu.pc);
-            }
-            if self.cpu.pc == 0x01374A {
-                log::info!("FW DISPATCH: entered response manager at insn {} R5=0x{:04X}", executed, self.cpu.er[5] as u16);
-            }
-            // Trace R5 at key points in INQUIRY handler to find where byte count should be set
-            if self.cpu.pc == 0x025E1C { // after CDB read returns
-                log::info!("FW DISPATCH: after CDB read R5=0x{:04X} R0=0x{:04X} R1=0x{:04X} ER0=0x{:08X}",
-                    self.cpu.er[5] as u16, self.cpu.er[0] as u16, self.cpu.er[1] as u16, self.cpu.er[0]);
-            }
+            // Clear USB event/abort flag when entering data transfer function.
+            // The response manager's exit path sets 0x400085=1 (because opcode
+            // ≠ 0xD0 phase query). The data transfer loop checks it as abort.
             if self.cpu.pc == 0x014090 {
-                // Clear 0x400085 (USB event/abort flag). The response manager's
-                // exit path sets this to 1 via FW:0x0137A2 (because current opcode
-                // ≠ 0xD0 phase query). The data transfer loop at 0x0140CA checks
-                // it as an abort condition. In real hardware, the host's data-phase
-                // setup clears this flag before data transfer begins.
                 self.bus.write_byte(0x400085, 0);
-                log::info!("FW DISPATCH: entered data transfer 0x014090 at insn {}", executed);
-            }
-            if self.cpu.pc == 0x0140AE {
-                log::info!("FW DISPATCH: before DIVXU call R0=0x{:04X} @0x407DCA=0x{:04X}",
-                    self.cpu.er[0] as u16, self.bus.read_word(0x407DCA));
-            }
-            if self.cpu.pc == 0x0140B4 {
-                log::info!("FW DISPATCH: after DIVXU R0(quotient)=0x{:04X} R5=0x{:04X} → BEQ={}",
-                    self.cpu.er[0] as u16, self.cpu.er[5] as u16, self.cpu.er[0] as u16 == 0);
-            }
-            if self.cpu.pc == 0x012304 {
-                log::info!("FW DISPATCH: WRITE FUNCTION 0x012304 ER0=0x{:08X} R1=0x{:04X}",
-                    self.cpu.er[0], self.cpu.er[1] as u16);
-            }
-            if self.cpu.pc == 0x0109E2 {
-                log::info!("FW DISPATCH: entered yield function 0x0109E2 at insn {}", executed);
             }
 
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);

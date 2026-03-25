@@ -690,28 +690,64 @@ fn gate_trace_inquiry_isp1581_access() {
     if let Some(pos) = r.data.windows(5).position(|w| w == b"Nikon") {
         eprintln!("  Found 'Nikon' at offset {}", pos);
     }
+}
 
-    // Check INQUIRY buffer in RAM: was it populated during firmware boot?
-    let mut ram_buf = Vec::new();
-    for i in 0..36u32 {
-        ram_buf.push(emu.bus.read_byte(0x4008A2 + i));
+/// Phase 7.1: Test REQUEST SENSE via firmware dispatch with un-NOPed USB calls.
+/// REQUEST SENSE returns 18 bytes of fixed-format sense data — simpler than INQUIRY.
+#[test]
+fn gate_firmware_request_sense() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // Un-NOP REQUEST SENSE handler's USB calls:
+    //   0x021932: JSR @0x01374A (response manager)
+    //   0x02193A: JSR @0x014090 (data transfer)
+    emu.restore_flash_patch(0x021932, 0x5E01374A);
+    emu.restore_flash_patch(0x02193A, 0x5E014090);
+
+    // Pre-build sense response template at 0x4007DE. The REQUEST SENSE handler
+    // copies 19 bytes from 0x4007DE to stack and sends via USB.
+    // scsi_command() no longer writes CDB to 0x4007DE in firmware_dispatch mode,
+    // so this template will survive to the handler's read.
+    let sense_template: [u8; 19] = [
+        0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+    ];
+    for (j, &b) in sense_template.iter().enumerate() {
+        emu.bus.write_byte(0x4007DE + j as u32, b);
     }
-    eprintln!("  RAM @0x4008A2 (INQUIRY buffer): {:02X?}", &ram_buf[..8]);
-    if ram_buf[8..16].iter().any(|&b| b != 0) {
-        let vendor = String::from_utf8_lossy(&ram_buf[8..16]);
-        let product = String::from_utf8_lossy(&ram_buf[16..32]);
-        eprintln!("  vendor='{}' product='{}'", vendor, product);
-    } else {
-        eprintln!("  (vendor/product bytes are zero — handler didn't populate from flash template)");
-        // Check adapter state at 0x400773
-        let adapter = emu.bus.read_byte(0x400773);
-        eprintln!("  adapter_state @0x400773 = 0x{:02X}", adapter);
-        // Check the INQUIRY flash template directly
-        let mut flash_buf = Vec::new();
-        for i in 0..36u32 {
-            flash_buf.push(emu.bus.read_byte(0x170CE + i));
+
+    let r = emu.scsi_command(&cdb_request_sense(18));
+
+    eprintln!("FW REQUEST SENSE: sense_key={}, data_len={}", r.sense_key, r.data.len());
+    if !r.data.is_empty() {
+        eprintln!("  data: {:02X?}", &r.data[..r.data.len().min(18)]);
+    }
+
+    assert_eq!(r.sense_key, 0, "FW REQUEST SENSE should return GOOD");
+
+    if !r.data.is_empty() {
+        // Compare against Rust emulation
+        let mut config_emu = Config::test_default();
+        config_emu.firmware_dispatch = false;
+        let mut emu2 = boot_with_config(&config_emu);
+        emu2.bus.write_word(0x4007B0, 0x0000);
+        let r_emu = emu2.scsi_command(&cdb_request_sense(18));
+
+        eprintln!("EMU REQUEST SENSE: data_len={}", r_emu.data.len());
+        if !r_emu.data.is_empty() {
+            eprintln!("  data: {:02X?}", &r_emu.data[..r_emu.data.len().min(18)]);
         }
-        let flash_vendor = String::from_utf8_lossy(&flash_buf[8..16]);
-        eprintln!("  flash template @0x170CE vendor='{}'", flash_vendor);
+
+        if r.data.len() >= 18 && r_emu.data.len() >= 18 {
+            let fw_sk = r.data[2] & 0x0F;
+            let emu_sk = r_emu.data[2] & 0x0F;
+            eprintln!("  FW sense_key_in_data={}, EMU sense_key_in_data={}", fw_sk, emu_sk);
+            assert_eq!(fw_sk, emu_sk, "Sense key in data should match");
+        }
     }
 }
+
