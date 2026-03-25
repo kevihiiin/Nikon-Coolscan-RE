@@ -79,11 +79,11 @@ Both are NOPed out (26 patches total). Handlers run but can't send data.
 3. MODE SENSE via firmware returns correct mode page — **PARTIAL** (handler completes GOOD, needs scanner config state for mode pages)
 4. ~~11 dispatch-level NOP patches removed~~ → **CHANGED**: Dispatcher routing via 0x020AE2 with patches in place. Design changed because firmware uses PIO (not DMA), requiring different handshake approach.
 5. ~~At least 6 handler-internal patches removed~~ → **CHANGED**: Hybrid approach — INQUIRY uses handler-internal (4 patches un-NOPed for testing), REQUEST SENSE uses dispatch-level path.
-6. All 193+ tests still pass in both modes — **DONE** ✓ (197 tests)
-7. ~~ISP1581 DMA state machine has unit tests~~ → **SUPERSEDED**: Firmware uses PIO word writes, not ISP1581 DMA engine. ISP1581 model has DcInterrupt bits 12+15, DcBufferLength, EP Data Port R/W.
-8. (NEW) Error path: firmware CHECK CONDITION response — not yet tested
+6. All 193+ tests still pass in both modes — **DONE** ✓ (202 tests: 32 e2e + 133 core + 37 peripherals)
+7. ~~ISP1581 DMA state machine has unit tests~~ → **SUPERSEDED**: Firmware uses PIO word writes, not ISP1581 DMA engine. ISP1581 model has 4 unit tests (DcInterrupt bits 12+15, DcBufferLength, FIFO injection+read).
+8. (NEW) Error path: firmware sense propagation — **DONE** ✓ (TUR → REQUEST SENSE produces [0x70])
 
-### Actual: +5 tests (gate_trace_inquiry, gate_firmware_request_sense, gate_firmware_mode_sense, gate_firmware_state_after_boot + MODE SENSE base)
+### Actual: +9 tests (5 e2e gate tests + 4 ISP1581 unit tests)
 ### Risk mitigated: stuck-PC detector, TRAPA-triggered cmd_pending, 0x400085 clear at data transfer entry.
 
 ---

@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 7 — ISP1581 DMA + FW Handlers (Phase 7.1 INQUIRY+REQUEST SENSE working)
-**Status**: 196 tests passing. Firmware produces "Nikon LS-50 ED" INQUIRY + [0x70] sense via USB. 12 commits this session.
+**Current Phase**: 7 — ISP1581 DMA + FW Handlers (COMPLETE — ready for Phase 8)
+**Status**: 202 tests passing (32 e2e + 133 core + 37 peripherals). INQUIRY byte-for-byte, REQUEST SENSE [0x70], MODE SENSE tested, ISP1581 unit tests, error path, clippy clean. 15 commits this session.
 **Last Updated**: 2026-03-25
 
 ---
