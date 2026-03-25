@@ -351,6 +351,62 @@ mod tests {
     }
 
     #[test]
+    fn test_dc_interrupt_tx_ready_always_set() {
+        let mut isp = Isp1581::new();
+        // DcInterrupt bit 12 (IRQ_EP_TX_READY) should always be set on read
+        let val = isp.read_word(0x18);
+        assert_eq!(val & IRQ_EP_TX_READY, IRQ_EP_TX_READY, "TX_READY should be set");
+
+        // Even after write-back-clear, it should still appear set
+        isp.write_word(0x18, IRQ_EP_TX_READY);
+        let val = isp.read_word(0x18);
+        assert_eq!(val & IRQ_EP_TX_READY, IRQ_EP_TX_READY, "TX_READY persists after clear");
+    }
+
+    #[test]
+    fn test_dc_interrupt_tx_complete_on_write() {
+        let mut isp = Isp1581::new();
+        // Before any EP Data Port write, bit 15 should not be in dc_interrupt
+        assert_eq!(isp.dc_interrupt & IRQ_EP_TX_COMPLETE, 0, "TX_COMPLETE not set initially");
+
+        // Write to EP Data Port (0x20) should set bits 3, 12, 15
+        isp.write_word(0x20, 0x1234);
+        assert_eq!(isp.dc_interrupt & IRQ_EP_EVENT, IRQ_EP_EVENT, "EP_EVENT set");
+        assert_eq!(isp.dc_interrupt & IRQ_EP_TX_READY, IRQ_EP_TX_READY, "TX_READY set");
+        assert_eq!(isp.dc_interrupt & IRQ_EP_TX_COMPLETE, IRQ_EP_TX_COMPLETE, "TX_COMPLETE set");
+
+        // Data should be in EP2 IN FIFO (LE byte order)
+        let data = isp.host_recv_ep2(2);
+        assert_eq!(data, vec![0x34, 0x12], "EP2 IN data should be LE");
+    }
+
+    #[test]
+    fn test_dc_buffer_length() {
+        let mut isp = Isp1581::new();
+        // DcBufferLength at offset 0x1C should return 64 (max packet size)
+        assert_eq!(isp.read_word(0x1C), 64);
+    }
+
+    #[test]
+    fn test_ep1_fifo_injection_and_read() {
+        let mut isp = Isp1581::new();
+        // Inject 6-byte CDB padded to 8 bytes
+        isp.host_send_ep1(&[0x12, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00]);
+        assert_eq!(isp.ep1_last_inject_size, 8);
+        assert!(isp.irq_pending);
+
+        // Read 4 words (8 bytes) from EP Data Port
+        let w0 = isp.read_word(0x20); // lo=0x12, hi=0x00 → 0x0012
+        assert_eq!(w0, 0x0012, "First word should be INQUIRY opcode");
+        let w1 = isp.read_word(0x20); // lo=0x00, hi=0x00 → 0x0000
+        assert_eq!(w1, 0x0000);
+        let w2 = isp.read_word(0x20); // lo=0x24, hi=0x00 → 0x0024
+        assert_eq!(w2, 0x0024, "Third word should contain alloc length");
+        let w3 = isp.read_word(0x20); // lo=0x00, hi=0x00 → 0x0000
+        assert_eq!(w3, 0x0000);
+    }
+
+    #[test]
     fn test_irq_clear() {
         let mut isp = Isp1581::new();
         isp.host_send_ep1(&[0x00]);
