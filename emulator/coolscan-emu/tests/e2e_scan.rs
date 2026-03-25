@@ -1425,6 +1425,78 @@ fn post_flash_log_write() {
     assert_eq!(before, after, "Non-log flash area should be read-only");
 }
 
+/// READ DTC=0x84 (calibration data) returns GOOD with 6 bytes.
+#[test]
+fn post_read_calibration_data() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    let r = emu.scsi_command(&cdb_read(0x84, 0, 64));
+    assert_eq!(r.sense_key, 0, "READ DTC=0x84 should return GOOD");
+    assert_eq!(r.data.len(), 6, "Calibration data is 6 bytes");
+}
+
+/// READ DTC=0xE0 (extended config) returns GOOD.
+#[test]
+fn post_read_ext_config() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    let r = emu.scsi_command(&cdb_read(0xE0, 0, 32));
+    assert_eq!(r.sense_key, 0, "READ DTC=0xE0 should return GOOD");
+    assert_eq!(r.data.len(), 32, "Should return 32 bytes");
+}
+
+/// WRITE DTC=0x88 (boundary data) accepts data.
+#[test]
+fn post_write_boundary() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    let boundary = vec![0u8; 644];
+    let r = emu.scsi_command_out(&cdb_write(0x88, 0, 644), &boundary);
+    assert_eq!(r.sense_key, 0, "WRITE DTC=0x88 should return GOOD");
+}
+
+/// WRITE DTC=0xE0 (extended config) accepts data.
+#[test]
+fn post_write_ext_config() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    let config_data = vec![0u8; 32];
+    let r = emu.scsi_command_out(&cdb_write(0xE0, 0, 32), &config_data);
+    assert_eq!(r.sense_key, 0, "WRITE DTC=0xE0 should return GOOD");
+}
+
+/// Strip adapter (SF-210) reports 6 frames in VPD 0xC0.
+#[test]
+fn post_strip_adapter_vpd() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.adapter = peripherals::gpio::AdapterType::SfStrip;
+    let mut emu = boot_with_config(&config);
+
+    let r = emu.scsi_command(&cdb_inquiry_evpd(0xC0, 9));
+    assert!(r.is_good(), "VPD 0xC0 should return GOOD for strip adapter");
+    assert_eq!(r.data.len(), 9);
+    assert_eq!(r.data[4], 0x06, "SF-210 strip: 6 frames");
+}
+
+/// No-adapter defaults to 1 frame in VPD 0xC0 (fallback behavior).
+#[test]
+fn post_no_adapter_vpd() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.adapter = peripherals::gpio::AdapterType::None;
+    let mut emu = boot_with_config(&config);
+
+    let r = emu.scsi_command(&cdb_inquiry_evpd(0xC0, 9));
+    assert!(r.is_good(), "VPD 0xC0 should return GOOD with no adapter");
+    assert_eq!(r.data.len(), 9);
+    assert_eq!(r.data[4], 0x01, "No adapter: defaults to 1 frame (fallback)");
+}
+
 /// Multi-pass scan: second SCAN regenerates data.
 #[test]
 fn post_multi_pass_scan() {
@@ -1456,5 +1528,83 @@ fn post_multi_pass_scan() {
     let r = emu.scsi_command(&cdb_read(0x00, 0x00, 1024));
     assert_eq!(r.sense_key, 0, "READ pass 2");
     assert!(!r.data.is_empty(), "Pass 2 should return data");
+}
+
+/// READ DTC=0x00 without active scan returns CHECK CONDITION.
+#[test]
+fn post_read_image_no_scan() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // READ image data without SCAN command → NOT READY
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 4096));
+    assert_ne!(r.sense_key, 0, "READ without scan should fail");
+    assert_eq!(r.sense_key, 2, "Should be NOT READY (SK=2)");
+}
+
+/// INQUIRY EVPD with small alloc_len doesn't panic.
+#[test]
+fn post_inquiry_evpd_small_alloc() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // alloc_len=1: should return 1 byte (device type only)
+    let r = emu.scsi_command(&cdb_inquiry_evpd(0x00, 1));
+    assert!(r.is_good(), "INQUIRY EVPD alloc_len=1 should not panic");
+    assert_eq!(r.data.len(), 1);
+    assert_eq!(r.data[0], 0x06, "Device type should be scanner");
+
+    // alloc_len=0: should return empty
+    let r = emu.scsi_command(&cdb_inquiry_evpd(0x00, 0));
+    assert!(r.is_good(), "INQUIRY EVPD alloc_len=0 should not panic");
+    assert!(r.data.is_empty());
+
+    // alloc_len=2 for page 0xC0
+    let r = emu.scsi_command(&cdb_inquiry_evpd(0xC0, 2));
+    assert!(r.is_good(), "INQUIRY EVPD 0xC0 alloc_len=2 should not panic");
+    assert_eq!(r.data.len(), 2);
+}
+
+/// Standard INQUIRY with small alloc_len doesn't panic.
+#[test]
+fn post_inquiry_small_alloc() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    let r = emu.scsi_command(&cdb_inquiry(1));
+    assert!(r.is_good());
+    assert_eq!(r.data.len(), 1);
+    assert_eq!(r.data[0], 0x06);
+
+    let r = emu.scsi_command(&cdb_inquiry(0));
+    assert!(r.is_good());
+    assert!(r.data.is_empty());
+}
+
+/// SCAN without SET WINDOW uses defaults.
+#[test]
+fn post_scan_without_set_window() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // SCAN without prior SET WINDOW — should use default dimensions
+    let r = emu.scsi_command(&cdb_scan(0));
+    assert_eq!(r.sense_key, 0, "SCAN without SET WINDOW should use defaults");
+    assert!(emu.is_scan_active());
+
+    // READ should return data (default pattern)
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 1024));
+    assert_eq!(r.sense_key, 0, "READ should work with default scan");
+    assert!(!r.data.is_empty(), "Should have data from default scan");
+}
+
+/// INQUIRY EVPD with unsupported page returns ILLEGAL REQUEST.
+#[test]
+fn post_inquiry_evpd_bad_page() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    let r = emu.scsi_command(&cdb_inquiry_evpd(0xFF, 16));
+    assert_eq!(r.sense_key, 5, "Unsupported VPD page should return ILLEGAL REQUEST");
 }
 

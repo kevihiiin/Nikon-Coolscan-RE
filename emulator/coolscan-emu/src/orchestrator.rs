@@ -594,8 +594,8 @@ impl Emulator {
                             let pages = [0x00u8, 0xC0, 0xC1]; // Minimal: supported pages + 2 adapter pages
                             let xfer_len = alloc_len.min(pages.len() + 4);
                             let mut data = vec![0u8; xfer_len];
-                            data[0] = 0x06; // Device type: scanner
-                            data[3] = pages.len() as u8; // Page length
+                            if xfer_len > 0 { data[0] = 0x06; } // Device type: scanner
+                            if xfer_len > 3 { data[3] = pages.len() as u8; } // Page length
                             for (i, &p) in pages.iter().enumerate() {
                                 if 4 + i < xfer_len { data[4 + i] = p; }
                             }
@@ -607,9 +607,9 @@ impl Emulator {
                             // 5 bytes of CCD config data per data-tables.md.
                             let xfer_len = alloc_len.min(9);
                             let mut data = vec![0u8; xfer_len];
-                            data[0] = 0x06; // Device type: scanner
-                            data[1] = 0xC0; // Page code
-                            data[3] = 5;    // Page length
+                            if xfer_len > 0 { data[0] = 0x06; } // Device type: scanner
+                            if xfer_len > 1 { data[1] = 0xC0; } // Page code
+                            if xfer_len > 3 { data[3] = 5; }    // Page length
                             // Per-adapter CCD readout config
                             let adapter = self.peripherals.gpio.adapter_type();
                             match adapter {
@@ -641,9 +641,9 @@ impl Emulator {
                             // 5 bytes per data-tables.md.
                             let xfer_len = alloc_len.min(9);
                             let mut data = vec![0u8; xfer_len];
-                            data[0] = 0x06; // Device type
-                            data[1] = 0xC1; // Page code
-                            data[3] = 5;    // Page length
+                            if xfer_len > 0 { data[0] = 0x06; } // Device type
+                            if xfer_len > 1 { data[1] = 0xC1; } // Page code
+                            if xfer_len > 3 { data[3] = 5; }    // Page length
                             // Max resolution capability
                             if xfer_len > 4 { data[4] = 0x04; } // 4000 DPI max (high byte)
                             if xfer_len > 5 { data[5] = 0xB0; } // 4000 DPI max (0x04B0 = 1200)
@@ -663,9 +663,9 @@ impl Emulator {
                     if xfer_len > 0 {
                         let mut data = vec![0u8; xfer_len];
                         data[0] = 0x06; // Device type: scanner
-                        data[1] = 0x80; // RMB: removable media (film)
-                        data[2] = 0x02; // SCSI-2
-                        data[3] = 0x02; // Response format 2
+                        if xfer_len > 1 { data[1] = 0x80; } // RMB: removable media (film)
+                        if xfer_len > 2 { data[2] = 0x02; } // SCSI-2
+                        if xfer_len > 3 { data[3] = 0x02; } // Response format 2
                         if xfer_len > 4 { data[4] = 0x1F; } // Additional length
                         // Vendor/product/revision from flash, with model override
                         if xfer_len >= 36 {

@@ -380,3 +380,86 @@ fn find_udc() -> Result<String, String> {
 fn write_file(path: &Path, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(|e| format!("write {}: {e}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ffs_descriptors_structure() {
+        let desc = build_ffs_descriptors();
+        // Magic number (LE u32) = 3 (FUNCTIONFS_DESCRIPTORS_MAGIC_V2)
+        assert_eq!(u32::from_le_bytes(desc[0..4].try_into().unwrap()), 3);
+        // Length field at bytes 4-7 should match actual length
+        let len = u32::from_le_bytes(desc[4..8].try_into().unwrap());
+        assert_eq!(len as usize, desc.len());
+        // Flags at bytes 8-11: HAS_FS_DESC | HAS_HS_DESC = 3
+        let flags = u32::from_le_bytes(desc[8..12].try_into().unwrap());
+        assert_eq!(flags, 3);
+        // FS descriptor count at bytes 12-15: 3 (1 interface + 2 endpoints)
+        let fs_count = u32::from_le_bytes(desc[12..16].try_into().unwrap());
+        assert_eq!(fs_count, 3);
+        // HS descriptor count at bytes 16-19: 3
+        let hs_count = u32::from_le_bytes(desc[16..20].try_into().unwrap());
+        assert_eq!(hs_count, 3);
+        // FS interface descriptor starts at byte 20, bLength=9, bDescriptorType=4
+        assert_eq!(desc[20], 9);
+        assert_eq!(desc[21], 4);
+        // FS EP1 OUT: bEndpointAddress=0x01, bmAttributes=0x02 (bulk)
+        assert_eq!(desc[29 + 2], 0x01);
+        assert_eq!(desc[29 + 3], 0x02);
+        // FS EP2 IN: bEndpointAddress=0x82, bmAttributes=0x02 (bulk)
+        assert_eq!(desc[36 + 2], 0x82);
+        assert_eq!(desc[36 + 3], 0x02);
+    }
+
+    #[test]
+    fn test_ffs_descriptors_hs_packet_size() {
+        let desc = build_ffs_descriptors();
+        // High-speed descriptors start after FS: 20 (header) + 9+7+7 = 43
+        let hs_start = 20 + 9 + 7 + 7; // = 43
+        // HS interface descriptor
+        assert_eq!(desc[hs_start], 9);
+        assert_eq!(desc[hs_start + 1], 4);
+        // HS EP1 OUT: wMaxPacketSize = 512 (0x0200 LE)
+        let ep1_start = hs_start + 9;
+        assert_eq!(desc[ep1_start + 4], 0x00); // low byte
+        assert_eq!(desc[ep1_start + 5], 0x02); // high byte = 512
+        // HS EP2 IN: wMaxPacketSize = 512
+        let ep2_start = ep1_start + 7;
+        assert_eq!(desc[ep2_start + 4], 0x00);
+        assert_eq!(desc[ep2_start + 5], 0x02);
+    }
+
+    #[test]
+    fn test_ffs_strings_structure() {
+        let strings = build_ffs_strings();
+        // Magic = 2 (FUNCTIONFS_STRINGS_MAGIC)
+        assert_eq!(u32::from_le_bytes(strings[0..4].try_into().unwrap()), 2);
+        // Length field matches actual length
+        let len = u32::from_le_bytes(strings[4..8].try_into().unwrap());
+        assert_eq!(len as usize, strings.len());
+        // str_count = 1
+        assert_eq!(u32::from_le_bytes(strings[8..12].try_into().unwrap()), 1);
+        // lang_count = 1
+        assert_eq!(u32::from_le_bytes(strings[12..16].try_into().unwrap()), 1);
+        // Language ID = 0x0409 (English)
+        assert_eq!(u16::from_le_bytes(strings[16..18].try_into().unwrap()), 0x0409);
+        // String 1 should be null-terminated "Coolscan Scanner"
+        let str_bytes = &strings[18..];
+        assert!(str_bytes.ends_with(&[0]));
+        let s = std::str::from_utf8(&str_bytes[..str_bytes.len() - 1]).unwrap();
+        assert_eq!(s, "Coolscan Scanner");
+    }
+
+    #[test]
+    fn test_gadget_bridge_default() {
+        let bridge = GadgetBridge::new();
+        assert!(!bridge.connected);
+        assert!(bridge.ep0.is_none());
+        assert!(bridge.ep1_out.is_none());
+        assert!(bridge.ep2_in.is_none());
+        assert!(bridge.udc.is_none());
+        assert!(!bridge.is_connected());
+    }
+}

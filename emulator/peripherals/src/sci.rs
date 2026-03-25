@@ -31,3 +31,27 @@ impl Default for Sci {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_ssr_flags() {
+        let sci = Sci::new();
+        // TDRE=1 (bit 7), RDRF=0 (bit 6) → 0x84
+        assert_eq!(sci.ssr, 0x84);
+        assert_eq!(sci.ssr & 0x80, 0x80, "TDRE should be set (transmit ready)");
+        assert_eq!(sci.ssr & 0x40, 0x00, "RDRF should be clear (no data)");
+    }
+
+    #[test]
+    fn test_default_register_values() {
+        let sci = Sci::new();
+        assert_eq!(sci.smr, 0);
+        assert_eq!(sci.brr, 0xFF);
+        assert_eq!(sci.scr, 0);
+        assert_eq!(sci.tdr, 0xFF);
+        assert_eq!(sci.rdr, 0);
+    }
+}

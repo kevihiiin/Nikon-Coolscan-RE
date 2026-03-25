@@ -1,8 +1,43 @@
 # Emulator Development Log
 
-**Current Phase**: 11 — Real USB & Integration (COMPLETE)
-**Status**: 240 tests (51 e2e + 133 core + 56 peripherals). All phases complete.
+**Current Phase**: Post-11 — E2E Readiness Audit (COMPLETE)
+**Status**: 269 tests (68 e2e + 139 core + 58 peripherals + 4 bridge). All phases complete.
 **Last Updated**: 2026-03-25
+
+---
+
+## Session 17 — 2026-03-25
+
+**Phase**: Post-11 — Full emulator audit and E2E readiness check
+**Goals**: Verify all components implemented, add missing tests, fix failures, document
+**Accomplished**:
+- Full codebase audit: no TODO/FIXME/unimplemented!() markers found
+- All 21 SCSI opcodes confirmed covered in E2E tests
+- All 11 emulator phases confirmed complete in design-gaps.md
+- Clippy: 0 warnings
+- Added 12 new tests:
+  - Bridge crate (4): FFS descriptors structure validation, HS packet size check, FFS strings structure, GadgetBridge default state
+  - SCI stub (2): default SSR flags (TDRE=1, RDRF=0 = 0x84), register reset values
+  - E2E READ DTCs (2): DTC 0x84 (cal, 6 bytes), DTC 0xE0 (ext config, 32 bytes)
+  - E2E WRITE DTCs (2): DTC 0x88 (boundary, 644 bytes), DTC 0xE0 (ext config, 32 bytes)
+  - E2E adapter variants (2): SF-210 strip (6 frames), None adapter (1 frame default)
+- Fixed 2 initial test failures: READ DTC=0x84 capped at 6 bytes, None adapter defaults to 1 frame
+- Stubs reviewed and confirmed intentional: SCI (polled I/O, SSR=0x84), ADC (mid-range 0x200), WDT (disabled by default), decode.rs 01C0/01D0 prefix (never hit by firmware)
+- Bridge crate: gadget.rs requires Linux USB hardware (untestable in CI), but pure functions (build_ffs_descriptors, build_ffs_strings) now tested
+- Test count: 246 → 258 (+12)
+
+**Iteration 2 (deep analysis):**
+- Launched 3 parallel analysis agents: h8300h-core, orchestrator, bus/memory
+- **CRITICAL BUG FOUND AND FIXED**: INQUIRY EVPD with alloc_len < 4 caused index-out-of-bounds panic
+  - Affected: VPD pages 0x00, 0xC0, 0xC1 (data[3] access on undersized vec)
+  - Also fixed: standard INQUIRY data[1]/data[2]/data[3] with small alloc_len
+  - All 4 code paths now have bounds-checked indexing
+- Added 6 memory.rs unit tests: flash log area permissions, ISP1581 fallback, unmapped write counter, region boundaries, on-chip I/O, flash_write_long
+- Added 5 E2E edge-case tests: READ without scan (NOT READY), INQUIRY EVPD small alloc_len, standard INQUIRY small alloc_len, SCAN without SET WINDOW (defaults), EVPD bad page (ILLEGAL REQUEST)
+- Test count: 258 → 269 (+11)
+- 0 clippy warnings
+**Blockers**: None
+**Next**: Emulator fully audited and E2E ready
 
 ---
 

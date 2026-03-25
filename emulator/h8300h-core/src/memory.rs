@@ -514,4 +514,77 @@ mod tests {
         assert_eq!(bus.read_byte(0x400002), 0xBE);
         assert_eq!(bus.read_byte(0x400003), 0xEF);
     }
+
+    #[test]
+    fn test_flash_log_area_writable() {
+        let mut bus = MemoryBus::new();
+        // Log area 1 (0x60000) should be writable
+        bus.write_byte(0x60000, 0xAB);
+        assert_eq!(bus.read_byte(0x60000), 0xAB);
+        // Log area 2 (0x70000) should be writable
+        bus.write_byte(0x70000, 0xCD);
+        assert_eq!(bus.read_byte(0x70000), 0xCD);
+        // Just below log area should be read-only
+        bus.flash[0x5FFFF] = 0x42;
+        bus.write_byte(0x5FFFF, 0xFF);
+        assert_eq!(bus.read_byte(0x5FFFF), 0x42, "Below log area should be read-only");
+    }
+
+    #[test]
+    fn test_isp1581_no_device_fallback() {
+        let mut bus = MemoryBus::new();
+        // Without device model installed, ISP1581 uses raw register backing
+        assert!(bus.isp1581_device.is_none());
+        bus.write_byte(0x600010, 0x42);
+        assert_eq!(bus.read_byte(0x600010), 0x42);
+        // Bridge methods should return defaults
+        assert!(!bus.isp1581_has_irq());
+        assert!(!bus.isp1581_has_response());
+        assert!(bus.isp1581_drain(100).is_empty());
+        assert!(bus.isp1581_drain_host_data(100).is_empty());
+    }
+
+    #[test]
+    fn test_unmapped_write_counter() {
+        let mut bus = MemoryBus::new();
+        assert_eq!(bus.unmapped_writes, 0);
+        bus.write_byte(0x100000, 0xFF);
+        assert_eq!(bus.unmapped_writes, 1);
+        bus.write_byte(0x100001, 0xFE);
+        assert_eq!(bus.unmapped_writes, 2);
+    }
+
+    #[test]
+    fn test_region_boundary_rw() {
+        let mut bus = MemoryBus::new();
+        // Last byte of RAM
+        bus.write_byte(0x41FFFF, 0xAA);
+        assert_eq!(bus.read_byte(0x41FFFF), 0xAA);
+        // Last byte of ASIC RAM
+        bus.write_byte(0x837FFF, 0xBB);
+        assert_eq!(bus.read_byte(0x837FFF), 0xBB);
+        // Last byte of on-chip RAM
+        bus.write_byte(0xFFFEFF, 0xCC);
+        assert_eq!(bus.read_byte(0xFFFEFF), 0xCC);
+        // First byte of on-chip RAM
+        bus.write_byte(0xFFFB80, 0xDD);
+        assert_eq!(bus.read_byte(0xFFFB80), 0xDD);
+    }
+
+    #[test]
+    fn test_onchip_io_rw() {
+        let mut bus = MemoryBus::new();
+        // Write/read at various I/O offsets
+        bus.write_byte(0xFFFF00, 0x11);
+        assert_eq!(bus.read_byte(0xFFFF00), 0x11);
+        bus.write_byte(0xFFFFFF, 0x22);
+        assert_eq!(bus.read_byte(0xFFFFFF), 0x22);
+    }
+
+    #[test]
+    fn test_flash_write_long_bypass() {
+        let mut bus = MemoryBus::new();
+        bus.flash_write_long(0x000100, 0xDEADC0DE);
+        assert_eq!(bus.read_long(0x000100), 0xDEADC0DE);
+    }
 }
