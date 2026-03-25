@@ -70,6 +70,7 @@ pub struct Emulator {
     pub irq: InterruptController,
     pub asic: Asic,
     pub peripherals: PeripheralBus,
+    pub motor: peripherals::motor::MotorSubsystem,
     trace: bool,
     context_initialized: bool,
     /// Context switch tracing: last known good context save area values.
@@ -197,6 +198,7 @@ impl Emulator {
             irq: InterruptController::new(),
             asic,
             peripherals,
+            motor: peripherals::motor::MotorSubsystem::new(),
             trace: config.trace,
             context_initialized: false,
             last_ctx_a_sp: 0,
@@ -1158,6 +1160,36 @@ impl Emulator {
         if p4 != self.peripherals.gpio.port_4_dr {
             self.peripherals.gpio.port_4_dr = p4;
             self.peripherals.gpio.lamp_on = p4 & 0x01 == 0;
+        }
+
+        // --- Motor sync ---
+        // Detect stepper phase changes on Port A DR (0xA3) and track position.
+        let port_a = self.bus.onchip_io[0xA3];
+        let dir_bit = self.bus.onchip_io[0x84] & 0x01 != 0; // Port 3 DDR bit 0
+        let motor_mode = self.bus.read_byte(0x400774);
+        if motor_mode != self.motor.active_mode && motor_mode != 0 {
+            self.motor.set_mode(motor_mode);
+        }
+        let steps = self.motor.port_a_write(port_a, dir_bit);
+        if steps > 0 {
+            // Update encoder RAM variables for the firmware's encoder ISR
+            let motor = self.motor.active_motor();
+            self.bus.write_word(0x40530E, motor.position as u16); // encoder_count
+            let sys_tick = self.bus.read_long(0x40076E);
+            self.bus.write_long(0x405318, sys_tick); // encoder_timestamp
+            // encoder_delta = timer period estimate (use a fixed value)
+            self.bus.write_word(0x405314, 100); // reasonable step period
+        }
+        // Check motor completion: if running and reached target position
+        if self.motor.active_motor().running && self.motor.active_motor().step_count > 0 {
+            let motor = self.motor.active_motor();
+            if motor.position == motor.target && motor.target != 0 {
+                // Motor reached target — set completion flags
+                self.bus.write_byte(0x4052EB, 0); // motor_running = stopped
+                self.bus.write_byte(0x4052EC, 1); // motor_state = done
+                self.bus.write_byte(0x4052EE, 0); // motor_error = none
+                self.motor.stop();
+            }
         }
 
         // --- ASIC sync ---

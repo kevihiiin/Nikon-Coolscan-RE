@@ -7,3 +7,4 @@ pub mod dma;
 pub mod adc;
 pub mod sci;
 pub mod wdt;
+pub mod motor;
