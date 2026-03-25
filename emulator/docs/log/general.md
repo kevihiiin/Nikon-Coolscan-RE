@@ -684,3 +684,26 @@ Total: ~2,800 new lines, ~37 new tests → ~12,300 LOC, ~230 tests, zero NOP pat
 - Both caused by stack frame byte count parameter from dispatcher
 
 **Next Steps**: Fix remaining data offset and INQUIRY content issues
+
+## Session 14 — 2026-03-25
+
+**Phase**: Emulator Phase 8 (Motor & Position Subsystem)
+
+**Accomplished**:
+- New motor.rs: MotorSubsystem with scan_motor + af_motor, stepper phase tracking, 7 unit tests
+- Orchestrator integration: motor sync in sync_peripherals(), encoder RAM feedback, completion detection
+- SEND DIAGNOSTIC motor commands: task codes 0x0400 (stop), 0x0430 (home), 0x0440 (relative), 0x0450 (absolute)
+- VPD page 0xC0: per-adapter CCD readout config (SA-Mount: 1 frame, SF-Strip: 6 frames)
+- VPD page 0xC1: CCD capabilities (max resolution)
+- Home sensor in GPIO Port 7 bit 1, dynamic based on motor position
+- instant_mode flag for fast testing (teleport to target)
+- 13 new tests total (7 motor unit + 5 SEND DIAGNOSTIC e2e + 1 VPD 0xC0)
+
+**Key findings**:
+- VPD 0xC0/0xC1 are CCD readout config, NOT adapter boundary data (boundary = READ DTC 0x88)
+- Stepper phases confirmed: 01→02→04→08 unipolar wave drive (motor-control.md)
+- Direction: Port 3 DDR bit 0 at 0xFFFF84
+
+**Tests**: 215 (38 e2e + 133 core + 44 peripherals). Clippy clean.
+
+**Next Steps**: Phase 9 (CCD & Scan Pipeline)
