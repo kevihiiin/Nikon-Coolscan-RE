@@ -50,6 +50,8 @@ pub struct Isp1581 {
 
     /// EP1 OUT FIFO (host → device): CDB bytes arrive here.
     pub ep1_out_fifo: VecDeque<u8>,
+    /// Last EP1 OUT injection size (for DcBufferLength reporting).
+    pub ep1_last_inject_size: u16,
     /// EP2 IN FIFO (device → host): response bytes go here.
     pub ep2_in_fifo: VecDeque<u8>,
 
@@ -80,6 +82,7 @@ impl Isp1581 {
             ep_control: 0,
             dma_count: 0,
             ep1_out_fifo: VecDeque::new(),
+            ep1_last_inject_size: 0,
             ep2_in_fifo: VecDeque::new(),
             irq_pending: false,
             address: 0,
@@ -117,8 +120,7 @@ impl Isp1581 {
                 // DcBufferLength — number of bytes in the selected endpoint buffer.
                 // The response manager at FW:0x013D7E reads this after writing
                 // EP Control (0x2C). If 0, it returns "not ready" and the caller loops.
-                // Return 64 (max packet size for full-speed USB) to indicate
-                // the endpoint buffer is armed and has space available.
+                // Return 64 (max packet size for full-speed USB).
                 64
             }
             0x1E => {
@@ -197,6 +199,7 @@ impl Isp1581 {
 
     /// Inject data from host into EP1 OUT FIFO and assert IRQ.
     pub fn host_send_ep1(&mut self, data: &[u8]) {
+        self.ep1_last_inject_size = data.len() as u16;
         for &b in data {
             self.ep1_out_fifo.push_back(b);
         }

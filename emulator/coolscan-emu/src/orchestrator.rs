@@ -1691,28 +1691,31 @@ impl Emulator {
     /// Send a SCSI command (no data-out phase) and return response data.
     pub fn scsi_command(&mut self, cdb: &[u8]) -> ScsiResult {
         assert!(!cdb.is_empty(), "scsi_command: CDB must not be empty");
-        // Write CDB to parsed-CDB area and opcode. For firmware dispatch, DON'T
-        // write to FW_CDB_BUFFER (0x4007DE) because REQUEST SENSE handler uses
-        // that address for pre-built sense response data. The firmware's dispatcher
-        // reads the opcode from 0x4007B6 and the CDB from EP1 OUT FIFO.
+        // Write CDB to all firmware-expected locations.
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
         for (j, &b) in cdb.iter().enumerate().take(16) {
-            self.bus.write_byte(0x4007B6 + j as u32, b);
+            self.bus.write_byte(FW_CDB_BUFFER + j as u32, b); // 0x4007DE
+            self.bus.write_byte(0x4007B6 + j as u32, b);       // Parsed CDB area
         }
-        if !self.firmware_dispatch {
-            // Rust emulation reads CDB from FW_CDB_BUFFER
+        if self.firmware_dispatch {
+            // Also write CDB to 0x40008A — the buffer where the response manager's
+            // buffer setup (0x013DA0→0x012258) stores EP1 OUT FIFO data. The
+            // dispatcher's init at 0x013E0A copies from this buffer to 0x4007DE.
+            // Without this, the init overwrites 0x4007DE with zeros from a depleted FIFO.
             for (j, &b) in cdb.iter().enumerate().take(16) {
-                self.bus.write_byte(FW_CDB_BUFFER + j as u32, b);
+                self.bus.write_byte(0x40008A + j as u32, b);
             }
         }
 
         if self.firmware_dispatch {
-            // Inject CDB into EP1 OUT FIFO. The firmware reads it multiple times:
-            //   1. Handler entry via JSR @0x016458 (64 words = 128 bytes)
-            //   2. Response manager buffer setup via 0x013D72→0x012258 (up to 64 bytes)
-            //   3. Data transfer via JSR @0x016458 again (64 words = 128 bytes)
-            // Inject 3x128 bytes to satisfy all reads.
+            // Inject CDB into EP1 OUT FIFO. The firmware reads from it many times:
+            //   - Dispatcher CDB read via buffer setup (0x013D72→0x012258)
+            //   - Dispatcher init copies CDB to 0x4007DE (0x013E0A loop)
+            //   - Data transfer CDB read via 0x016458
+            //   - Various other reads during USB state management
+            // Inject CDB-padded data to satisfy firmware reads from EP1 OUT FIFO.
+            // The dispatcher, response manager, and data transfer all read from it.
             let mut padded_cdb = vec![0u8; 384];
             for chunk_start in (0..384).step_by(128) {
                 let copy_len = cdb.len().min(128);
@@ -1827,12 +1830,19 @@ impl Emulator {
         // EP Data Port writes (each write_word pushes 2 bytes to EP2 IN FIFO).
         self.bus.write_word(0x407DCA, 2);
 
-        // Pre-populate adapter type at 0x400773. The INQUIRY handler loads
-        // ER3=0x400773 and uses this as the adapter index for VPD page lookup
-        // and INQUIRY string selection. Index 1 = SA-Mount (SA-21).
-        // The firmware's boot adapter detection may not work fully in our model.
+        // Pre-populate firmware state variables that handlers depend on but
+        // aren't set during our abbreviated boot (USB init NOPed).
         if self.bus.read_byte(0x400773) == 0 {
-            self.bus.write_byte(0x400773, 1); // SA-Mount adapter
+            self.bus.write_byte(0x400773, 1); // Adapter type: SA-Mount (index 1)
+        }
+        if self.bus.read_byte(0x400877) == 0 {
+            self.bus.write_byte(0x400877, 1); // Scanner initialized flag
+        }
+        // 0x400880: sense response type code. If non-zero, the REQUEST SENSE
+        // handler calls the build function at FW:0x0111F4 to construct a proper
+        // sense response. Value 0x04 = standard fixed-format sense response.
+        if self.bus.read_byte(0x400880) == 0 {
+            self.bus.write_byte(0x400880, 0x04);
         }
 
         let max_handler_insns = 500_000u64;

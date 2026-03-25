@@ -692,6 +692,67 @@ fn gate_trace_inquiry_isp1581_access() {
     }
 }
 
+/// Phase 7.1: Dump firmware state after boot to understand init dependencies.
+#[test]
+fn gate_firmware_state_after_boot() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // Dump key firmware state variables after boot
+    let vars: &[(u32, &str)] = &[
+        (0x400082, "cmd_pending"),
+        (0x400085, "usb_event_flag"),
+        (0x400086, "cmd_flag_86"),
+        (0x400087, "cmd_flag_87"),
+        (0x40049A, "usb_txn_active"),
+        (0x40049B, "cmd_exec_mode"),
+        (0x40049C, "cmd_flag_9c"),
+        (0x40049D, "cmd_counter"),
+        (0x400773, "cmd_state_or_adapter"),
+        (0x400877, "scanner_init_state"),
+        (0x400880, "sense_type_code"),
+        (0x40087B, "adapter_type_87b"),
+        (0x4007B0, "sense_code_hi"),
+        (0x4007B6, "scsi_opcode"),
+        (0x4007DE, "cdb_recv_buf_0"),
+        (0x407DC6, "usb_cmd_phase"),
+        (0x407DC7, "usb_session_state"),
+        (0x407DCA, "usb_packet_size_hi"),
+        (0x407DCB, "usb_packet_size_lo"),
+    ];
+    eprintln!("=== Firmware state after boot ===");
+    for &(addr, name) in vars {
+        let val = emu.bus.read_byte(addr);
+        if val != 0 {
+            eprintln!("  0x{:06X} ({:20}) = 0x{:02X}", addr, name, val);
+        }
+    }
+
+    // Check INQUIRY buffer
+    let inq_0 = emu.bus.read_byte(0x4008A2);
+    eprintln!("  INQUIRY buf[0] = 0x{:02X}", inq_0);
+
+    // Check sense buffer
+    let sense_0 = emu.bus.read_byte(0x4007DE);
+    eprintln!("  Sense buf[0] @0x4007DE = 0x{:02X}", sense_0);
+
+    // Check adapter detection: what did Port 7 read during boot?
+    let port7 = emu.bus.read_byte(0xFFFF8E);
+    eprintln!("  Port 7 (0xFFFF8E) = 0x{:02X}", port7);
+
+    // Run TUR to initialize session state
+    let tur = emu.scsi_command(&cdb_tur());
+    eprintln!("\nAfter TUR (sense_key={}):", tur.sense_key);
+    for &(addr, name) in vars {
+        let val = emu.bus.read_byte(addr);
+        if val != 0 {
+            eprintln!("  0x{:06X} ({:20}) = 0x{:02X}", addr, name, val);
+        }
+    }
+}
+
 /// Phase 7.1: Test REQUEST SENSE via firmware dispatch with un-NOPed USB calls.
 /// REQUEST SENSE returns 18 bytes of fixed-format sense data — simpler than INQUIRY.
 #[test]
@@ -707,24 +768,23 @@ fn gate_firmware_request_sense() {
     emu.restore_flash_patch(0x021932, 0x5E01374A);
     emu.restore_flash_patch(0x02193A, 0x5E014090);
 
-    // Pre-build sense response template at 0x4007DE. The REQUEST SENSE handler
-    // copies 19 bytes from 0x4007DE to stack and sends via USB.
-    // scsi_command() no longer writes CDB to 0x4007DE in firmware_dispatch mode,
-    // so this template will survive to the handler's read.
-    let sense_template: [u8; 19] = [
-        0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
-    ];
-    for (j, &b) in sense_template.iter().enumerate() {
-        emu.bus.write_byte(0x4007DE + j as u32, b);
-    }
+    // Run TUR first to initialize the sense buffer at 0x4007DE.
+    // TUR sets byte 0 to 0x70 (valid + current errors header) which the
+    // REQUEST SENSE handler needs to build a proper response.
+    let tur = emu.scsi_command(&cdb_tur());
+    assert_eq!(tur.sense_key, 0, "TUR should return GOOD");
 
     let r = emu.scsi_command(&cdb_request_sense(18));
 
     eprintln!("FW REQUEST SENSE: sense_key={}, data_len={}", r.sense_key, r.data.len());
-    if !r.data.is_empty() {
-        eprintln!("  data: {:02X?}", &r.data[..r.data.len().min(18)]);
+    // Show ALL non-zero bytes in the output
+    for (i, chunk) in r.data.chunks(16).enumerate() {
+        if chunk.iter().any(|&b| b != 0) {
+            eprintln!("  [{:3}] {:02X?}", i * 16, chunk);
+        }
+    }
+    if r.data.iter().all(|&b| b == 0) {
+        eprintln!("  (all {} bytes are zero)", r.data.len());
     }
 
     assert_eq!(r.sense_key, 0, "FW REQUEST SENSE should return GOOD");
