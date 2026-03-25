@@ -668,13 +668,14 @@ fn gate_trace_inquiry_isp1581_access() {
         eprintln!("  @0x{:06X} = 0x{:02X}", addr, emu.bus.read_byte(addr));
     }
 
-    // Restore INQUIRY handler's 2 NOPed calls to their original JSR instructions:
-    //   0x026042: JSR @0x01374A (response manager)
-    //   0x02604A: JSR @0x014090 (data transfer)
+    // INQUIRY needs handler-internal USB calls un-NOPed because the dispatch-
+    // level path sends sense data, not INQUIRY data. The INQUIRY handler builds
+    // its response in a separate buffer (0x4008A2) and sends it through its own
+    // response manager + data transfer calls.
     emu.restore_flash_patch(0x026042, 0x5E01374A);
     emu.restore_flash_patch(0x02604A, 0x5E014090);
 
-    // Run INQUIRY via firmware dispatch with USB calls un-NOPed.
+    // Run INQUIRY via firmware dispatch.
     // CDB is injected into EP1 OUT FIFO by scsi_command().
     let r = emu.scsi_command(&cdb_inquiry(36));
 
@@ -762,11 +763,10 @@ fn gate_firmware_request_sense() {
     config.firmware_dispatch = true;
     let mut emu = boot_with_config(&config);
 
-    // Un-NOP REQUEST SENSE handler's USB calls:
-    //   0x021932: JSR @0x01374A (response manager)
-    //   0x02193A: JSR @0x014090 (data transfer)
-    emu.restore_flash_patch(0x021932, 0x5E01374A);
-    emu.restore_flash_patch(0x02193A, 0x5E014090);
+    // Keep handler-internal USB calls NOPed. The dispatcher's post-handler
+    // processing at 0x01117A will handle the data transfer if 0x400085=0.
+    // We clear 0x400085 to let the dispatch-level path run.
+    emu.bus.write_byte(0x400085, 0);
 
     // Run TUR first to initialize the sense buffer at 0x4007DE.
     // TUR sets byte 0 to 0x70 (valid + current errors header) which the

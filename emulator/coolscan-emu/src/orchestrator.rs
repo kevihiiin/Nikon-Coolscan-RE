@@ -423,6 +423,11 @@ impl Emulator {
             (0x020D5A, 0x5E01374A, "dispatch response mgr (0x020D5A)"),
             (0x020D74, 0x5E01374A, "dispatch response mgr (0x020D74)"),
             (0x020D9E, 0x5E01374A, "dispatch response mgr (0x020D9E)"),
+            // Post-handler dispatch response manager call in FW:0x01117A
+            // (called from dispatcher at 0x020B3E). Without this NOP, the
+            // dispatcher sends ADDITIONAL data after the handler already sent,
+            // causing the response to appear at the wrong offset.
+            (0x011186, 0x5E01374A, "post-handler response mgr (0x011186)"),
             // Handler-internal USB response manager calls (JSR @0x01374A)
             (0x026042, 0x5E01374A, "INQUIRY response manager"),
             (0x02209E, 0x5E01374A, "MODE SENSE response manager"),
