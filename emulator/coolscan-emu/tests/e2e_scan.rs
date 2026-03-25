@@ -670,17 +670,22 @@ fn gate_trace_inquiry_isp1581_access() {
     // CDB is injected into EP1 OUT FIFO by scsi_command().
     let r = emu.scsi_command(&cdb_inquiry(36));
 
-    // Handler completes GOOD. USB data transfer doesn't produce output yet
-    // because 0x407DCA (transfer unit size) isn't set by the response manager's
-    // incomplete USB handshake. The data send function at 0x01232E does
-    // DIVXU.W R1,ER0 where R1=@0x407DCA; if R1=0, it returns without writing.
-    //
-    // Phase 7.0 Gate verified:
-    // - DcInterrupt bit 12 (0x1000) = EP TX Ready check
-    // - DcBufferLength (0x1C) must return non-zero
-    // - Firmware uses PIO to EP Data Port, not ISP1581 DMA engine
-    // - No RAM USB code (0x4010A0) involvement
-    // - Register catalog: 0x18, 0x1C, 0x20, 0x28, 0x2C
-    // - Data path requires 0x407DCA set by response manager handshake
     assert_eq!(r.sense_key, 0, "FW INQUIRY should complete GOOD");
+
+    eprintln!("FW INQUIRY: sense={}, data_len={}", r.sense_key, r.data.len());
+    if r.data.len() >= 36 {
+        eprintln!("  first 36 bytes: {:02X?}", &r.data[..36]);
+        let vendor = String::from_utf8_lossy(&r.data[8..16]);
+        let product = String::from_utf8_lossy(&r.data[16..32]);
+        eprintln!("  vendor='{}' product='{}'", vendor.trim(), product.trim());
+    }
+
+    // Check INQUIRY buffer in RAM directly
+    let mut ram_buf = Vec::new();
+    for i in 0..36u32 {
+        ram_buf.push(emu.bus.read_byte(0x4008A2 + i));
+    }
+    eprintln!("  RAM buffer @0x4008A2: {:02X?}", &ram_buf);
+    let ram_vendor = String::from_utf8_lossy(&ram_buf[8..16]);
+    eprintln!("  RAM vendor='{}'", ram_vendor.trim());
 }

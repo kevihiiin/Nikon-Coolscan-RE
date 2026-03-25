@@ -24,6 +24,12 @@ pub const IRQ_EP_EVENT: u16 = 1 << 3;
 /// Always set in our model since EP2 IN FIFO has unlimited capacity.
 pub const IRQ_EP_TX_READY: u16 = 1 << 12;
 
+/// DcInterrupt bit 15: "Host has received data" / "EP transfer complete".
+/// The USB state update function at FW:0x014014 uses BTST #7 on the high byte
+/// of DcInterrupt to check this bit after each packet write. Set by our model
+/// after every EP Data Port write to signal instant host consumption.
+pub const IRQ_EP_TX_COMPLETE: u16 = 1 << 15;
+
 
 pub struct Isp1581 {
     /// Endpoint status register at 0x08 (per-endpoint events).
@@ -169,12 +175,12 @@ impl Isp1581 {
                 // Firmware writes LE words: low byte in bits[7:0], high byte in bits[15:8]
                 self.ep2_in_fifo.push_back(val as u8);         // Low byte
                 self.ep2_in_fifo.push_back((val >> 8) as u8);  // High byte
-                // Signal that the data was accepted by setting relevant DcInterrupt bits.
-                // The firmware polls 0x600018 after each write to check completion.
-                // Set EP event bit (bit 3) plus bit 12 (0x1000) which firmware checks
-                // via BTST #0x04, R0H. Only set bits we know firmware checks to avoid
-                // permanent IRQ1 flooding (firmware write-back only clears observed bits).
-                self.dc_interrupt |= IRQ_EP_EVENT | 0x1000;
+                // Signal that the data was accepted and host has consumed it:
+                // - Bit 3 (IRQ_EP_EVENT): endpoint event
+                // - Bit 12 (IRQ_EP_TX_READY): buffer available for next write
+                // - Bit 15 (IRQ_EP_TX_COMPLETE): host received data (FW:0x014014
+                //   polls this via BTST #7 between packet writes)
+                self.dc_interrupt |= IRQ_EP_EVENT | IRQ_EP_TX_READY | IRQ_EP_TX_COMPLETE;
             }
             0x00 => self.address = val,
             0x10 => self.interrupt_config = val,

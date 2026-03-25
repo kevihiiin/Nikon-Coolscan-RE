@@ -1696,14 +1696,26 @@ impl Emulator {
         }
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
+        // Also write CDB to the parsed-CDB area at 0x4007B6. The SCSI dispatcher
+        // normally copies CDB bytes here before calling the handler. Since we call
+        // handlers directly (bypassing the dispatcher), we must populate this area.
+        // Handlers read allocation length and flags from 0x4007B6+offset.
+        for (j, &b) in cdb.iter().enumerate().take(16) {
+            self.bus.write_byte(0x4007B6 + j as u32, b);
+        }
 
         if self.firmware_dispatch {
-            // Inject CDB into EP1 OUT FIFO padded to 128 bytes.
-            // The data transfer function at FW:0x014090 reads 64 words (128 bytes)
-            // from the EP Data Port before writing response data.
-            let mut padded_cdb = vec![0u8; 128];
-            let copy_len = cdb.len().min(128);
-            padded_cdb[..copy_len].copy_from_slice(&cdb[..copy_len]);
+            // Inject CDB into EP1 OUT FIFO. The firmware reads it multiple times:
+            //   1. Handler entry via JSR @0x016458 (64 words = 128 bytes)
+            //   2. Response manager buffer setup via 0x013D72→0x012258 (up to 64 bytes)
+            //   3. Data transfer via JSR @0x016458 again (64 words = 128 bytes)
+            // Inject 3x128 bytes to satisfy all reads.
+            let mut padded_cdb = vec![0u8; 384];
+            for chunk_start in (0..384).step_by(128) {
+                let copy_len = cdb.len().min(128);
+                padded_cdb[chunk_start..chunk_start + copy_len]
+                    .copy_from_slice(&cdb[..copy_len]);
+            }
             self.bus.isp1581_inject(&padded_cdb);
             self.firmware_dispatch_scsi(cdb[0]);
         } else {
@@ -1802,6 +1814,13 @@ impl Emulator {
         // and TRAPA-triggered control flow changes that would derail the mini-loop.
         self.cpu.set_flag(h8300h_core::cpu::CCR_I, true);
 
+        // Pre-populate USB endpoint max packet size at 0x407DCA. This is normally
+        // set during USB enumeration (FW:0x015410) which we NOP. The data transfer
+        // function at FW:0x01232E divides the transfer count by this value to
+        // calculate word count for PIO writes. Value of 2 = word size for 16-bit
+        // EP Data Port writes (each write_word pushes 2 bytes to EP2 IN FIFO).
+        self.bus.write_word(0x407DCA, 2);
+
         let max_handler_insns = 500_000u64;
         let mut executed = 0u64;
         let mut error = false;
@@ -1837,9 +1856,41 @@ impl Emulator {
             }
             last_pc = self.cpu.pc;
 
-            // PC range monitor: log if execution enters RAM-resident USB code
+            // PC range monitor: log if execution enters key code regions
             if (0x4010A0..=0x4011A2).contains(&self.cpu.pc) {
                 log::info!("FW DISPATCH: PC in RAM USB code at 0x{:06X}", self.cpu.pc);
+            }
+            if self.cpu.pc == 0x01374A {
+                log::info!("FW DISPATCH: entered response manager at insn {} R5=0x{:04X}", executed, self.cpu.er[5] as u16);
+            }
+            // Trace R5 at key points in INQUIRY handler to find where byte count should be set
+            if self.cpu.pc == 0x025E1C { // after CDB read returns
+                log::info!("FW DISPATCH: after CDB read R5=0x{:04X} R0=0x{:04X} R1=0x{:04X} ER0=0x{:08X}",
+                    self.cpu.er[5] as u16, self.cpu.er[0] as u16, self.cpu.er[1] as u16, self.cpu.er[0]);
+            }
+            if self.cpu.pc == 0x014090 {
+                // Clear 0x400085 (USB event/abort flag). The response manager's
+                // exit path sets this to 1 via FW:0x0137A2 (because current opcode
+                // ≠ 0xD0 phase query). The data transfer loop at 0x0140CA checks
+                // it as an abort condition. In real hardware, the host's data-phase
+                // setup clears this flag before data transfer begins.
+                self.bus.write_byte(0x400085, 0);
+                log::info!("FW DISPATCH: entered data transfer 0x014090 at insn {}", executed);
+            }
+            if self.cpu.pc == 0x0140AE {
+                log::info!("FW DISPATCH: before DIVXU call R0=0x{:04X} @0x407DCA=0x{:04X}",
+                    self.cpu.er[0] as u16, self.bus.read_word(0x407DCA));
+            }
+            if self.cpu.pc == 0x0140B4 {
+                log::info!("FW DISPATCH: after DIVXU R0(quotient)=0x{:04X} R5=0x{:04X} → BEQ={}",
+                    self.cpu.er[0] as u16, self.cpu.er[5] as u16, self.cpu.er[0] as u16 == 0);
+            }
+            if self.cpu.pc == 0x012304 {
+                log::info!("FW DISPATCH: WRITE FUNCTION 0x012304 ER0=0x{:08X} R1=0x{:04X}",
+                    self.cpu.er[0], self.cpu.er[1] as u16);
+            }
+            if self.cpu.pc == 0x0109E2 {
+                log::info!("FW DISPATCH: entered yield function 0x0109E2 at insn {}", executed);
             }
 
             let decoded = decode::decode(&mut self.bus, self.cpu.pc);
@@ -1849,9 +1900,22 @@ impl Emulator {
                 break;
             }
             // Block TRAPA instructions — they would trigger context switches.
-            // But allow peripheral sync so timer-driven state changes happen.
+            // When the TRAPA is inside the response manager's yield loop
+            // (FW:0x01374A-0x0137C8), simulate the host USB acknowledgment by
+            // setting cmd_pending. The response manager at FW:0x01376A calls
+            // JSR @0x0109E2 (yield), and 0x0109E2 contains the TRAPA. We detect
+            // this by checking if the return address on the stack points back to
+            // the response manager (0x01376E).
             if matches!(&decoded.insn, decode::Instruction::Trapa(_)) {
-                log::trace!("FW DISPATCH: skipping TRAPA at PC=0x{:06X}", self.cpu.pc);
+                // Check if this yield is from the response manager's loop.
+                // The response manager at 0x01376A does JSR @0x0109E2 (yield).
+                // Return address 0x01376E is on the stack. Only set cmd_pending
+                // and clear 0x400085 for response manager yields.
+                let return_addr = self.bus.read_long(self.cpu.sp()) & 0x00FFFFFF;
+                if return_addr == 0x01376E {
+                    self.bus.write_byte(FW_CMD_PENDING, 1);
+                    self.bus.write_byte(0x400085, 0);
+                }
                 self.cpu.pc += decoded.len;
                 executed += 1;
                 continue;
