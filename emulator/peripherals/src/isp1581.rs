@@ -3,13 +3,23 @@
 //! Memory-mapped at 0x600000-0x6000FF. 16-bit bus, little-endian.
 //! The H8/3003 is big-endian, so firmware explicitly byte-swaps when reading/writing.
 //!
-//! Register map (7 active addresses from firmware analysis):
-//!   0x600008  IRQ Status (R/W) — read to check, write-back to clear
+//! Register map (ISP1581 datasheet Table 60):
+//!   0x600000  Address (R/W) — USB device address + DEVEN bit
+//!   0x600004  EndpointMaxPacketSize (R/W) — per-endpoint max packet size
+//!   0x600008  EndpointType/IRQ Status (R/W) — context-dependent
 //!   0x60000C  Mode (R/W) — bit 4 (SOFTCT) = soft connect
-//!   0x600018  DMA Config (W) — 0x8000 = host-read direction
-//!   0x60001C  EP Index/Count (W) — endpoint select + byte count
+//!   0x600010  IntConfig (R/W) — interrupt configuration
+//!   0x600014  IntEnable (R/W) — per-endpoint interrupt enables
+//!   0x600016  DcHardwareConfiguration (R/W) — clock, analog settings
+//!   0x600018  DcInterrupt (R/W) — global interrupt flags, write-back-clear
+//!   0x60001C  DcBufferLength (R) — bytes in selected endpoint buffer
+//!   0x60001E  DcBufferStatus (R) — endpoint buffer fill state
 //!   0x600020  EP Data Port (R/W) — 16-bit, LE byte order
-//!   0x60002C  EP Control (W) — DMA mode
+//!   0x600024  DMA Configuration (W) — DMA direction
+//!   0x600028  ControlFunction (R/W) — CLBUF/VENDP/STATUS/STALL
+//!   0x60002C  EP Control (W) — endpoint DMA mode
+//!   0x600070  Chip ID (R) — returns 0x1581
+//!   0x60007C  Unlock (R/W) — unlock device register
 //!   0x600084  DMA Count (W) — transfer byte count
 
 use std::collections::VecDeque;
@@ -30,6 +40,18 @@ pub const IRQ_EP_TX_READY: u16 = 1 << 12;
 /// after every EP Data Port write to signal instant host consumption.
 pub const IRQ_EP_TX_COMPLETE: u16 = 1 << 15;
 
+/// DcInterrupt bit 6: USB bus reset detected.
+/// Set when USB host issues a bus reset. Firmware checks this in USB init.
+pub const IRQ_BUS_RESET: u16 = 1 << 6;
+
+/// DcInterrupt bit 0: VBUS detected (power present).
+pub const IRQ_VBUS: u16 = 1 << 0;
+
+/// DcInterrupt bit 5: USB suspend.
+pub const IRQ_SUSPEND: u16 = 1 << 5;
+
+/// DcInterrupt bit 8: High-speed status.
+pub const IRQ_HIGH_SPEED: u16 = 1 << 8;
 
 pub struct Isp1581 {
     /// Endpoint status register at 0x08 (per-endpoint events).
@@ -58,15 +80,29 @@ pub struct Isp1581 {
     /// Whether IRQ1 should be asserted to the CPU.
     pub irq_pending: bool,
 
-    // --- Configuration registers (for full USB init, names per ISP1581 datasheet) ---
-    /// Address register at offset 0x00 (device address + enable).
+    // --- Configuration registers (per ISP1581 datasheet Table 60) ---
+    /// Address register at offset 0x00 (device address + DEVEN bit).
     pub address: u16,
+    /// Endpoint Max Packet Size at offset 0x04.
+    pub ep_max_packet_size: u16,
     /// Interrupt Configuration register at offset 0x10 (debug mode + polarity).
     pub interrupt_config: u16,
     /// Interrupt Enable register at offset 0x14 (per-endpoint interrupt enables).
     pub interrupt_enable: u16,
+    /// DcHardwareConfiguration at offset 0x16 (clock, analog, etc.).
+    pub hw_config: u16,
     /// Control Function register at offset 0x28 (CLBUF/VENDP/STATUS/STALL).
     pub control_function: u16,
+    /// Unlock register at offset 0x7C.
+    pub unlock: u16,
+    /// Frame Number register at offset 0x74 (read-only, increments per SOF).
+    pub frame_number: u16,
+    /// Endpoint Type register at offset 0x08 when written in EP config mode.
+    pub ep_type: u16,
+
+    /// Whether SOFTCT has transitioned from 0→1 (device became visible on bus).
+    /// Used to simulate bus reset after soft-connect.
+    pub bus_reset_pending: bool,
 }
 
 impl Isp1581 {
@@ -86,9 +122,15 @@ impl Isp1581 {
             ep2_in_fifo: VecDeque::new(),
             irq_pending: false,
             address: 0,
+            ep_max_packet_size: 64,
             interrupt_config: 0,
             interrupt_enable: 0,
+            hw_config: 0,
             control_function: 0,
+            unlock: 0,
+            frame_number: 0,
+            ep_type: 0,
+            bus_reset_pending: false,
         };
         // Set SOFTCT bit (bit 4) in Mode register to indicate USB connected.
         // Without this, firmware skips all USB processing.
@@ -142,10 +184,14 @@ impl Isp1581 {
                 val
             }
             0x00 => self.address,
+            0x04 => self.ep_max_packet_size,
             0x10 => self.interrupt_config,
             0x14 => self.interrupt_enable,
+            0x16 => self.hw_config,
             0x28 => self.control_function,
             0x70 => 0x1581, // Chip ID (ISP1581 datasheet Table 60: CHIPID[15:0])
+            0x74 => self.frame_number,
+            0x7C => self.unlock,
             _ => {
                 log::trace!("ISP1581: unmodeled register read at offset 0x{:02X}", offset);
                 0
@@ -163,7 +209,17 @@ impl Isp1581 {
                     self.irq_pending = false;
                 }
             }
-            0x0C => self.mode = val,
+            0x0C => {
+                let old_softct = self.mode & 0x0010;
+                self.mode = val;
+                let new_softct = val & 0x0010;
+                // SOFTCT 0→1: device just became visible on USB bus.
+                // Schedule a bus reset on next tick (USB host resets new devices).
+                if old_softct == 0 && new_softct != 0 {
+                    self.bus_reset_pending = true;
+                    log::info!("ISP1581: SOFTCT asserted — bus reset pending");
+                }
+            }
             0x18 => {
                 // Write-back clears DcInterrupt bits
                 self.dc_interrupt &= !val;
@@ -185,15 +241,41 @@ impl Isp1581 {
                 self.dc_interrupt |= IRQ_EP_EVENT | IRQ_EP_TX_READY | IRQ_EP_TX_COMPLETE;
             }
             0x00 => self.address = val,
+            0x04 => self.ep_max_packet_size = val,
             0x10 => self.interrupt_config = val,
             0x14 => self.interrupt_enable = val,
+            0x16 => self.hw_config = val,
             0x24 => self.dma_config = val,
-            0x28 => self.control_function = val,
+            0x28 => {
+                self.control_function = val;
+                // CLBUF (bit 4): clear buffer — firmware writes 0x10 to reset EP buffers.
+                // VENDP (bit 3): validate endpoint — signals end of data transfer.
+                // We don't need to do anything for CLBUF/VENDP in our model since
+                // FIFOs are always available.
+            }
             0x2C => self.ep_control = val,
+            0x7C => self.unlock = val,
             0x84 => self.dma_count = val,
             _ => {
                 log::trace!("ISP1581: unmodeled register write at offset 0x{:02X} = 0x{:04X}", offset, val);
             }
+        }
+    }
+
+    /// Simulate USB bus reset. Sets bus reset bit in DcInterrupt and
+    /// prepares ISP1581 state for enumeration by the USB host.
+    pub fn simulate_bus_reset(&mut self) {
+        self.dc_interrupt |= IRQ_BUS_RESET | IRQ_VBUS;
+        self.irq_pending = true;
+        self.bus_reset_pending = false;
+        log::info!("ISP1581: bus reset simulated (DcInterrupt=0x{:04X})", self.dc_interrupt);
+    }
+
+    /// Tick: called each instruction cycle. Handles deferred state transitions.
+    pub fn tick(&mut self) {
+        // After SOFTCT transitions 0→1, simulate bus reset on next tick.
+        if self.bus_reset_pending {
+            self.simulate_bus_reset();
         }
     }
 
@@ -314,6 +396,10 @@ impl h8300h_core::memory::MmioDevice for Isp1581 {
     fn push_to_host(&mut self, data: &[u8]) {
         self.ep2_push_bytes(data);
     }
+
+    fn tick(&mut self) {
+        Isp1581::tick(self);
+    }
 }
 
 #[cfg(test)]
@@ -404,6 +490,52 @@ mod tests {
         assert_eq!(w2, 0x0024, "Third word should contain alloc length");
         let w3 = isp.read_word(0x20); // lo=0x00, hi=0x00 → 0x0000
         assert_eq!(w3, 0x0000);
+    }
+
+    #[test]
+    fn test_chip_id() {
+        let mut isp = Isp1581::new();
+        assert_eq!(isp.read_word(0x70), 0x1581, "Chip ID should be 0x1581");
+    }
+
+    #[test]
+    fn test_usb_enum_registers() {
+        let mut isp = Isp1581::new();
+        // Address register
+        isp.write_word(0x00, 0x0087); // address=7, DEVEN=1
+        assert_eq!(isp.read_word(0x00), 0x0087);
+        // EP max packet size
+        isp.write_word(0x04, 512);
+        assert_eq!(isp.read_word(0x04), 512);
+        // HW config
+        isp.write_word(0x16, 0x0042);
+        assert_eq!(isp.read_word(0x16), 0x0042);
+        // Unlock
+        isp.write_word(0x7C, 0xAA37);
+        assert_eq!(isp.read_word(0x7C), 0xAA37);
+        // Interrupt enable
+        isp.write_word(0x14, 0xFFFF);
+        assert_eq!(isp.read_word(0x14), 0xFFFF);
+    }
+
+    #[test]
+    fn test_softct_bus_reset() {
+        let mut isp = Isp1581::new();
+        // Start with SOFTCT=0 (mode was set to 0x0010 in new(), but let's reset it)
+        isp.mode = 0x0000;
+        isp.dc_interrupt = 0;
+        isp.irq_pending = false;
+
+        // Write SOFTCT=1 → should schedule bus reset
+        isp.write_word(0x0C, 0x0010);
+        assert!(isp.bus_reset_pending);
+
+        // Tick should fire bus reset
+        isp.tick();
+        assert!(!isp.bus_reset_pending);
+        assert!(isp.dc_interrupt & IRQ_BUS_RESET != 0, "Bus reset bit should be set");
+        assert!(isp.dc_interrupt & IRQ_VBUS != 0, "VBUS bit should be set");
+        assert!(isp.irq_pending);
     }
 
     #[test]

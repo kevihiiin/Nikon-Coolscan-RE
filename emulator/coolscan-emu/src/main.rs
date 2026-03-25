@@ -29,28 +29,23 @@ fn main() {
         }
     };
 
-    // Set up USB gadget bridge if requested
-    #[cfg(target_os = "linux")]
-    let mut _gadget = if config.gadget {
+    let gadget_requested = config.gadget;
+    let mut emu = coolscan_emu::orchestrator::Emulator::new(&firmware, &config);
+
+    // Set up USB gadget bridge if requested — wired into emulator's run loop
+    if gadget_requested {
         log::info!("Setting up USB gadget bridge...");
-        let mut g = bridge::gadget::GadgetBridge::new();
-        match g.setup() {
+        match emu.setup_gadget() {
             Ok(()) => {
                 log::info!("USB gadget ready — connect a USB host to use real USB transport");
-                Some(g)
             }
             Err(e) => {
                 log::error!("USB gadget setup failed: {e}");
                 log::error!("  Requires root + USB gadget kernel support (configfs + functionfs)");
                 log::error!("  Falling back to TCP-only bridge");
-                None
             }
         }
-    } else {
-        None
-    };
-
-    let mut emu = coolscan_emu::orchestrator::Emulator::new(&firmware, &config);
+    }
 
     log::info!("Reset vector: 0x{:06X}", emu.reset_vector());
     log::info!("Model: {:?}, Pattern: {:?}", config.model, config.pattern);

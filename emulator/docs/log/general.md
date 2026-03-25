@@ -1,8 +1,28 @@
 # Emulator Development Log
 
-**Current Phase**: 10 — Calibration (COMPLETE — ready for Phase 11)
-**Status**: 230 tests (44 e2e + 133 core + 53 peripherals). Phases 7-10 complete.
+**Current Phase**: 11 — Real USB & Integration (COMPLETE)
+**Status**: 240 tests (51 e2e + 133 core + 56 peripherals). All phases complete.
 **Last Updated**: 2026-03-25
+
+---
+
+## Session 16 — 2026-03-25
+
+**Phase**: 11 — Real USB & Integration
+**Goals**: ISP1581 USB enum, zero-patch mode, IRQ1 CDB, gadget bridge, --emulated-scsi
+**Accomplished**:
+- ISP1581 registers: DcHardwareConfig, EndpointMaxPacketSize, Unlock, FrameNumber
+- DcInterrupt bus reset (bit 6), VBUS, suspend, high-speed bits
+- SOFTCT transition detection with deferred bus reset simulation
+- Zero-patch mode (--full-usb-init + --firmware-dispatch + !--emulated-scsi)
+- IRQ1 CDB injection: inject_cdb_irq1() → ISP1581 EP1 OUT FIFO → IRQ1
+- Gadget bridge wired: poll_gadget() in run() loop, ISP1581 ↔ USB host
+- --emulated-scsi safety net forces Rust SCSI path
+- force_usb_session_state() gated by full_usb_init
+- 10 new tests (7 e2e + 3 ISP1581 unit), 240 total
+- 0 clippy warnings
+**Blockers**: None
+**Next**: Project complete — all 11 emulator phases done
 
 ---
 

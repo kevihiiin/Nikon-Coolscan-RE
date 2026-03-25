@@ -13,6 +13,7 @@ use peripherals::gpio;
 
 use std::net::TcpListener;
 
+use bridge::traits::UsbBridge;
 use crate::config::Config;
 
 /// Result of a SCSI command executed via the emulator's internal handler.
@@ -111,6 +112,10 @@ pub struct Emulator {
     full_usb_init: bool,
     /// Firmware dispatch: route SCSI through firmware handlers.
     firmware_dispatch: bool,
+    /// Force Rust SCSI emulation (--emulated-scsi safety net).
+    emulated_scsi: bool,
+    /// USB gadget bridge (connects ISP1581 to real USB host).
+    gadget: Option<Box<dyn UsbBridge>>,
 }
 
 impl Emulator {
@@ -220,6 +225,8 @@ impl Emulator {
             cold_boot: config.cold_boot,
             full_usb_init: config.full_usb_init,
             firmware_dispatch: config.firmware_dispatch,
+            emulated_scsi: config.emulated_scsi,
+            gadget: None,
         }
     }
 
@@ -317,6 +324,7 @@ impl Emulator {
 
             if i % 1000 == 0 {
                 self.poll_tcp();
+                self.poll_gadget();
                 self.force_usb_session_state();
             }
 
@@ -447,6 +455,15 @@ impl Emulator {
 
         let mut patched = 0;
         let mut total = 0;
+
+        // Zero-patch mode: --full-usb-init + --firmware-dispatch without --emulated-scsi
+        // means firmware handles everything — no patches needed.
+        let zero_patch = self.full_usb_init && self.firmware_dispatch && !self.emulated_scsi;
+
+        if zero_patch {
+            log::info!("JIT: ZERO PATCH MODE — firmware handles USB init + SCSI autonomously");
+            return;
+        }
 
         if !self.full_usb_init {
             for &(addr, expected, desc) in usb_init_patches {
@@ -1186,6 +1203,10 @@ impl Emulator {
     /// USB state management. Without real ISP1581 USB enumeration, the
     /// re-establish path blocks forever. Called periodically (not every cycle).
     fn force_usb_session_state(&mut self) {
+        // When full_usb_init is set, firmware manages USB state itself.
+        if self.full_usb_init {
+            return;
+        }
         let session = self.bus.read_byte(FW_USB_SESSION);
         if session != 0x02 {
             self.bus.write_byte(FW_USB_SESSION, 0x02);
@@ -1343,6 +1364,9 @@ impl Emulator {
             };
             self.irq.assert_interrupt(vec, priority);
         }
+
+        // ISP1581 tick (bus reset, deferred state transitions)
+        self.bus.isp1581_tick();
 
         // ISP1581 USB interrupt — check via bus accessor
         if self.bus.isp1581_has_irq() {
@@ -1873,7 +1897,10 @@ impl Emulator {
             self.bus.write_byte(FW_CDB_BUFFER + j as u32, b); // 0x4007DE
             self.bus.write_byte(0x4007B6 + j as u32, b);       // Parsed CDB area
         }
-        if self.firmware_dispatch {
+        // Determine dispatch mode: firmware_dispatch unless overridden by emulated_scsi
+        let use_firmware = self.firmware_dispatch && !self.emulated_scsi;
+
+        if use_firmware {
             // Also write CDB to 0x40008A — the buffer where the response manager's
             // buffer setup (0x013DA0→0x012258) stores EP1 OUT FIFO data. The
             // dispatcher's init at 0x013E0A copies from this buffer to 0x4007DE.
@@ -1883,7 +1910,7 @@ impl Emulator {
             }
         }
 
-        if self.firmware_dispatch {
+        if use_firmware {
             // Inject CDB into EP1 OUT FIFO. The firmware reads from it many times:
             //   - Dispatcher CDB read via buffer setup (0x013D72→0x012258)
             //   - Dispatcher init copies CDB to 0x4007DE (0x013E0A loop)
@@ -1906,7 +1933,7 @@ impl Emulator {
         let sense = self.bus.read_word(FW_SENSE_CODE);
         let mut data = self.bus.isp1581_drain(256 * 1024);
 
-        if self.firmware_dispatch && data.len() > 8 {
+        if use_firmware && data.len() > 8 {
             // The dispatch-level post-handler at FW:0x01117A sends an 8-byte
             // compact sense summary. For dispatch-level commands (like REQUEST
             // SENSE), this summary is PREPENDED to the response. For handler-
@@ -1941,7 +1968,8 @@ impl Emulator {
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
 
-        if self.firmware_dispatch {
+        let use_firmware = self.firmware_dispatch && !self.emulated_scsi;
+        if use_firmware {
             // Inject CDB + data-out into EP1 OUT FIFO.
             let mut padded_cdb = vec![0u8; 128];
             let copy_len = cdb.len().min(128);
@@ -2160,6 +2188,63 @@ impl Emulator {
     /// Check if scan is currently active.
     pub fn is_scan_active(&self) -> bool {
         self.scan_active
+    }
+
+    /// Set up the USB gadget bridge.
+    /// Call this after construction if `--gadget` is enabled.
+    pub fn setup_gadget(&mut self) -> Result<(), String> {
+        let mut gadget = bridge::gadget::GadgetBridge::new();
+        gadget.setup()?;
+        self.gadget = Some(Box::new(gadget));
+        log::info!("USB gadget bridge connected");
+        Ok(())
+    }
+
+    /// Poll the gadget bridge for incoming data and send responses.
+    fn poll_gadget(&mut self) {
+        if self.gadget.is_none() {
+            return;
+        }
+        // Read data from host via EP1 OUT
+        let data = self.gadget.as_mut().unwrap().recv_ep1_out();
+        if let Some(cdb_data) = data {
+            log::info!("GADGET: received {} bytes from host", cdb_data.len());
+            // Inject into ISP1581 EP1 OUT FIFO — firmware IRQ1 will handle it
+            self.bus.isp1581_inject(&cdb_data);
+        }
+
+        // Send ISP1581 EP2 IN FIFO data to host
+        if self.bus.isp1581_has_response() {
+            let response = self.bus.isp1581_drain(65536);
+            if !response.is_empty() {
+                log::info!("GADGET: sending {} bytes to host", response.len());
+                self.gadget.as_mut().unwrap().send_ep2_in(&response);
+            }
+        }
+    }
+
+    /// Inject a CDB into the ISP1581 EP1 OUT FIFO for IRQ1-driven processing.
+    /// The firmware's IRQ1 ISR at 0x014E00 reads the CDB from the EP Data Port,
+    /// writes it to 0x4007DE, and sets cmd_pending. The main loop dispatcher
+    /// then picks it up and executes the handler.
+    ///
+    /// This is the "real USB" path: host → ISP1581 FIFO → IRQ1 → firmware.
+    /// Use this instead of scsi_command() when running with full firmware USB.
+    pub fn inject_cdb_irq1(&mut self, cdb: &[u8]) {
+        log::info!("IRQ1 CDB: injecting {} bytes into EP1 OUT FIFO", cdb.len());
+        self.bus.isp1581_inject(cdb);
+        // The IRQ will fire on the next check_peripherals() call,
+        // which happens every instruction in the run() loop.
+    }
+
+    /// Check if firmware has produced a response in the ISP1581 EP2 IN FIFO.
+    pub fn has_response(&self) -> bool {
+        self.bus.isp1581_has_response()
+    }
+
+    /// Drain the ISP1581 EP2 IN FIFO (host reads device response).
+    pub fn drain_response(&mut self, max: usize) -> Vec<u8> {
+        self.bus.isp1581_drain(max)
     }
 
     /// Execute one CPU instruction with full peripheral handling.

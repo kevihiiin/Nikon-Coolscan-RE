@@ -44,6 +44,9 @@ pub trait MmioDevice {
     /// Push raw bytes into the device's host-bound FIFO (EP2 IN for USB).
     /// Unlike write_word, this adds bytes directly without protocol-level packing.
     fn push_to_host(&mut self, _data: &[u8]) {}
+
+    /// Tick: called once per instruction cycle for time-dependent state transitions.
+    fn tick(&mut self) {}
 }
 
 /// Memory region identifiers for address decode.
@@ -345,6 +348,11 @@ impl MemoryBus {
     /// Check if ISP1581 has pending IRQ.
     pub fn isp1581_has_irq(&self) -> bool {
         self.isp1581_device.as_ref().map_or(self.isp1581_irq_pending, |dev| dev.has_irq())
+    }
+
+    /// Tick ISP1581 for time-dependent state transitions (bus reset, etc.).
+    pub fn isp1581_tick(&mut self) {
+        self.with_isp1581_mut((), |dev| dev.tick());
     }
 
     /// Read on-chip I/O register (0xFFFF00-0xFFFFFF).

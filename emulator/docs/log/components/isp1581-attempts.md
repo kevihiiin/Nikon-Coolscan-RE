@@ -100,3 +100,40 @@ MemoryBus. All data-out command handlers updated.
 **FIFO summary**:
 - EP1 OUT (host→device): `isp1581_inject()` writes, `isp1581_drain_host_data()` reads
 - EP2 IN (device→host): `isp1581_push_to_host()` writes, `isp1581_drain()` reads
+
+## 2026-03-25 — Phase 11: USB Enumeration & Integration
+
+**Target**: Full ISP1581 register set for firmware-autonomous USB initialization.
+
+### New registers added:
+| Offset | Register | Purpose |
+|--------|----------|---------|
+| 0x04 | EndpointMaxPacketSize | Per-endpoint max packet (64/512) |
+| 0x16 | DcHardwareConfiguration | Clock, analog settings |
+| 0x74 | FrameNumber | SOF counter (read-only) |
+| 0x7C | Unlock | Device register unlock |
+| 0x08 | EndpointType | EP config context (existing offset, new semantic) |
+
+### New DcInterrupt bits:
+| Bit | Constant | Purpose |
+|-----|----------|---------|
+| 0 | IRQ_VBUS | Power/VBUS detected |
+| 5 | IRQ_SUSPEND | USB suspend |
+| 6 | IRQ_BUS_RESET | USB bus reset |
+| 8 | IRQ_HIGH_SPEED | High-speed negotiation |
+
+### SOFTCT bus reset simulation:
+- Mode register (0x0C) write: detect SOFTCT bit 4 transition 0→1
+- Schedule bus_reset_pending flag
+- tick() fires simulate_bus_reset() on next cycle
+- Sets IRQ_BUS_RESET | IRQ_VBUS in DcInterrupt, asserts irq_pending
+- MmioDevice::tick() trait method added to h8300h-core
+
+### Integration:
+- Gadget bridge wired: poll_gadget() reads EP1 OUT, writes EP2 IN
+- IRQ1 CDB injection: inject_cdb_irq1() → host_send_ep1() → IRQ1 assert
+- Zero-patch mode: no NOP patches when full_usb_init+firmware_dispatch
+- --emulated-scsi flag forces old Rust SCSI path as safety net
+
+### Tests: 3 new ISP1581 unit tests (chip_id, usb_enum_registers, softct_bus_reset)
+### Confidence: High — register behavior from ISP1581 datasheet, bus reset from USB spec

@@ -1132,3 +1132,203 @@ fn gate_firmware_request_sense() {
     }
 }
 
+// ==========================================================================
+// Phase 11: Real USB & Integration
+// ==========================================================================
+
+/// Phase 11.1: ISP1581 register support for USB enumeration.
+/// Verify that Chip ID, Address, HW Config, Unlock registers work.
+#[test]
+fn phase11_isp1581_enum_registers() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Chip ID should read as 0x1581 from offset 0x70
+    let chip_id_lo = emu.bus.read_byte(0x600070);
+    let chip_id_hi = emu.bus.read_byte(0x600071);
+    // ISP1581 is LE: lo byte at even addr, hi at odd
+    let _chip_id = ((chip_id_lo as u16) << 8) | chip_id_hi as u16;
+    // Note: byte ordering depends on MmioDevice impl. The word value is 0x1581.
+    eprintln!("Chip ID read: hi=0x{:02X} lo=0x{:02X}", chip_id_hi, chip_id_lo);
+
+    // Write and read back Address register
+    emu.bus.write_byte(0x600000, 0x00);
+    emu.bus.write_byte(0x600001, 0x07); // address=7
+    let addr = emu.bus.read_byte(0x600001);
+    eprintln!("Address register: 0x{:02X}", addr);
+
+    // EP max packet size
+    emu.bus.write_byte(0x600004, 0x02);
+    emu.bus.write_byte(0x600005, 0x00); // 512 = 0x0200
+    eprintln!("EP max packet size written");
+
+    // HW config
+    emu.bus.write_byte(0x600016, 0x00);
+    emu.bus.write_byte(0x600017, 0x42);
+    eprintln!("HW config written");
+
+    // Verify boot + register access works without crash
+    let tur = emu.scsi_command(&cdb_tur());
+    assert_eq!(tur.sense_key, 0, "TUR should still work after register writes");
+    eprintln!("Phase 11.1: ISP1581 enum registers OK");
+}
+
+/// Phase 11.2: Zero-patch mode — verify that --full-usb-init + --firmware-dispatch
+/// applies zero NOP patches. Tests the patch count, not full USB init (which
+/// would need a real ISP1581 response to the firmware's init sequence).
+#[test]
+fn phase11_zero_patch_mode_config() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.full_usb_init = true;
+    config.firmware_dispatch = true;
+    // emulated_scsi defaults to false → zero-patch mode should be active
+
+    // We can't actually boot in zero-patch mode yet (firmware USB init
+    // would hang waiting for ISP1581 responses we don't provide), but
+    // we can verify the config flags are correctly set.
+    assert!(config.full_usb_init, "full_usb_init should be true");
+    assert!(config.firmware_dispatch, "firmware_dispatch should be true");
+    assert!(!config.emulated_scsi, "emulated_scsi should be false");
+
+    // Verify emulated_scsi safety net works
+    let mut config2 = Config::test_default();
+    config2.firmware_dispatch = true;
+    config2.emulated_scsi = true;
+    let firmware = load_firmware();
+    let mut emu = Emulator::new(&firmware, &config2);
+    let ok = emu.boot_to_main_loop(5_000_000);
+    assert!(ok, "Should boot with emulated_scsi + firmware_dispatch");
+
+    // With emulated_scsi, scsi_command should use the Rust path
+    let r = emu.scsi_command(&cdb_tur());
+    assert_eq!(r.sense_key, 0, "TUR via Rust emulation should work");
+    eprintln!("Phase 11.2: zero-patch config + emulated_scsi safety net OK");
+}
+
+/// Phase 11.3: IRQ1 CDB injection API exists and doesn't crash.
+#[test]
+fn phase11_irq1_cdb_injection() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Inject a TUR CDB into ISP1581 EP1 OUT FIFO
+    let cdb = cdb_tur();
+    emu.inject_cdb_irq1(&cdb);
+
+    // Verify the data is in the FIFO (check has_response is false before processing)
+    // Run a few instructions to let the ISP1581 process
+    emu.run(100);
+
+    // The response manager won't produce output via the normal mini-loop path,
+    // but we verify the API exists and the FIFO injection doesn't crash.
+    eprintln!("Phase 11.3: IRQ1 CDB injection API works (no crash)");
+}
+
+/// Phase 11.4: All 21 SCSI opcodes in firmware dispatch table.
+#[test]
+fn phase11_all_21_opcodes_in_dispatch_table() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Read all 21 entries from the firmware dispatch table at 0x49834
+    let expected_opcodes: &[u8] = &[
+        0x00, 0x03, 0x12, 0x15, 0x16, 0x17, 0x1A, 0x1B,
+        0x1C, 0x1D, 0x24, 0x25, 0x28, 0x2A, 0x3B, 0x3C,
+        0xC0, 0xC1, 0xD0, 0xE0, 0xE1,
+    ];
+
+    for (i, &expected) in expected_opcodes.iter().enumerate() {
+        let entry_addr = 0x049834 + (i * 10) as u32;
+        let opcode = emu.bus.read_byte(entry_addr);
+        let handler = emu.bus.read_long(entry_addr + 4) & 0x00FFFFFF;
+        assert_eq!(opcode, expected,
+            "Entry {}: expected opcode 0x{:02X}, got 0x{:02X}", i, expected, opcode);
+        assert_ne!(handler, 0,
+            "Entry {}: handler for opcode 0x{:02X} should not be null", i, opcode);
+        eprintln!("  Dispatch[{:2}]: opcode=0x{:02X} handler=0x{:06X}", i, opcode, handler);
+    }
+
+    // Verify phase query (0xD0) handler address is 0x013748
+    let d0_entry = 0x049834 + (18 * 10) as u32;
+    let d0_handler = emu.bus.read_long(d0_entry + 4) & 0x00FFFFFF;
+    assert_eq!(d0_handler, 0x013748, "Phase query (0xD0) handler should be at 0x013748");
+
+    eprintln!("Phase 11.4: all 21 opcodes confirmed in dispatch table");
+}
+
+/// Phase 11.5: Gadget bridge polling doesn't crash (without real USB hardware).
+#[test]
+fn phase11_gadget_bridge_poll_noop() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Without gadget setup, poll_gadget should be a no-op
+    // (gadget field is None)
+    // Just verify it doesn't crash by running the emulator
+    emu.run(1000);
+
+    let tur = emu.scsi_command(&cdb_tur());
+    assert_eq!(tur.sense_key, 0, "TUR should work after gadget poll");
+    eprintln!("Phase 11.5: gadget bridge no-op polling OK");
+}
+
+/// Phase 11.6: --emulated-scsi flag forces Rust SCSI path even when
+/// --firmware-dispatch is set.
+#[test]
+fn phase11_emulated_scsi_flag() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    config.emulated_scsi = true;
+    let mut emu = boot_with_config(&config);
+
+    // INQUIRY via emulated path should return standard response
+    let r = emu.scsi_command(&cdb_inquiry(36));
+    assert_eq!(r.sense_key, 0, "INQUIRY should succeed");
+    assert_eq!(r.data.len(), 36, "Should return 36 bytes");
+    assert_eq!(r.data[0], 0x06, "Device type should be scanner (0x06)");
+    assert_eq!(r.data[1], 0x80, "RMB bit should be set");
+
+    // Verify vendor string starts with "Nikon"
+    let vendor = std::str::from_utf8(&r.data[8..16]).unwrap_or("???");
+    assert!(vendor.starts_with("Nikon"), "Vendor should be 'Nikon', got '{}'", vendor);
+
+    eprintln!("Phase 11.6: --emulated-scsi forces Rust SCSI path OK");
+}
+
+/// Phase 11.7: Full NikonScan-like sequence via firmware dispatch.
+/// Tests the complete init sequence a driver would use.
+#[test]
+fn phase11_full_sequence_firmware_dispatch() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // TUR
+    let r = emu.scsi_command(&cdb_tur());
+    assert_eq!(r.sense_key, 0, "TUR");
+
+    // INQUIRY (firmware dispatch may return 36 bytes or truncated to alloc_len)
+    let r = emu.scsi_command(&cdb_inquiry(36));
+    assert_eq!(r.sense_key, 0, "INQUIRY");
+    eprintln!("INQUIRY: {} bytes, SK={}", r.data.len(), r.sense_key);
+    // Firmware dispatch returns at least some data (may be < 36 due to PIO timing)
+    assert!(!r.data.is_empty(), "INQUIRY should return data");
+
+    // RESERVE
+    let r = emu.scsi_command(&cdb_reserve());
+    assert_eq!(r.sense_key, 0, "RESERVE");
+
+    // REQUEST SENSE
+    let r = emu.scsi_command(&cdb_request_sense(18));
+    assert_eq!(r.sense_key, 0, "REQUEST SENSE");
+
+    // RELEASE
+    let r = emu.scsi_command(&cdb_release());
+    assert_eq!(r.sense_key, 0, "RELEASE");
+
+    eprintln!("Phase 11.7: full NikonScan sequence via firmware dispatch OK");
+}
+

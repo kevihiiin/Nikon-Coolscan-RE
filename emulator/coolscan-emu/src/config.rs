@@ -38,6 +38,8 @@ pub struct Config {
     pub cold_boot: bool,
     pub full_usb_init: bool,
     pub firmware_dispatch: bool,
+    /// Force old Rust SCSI emulation path (regression safety net).
+    pub emulated_scsi: bool,
 }
 
 impl Config {
@@ -58,6 +60,7 @@ impl Config {
             cold_boot: false,
             full_usb_init: false,
             firmware_dispatch: false,
+            emulated_scsi: false,
         }
     }
 
@@ -78,6 +81,7 @@ impl Config {
         let mut cold_boot = false;
         let mut full_usb_init = false;
         let mut firmware_dispatch = false;
+        let mut emulated_scsi = false;
 
         let mut i = 1;
         while i < args.len() {
@@ -135,6 +139,7 @@ impl Config {
                 "--cold-boot" => { cold_boot = true; i += 1; }
                 "--full-usb-init" => { full_usb_init = true; i += 1; }
                 "--firmware-dispatch" => { firmware_dispatch = true; i += 1; }
+                "--emulated-scsi" => { emulated_scsi = true; i += 1; }
                 "--pattern" if i + 1 < args.len() => {
                     pattern = match args[i + 1].as_str() {
                         "gradient" => ScanPattern::Gradient,
@@ -182,6 +187,7 @@ impl Config {
             firmware_path, adapter, trace, max_instructions, tcp_port,
             watchdog, gadget, pattern, model, benchmark,
             scan_data_path, cold_boot, full_usb_init, firmware_dispatch,
+            emulated_scsi,
         }
     }
 }
@@ -214,6 +220,7 @@ fn print_usage() {
     eprintln!("  --cold-boot          Use cold-boot path (skip warm-boot shortcuts)");
     eprintln!("  --full-usb-init      Let firmware run USB initialization (un-NOP USB init patches)");
     eprintln!("  --firmware-dispatch  Route SCSI commands through firmware handlers");
+    eprintln!("  --emulated-scsi      Force Rust SCSI emulation (regression safety net)");
     eprintln!("  -h, --help           Show this help");
     eprintln!();
     eprintln!("TCP BRIDGE:");
