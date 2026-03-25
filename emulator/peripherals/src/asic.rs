@@ -33,6 +33,8 @@ pub struct Asic {
     pub cold_boot_mode: bool,
     /// CCD pixel data source for scan line generation.
     pub ccd_source: CcdSource,
+    /// Lamp state (from GPIO Port 4). Affects calibration data levels.
+    pub lamp_on: bool,
     /// Scan line counter (increments on each CCD trigger).
     pub line_counter: u32,
     /// Pixel data generated on last CCD trigger (for writing to ASIC RAM).
@@ -49,6 +51,7 @@ impl Asic {
             ready_countdown: 0,
             cold_boot_mode: false,
             ccd_source: CcdSource::Pattern,
+            lamp_on: false,
             line_counter: 0,
             last_line_data: Vec::new(),
         }
@@ -135,13 +138,19 @@ impl Asic {
                 CcdSource::MidGray => 0x2000, // Mid-range 14-bit
             };
 
-            // Apply DAC mode: calibration mode produces different levels
+            // Apply DAC mode: calibration mode produces different levels.
+            // Per-pixel PRNG variation simulates CCD non-uniformity.
+            let noise = ((i as u16).wrapping_mul(31).wrapping_add(self.line_counter as u16 * 17)) & 0x3F;
             let value = match dac_mode {
-                0xA2 => {
-                    // Calibration mode: low values for dark frame
-                    (raw_14bit / 256).max(0x0010) & 0x3FFF
+                0xA2 if !self.lamp_on => {
+                    // Dark frame (lamp off): low pixel values 0x0010-0x0040
+                    (0x0020u16.wrapping_add(noise & 0x1F)) & 0x3FFF
                 }
-                _ => raw_14bit, // Normal scan mode
+                0xA2 => {
+                    // White reference (lamp on): high pixel values 0x3F00-0x3FFF
+                    (0x3F00u16.wrapping_add(noise)) & 0x3FFF
+                }
+                _ => raw_14bit, // Normal scan mode (0x22)
             };
 
             // Pack 14-bit data into 16-bit word: data in bits [15:2]

@@ -746,6 +746,122 @@ fn test_vpd_c0_adapter_specific() {
     assert_eq!(r.data[4], 0x01, "SA-Mount: 1 frame");
 }
 
+// --- Phase 10: Calibration ---
+
+#[test]
+fn test_calibration_dark_frame() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    // Dark frame: DAC mode 0xA2, lamp OFF → low pixel values
+    let mut asic = peripherals::asic::Asic::new();
+    asic.lamp_on = false;
+    asic.write(0x00C2, 0xA2); // DAC calibration mode
+    asic.write(0x014C, 0x04); // DMA count = 1024 bytes
+    asic.write(0x01C1, 0x80); // CCD trigger
+
+    assert!(!asic.last_line_data.is_empty());
+    // Check all pixel values are low (dark frame)
+    for i in (0..asic.last_line_data.len()).step_by(2) {
+        let word = ((asic.last_line_data[i] as u16) << 8) | asic.last_line_data[i + 1] as u16;
+        let value = word >> 2; // Extract 14-bit data
+        assert!(value < 0x0060, "Dark frame pixel at {} should be low, got 0x{:04X}", i / 2, value);
+    }
+}
+
+#[test]
+fn test_calibration_white_reference() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    // White reference: DAC mode 0xA2, lamp ON → high pixel values
+    let mut asic = peripherals::asic::Asic::new();
+    asic.lamp_on = true;
+    asic.write(0x00C2, 0xA2); // DAC calibration mode
+    asic.write(0x014C, 0x04); // DMA count = 1024 bytes
+    asic.write(0x01C1, 0x80); // CCD trigger
+
+    assert!(!asic.last_line_data.is_empty());
+    // Check all pixel values are high (white reference)
+    for i in (0..asic.last_line_data.len()).step_by(2) {
+        let word = ((asic.last_line_data[i] as u16) << 8) | asic.last_line_data[i + 1] as u16;
+        let value = word >> 2;
+        assert!(value > 0x3E00, "White ref pixel at {} should be high, got 0x{:04X}", i / 2, value);
+    }
+}
+
+#[test]
+fn test_calibration_task_codes() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Task code 0x0500 (dark frame calibration)
+    let task_data = vec![0x05, 0x00, 0x00, 0x00];
+    let r = emu.scsi_command_out(&cdb_send_diagnostic(), &task_data);
+    assert!(r.is_good(), "Calibration task 0x0500 should return GOOD");
+
+    // Check calibration results were written
+    let cal_min = emu.bus.read_word(0x400F0A);
+    let cal_mid = emu.bus.read_word(0x400F12);
+    let cal_max = emu.bus.read_word(0x400F1A);
+    assert_ne!(cal_min, 0, "Calibration min should be non-zero");
+    assert_ne!(cal_mid, 0, "Calibration mid should be non-zero");
+    assert_ne!(cal_max, 0, "Calibration max should be non-zero");
+    assert!(cal_min < cal_mid, "min < mid");
+    assert!(cal_mid < cal_max, "mid < max");
+
+    // Task codes 0x0501 and 0x0502
+    let r1 = emu.scsi_command_out(&cdb_send_diagnostic(), &[0x05, 0x01, 0x00, 0x00]);
+    let r2 = emu.scsi_command_out(&cdb_send_diagnostic(), &[0x05, 0x02, 0x00, 0x00]);
+    assert!(r1.is_good(), "Task 0x0501 should return GOOD");
+    assert!(r2.is_good(), "Task 0x0502 should return GOOD");
+}
+
+#[test]
+fn test_calibration_ram_defaults() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // Force a firmware dispatch to trigger pre-population
+    let _ = emu.scsi_command(&cdb_tur());
+
+    // Calibration input params at 0x400F56 should be pre-populated
+    let param = emu.bus.read_word(0x400F56);
+    assert_eq!(param, 0x2000, "Calibration input should be mid-range default");
+}
+
+#[test]
+fn test_ls5000_model_config() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.model = coolscan_emu::config::ScannerModel::Ls5000;
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // Force dispatch to set model flag
+    let _ = emu.scsi_command(&cdb_tur());
+
+    let model_flag = emu.bus.read_byte(0x404E96);
+    assert_eq!(model_flag, 1, "LS-5000 model flag should be set");
+}
+
+#[test]
+fn test_ccd_characterization_data_exists() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let config = Config::test_default();
+    let mut emu = boot_with_config(&config);
+
+    // CCD characterization data in flash at 0x4A8BC should be readable
+    let first_byte = emu.bus.read_byte(0x4A8BC);
+    let last_byte = emu.bus.read_byte(0x528BC);
+    // The data should be non-trivial (not all zeros or all 0xFF)
+    let mut nonzero_count = 0;
+    for addr in (0x4A8BC..0x4A8BC + 100).step_by(4) {
+        if emu.bus.read_byte(addr) != 0 && emu.bus.read_byte(addr) != 0xFF {
+            nonzero_count += 1;
+        }
+    }
+    assert!(nonzero_count > 5, "CCD characterization data should have varied values, got {} non-trivial in first 100 bytes (first=0x{:02X}, last=0x{:02X})", nonzero_count, first_byte, last_byte);
+}
+
 // --- Phase 7 Gate: ISP1581 Register Access Trace ---
 
 /// Phase 7.0 GATE: Trace ISP1581 register accesses during INQUIRY firmware dispatch.

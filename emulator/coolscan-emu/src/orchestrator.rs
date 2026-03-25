@@ -782,6 +782,18 @@ impl Emulator {
                         }
                         log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x0450 → absolute move to {}", target);
                     }
+                    0x0500..=0x0502 => {
+                        // Calibration tasks: dark frame, white reference, per-channel
+                        // In real hardware, these trigger CCD capture in DAC mode 0xA2.
+                        // We pre-populate calibration results with reasonable defaults.
+                        // Firmware routines at 0x3D12D/0x3DE51/0x3EEF9/0x3F897
+                        // compute min/max from CCD data, writing to:
+                        //   0x400F0A (min), 0x400F12 (mid), 0x400F1A (max)
+                        self.bus.write_word(0x400F0A, 0x0020); // cal min
+                        self.bus.write_word(0x400F12, 0x2000); // cal mid
+                        self.bus.write_word(0x400F1A, 0x3F00); // cal max
+                        log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x{:04X} → calibration complete", task_code);
+                    }
                     _ => {
                         log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x{:04X} → GOOD (unhandled)", task_code);
                     }
@@ -1280,6 +1292,8 @@ impl Emulator {
         }
 
         // --- ASIC sync ---
+        // Sync lamp state from GPIO to ASIC (affects calibration data)
+        self.asic.lamp_on = self.peripherals.gpio.lamp_on;
         let master = self.bus.asic_reg(0x0001);
         if master != self.asic.read(0x0001) {
             self.asic.write(0x0001, master);
@@ -2030,6 +2044,22 @@ impl Emulator {
                 let b = self.bus.read_byte(0x170CE + i); // Read from flash template
                 self.bus.write_byte(FW_INQUIRY_RAM + i, b); // Write to INQUIRY RAM buffer
             }
+        }
+
+        // Pre-populate calibration input parameters at 0x400F56-0x400F9D.
+        // These are read by firmware calibration routines (0x3D12D, 0x3DE51, etc.)
+        // as input to the dark frame / white reference computation. Mid-range
+        // defaults prevent division-by-zero in calibration math.
+        if self.bus.read_word(0x400F56) == 0 {
+            for offset in (0..0x48).step_by(2) {
+                self.bus.write_word(0x400F56 + offset, 0x2000); // Mid-range defaults
+            }
+        }
+
+        // Set model flag at 0x404E96 from --model config.
+        // LS-50: 0 (default), LS-5000: non-zero. Affects analog DAC/gain config.
+        if self.model == crate::config::ScannerModel::Ls5000 {
+            self.bus.write_byte(0x404E96, 1);
         }
 
         let max_handler_insns = 500_000u64;
