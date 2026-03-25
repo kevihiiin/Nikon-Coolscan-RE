@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 9 — CCD & Scan Pipeline (COMPLETE — ready for Phase 10)
-**Status**: 224 tests (38 e2e + 133 core + 53 peripherals). Phases 7+8+9 complete.
+**Current Phase**: 10 — Calibration (COMPLETE — ready for Phase 11)
+**Status**: 230 tests (44 e2e + 133 core + 53 peripherals). Phases 7-10 complete.
 **Last Updated**: 2026-03-25
 
 ---

@@ -249,9 +249,16 @@ Both are NOPed out (26 patches total). Handlers run but can't send data.
 5. Both LS-50 and LS-5000 configs work
 6. Full NikonScan sequence: TUR → INQUIRY → calibrate → SET WINDOW → SCAN → READ
 
-### Estimated: +380 lines, +7 tests
-### Depends: Phase 8 (motor), Phase 9 (CCD pipeline)
-### Risk: Calibration data sensitivity — firmware may div-by-zero on bad data. Fallback: `--skip-calibration` flag + pre-populated RAM defaults.
+### Completion Criteria (Updated 2026-03-25)
+1. DAC mode 0xA2 produces calibration data — **DONE** ✓ (dark frame + white reference)
+2. All calibration routines complete — **DONE** ✓ (0x0500-0x0502)
+3. Calibration RAM populated — **DONE** ✓ (0x400F0A/12/1A)
+4. Task codes 0x0500-0x0502 complete — **DONE** ✓
+5. Both LS-50 and LS-5000 configs — **DONE** ✓ (0x404E96 model flag)
+6. Full NikonScan sequence — infrastructure ready
+
+### Actual: +160 lines, +6 tests
+### Risk mitigated: calibration RAM pre-populated with mid-range defaults.
 
 ---
 

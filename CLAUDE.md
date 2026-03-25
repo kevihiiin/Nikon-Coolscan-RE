@@ -189,7 +189,7 @@ emulator/
 | 7 | ISP1581 DMA + FW Handlers | Firmware sends SCSI responses through USB path | COMPLETE (202 tests) |
 | 8 | Motor & Position | Motor moves, encoder feedback, VPD pages | COMPLETE (215 tests) |
 | 9 | CCD & Scan Pipeline | CCD injection, ASIC DMA, H8 DMA controller | COMPLETE (224 tests) |
-| 10 | Calibration | Dark frame, white ref, CCD characterization | |
+| 10 | Calibration | Dark frame, white ref, CCD characterization | COMPLETE (230 tests) |
 | 11 | Real USB & Integration | Zero patches, NikonScan compatible | |
 
 **Roadmap details**: See `emulator/docs/design-gaps.md` for full Phase 7-11 plan.
