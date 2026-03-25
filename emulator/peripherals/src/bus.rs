@@ -7,6 +7,7 @@ use crate::itu::TimerUnit;
 use crate::gpio::GpioPorts;
 use crate::wdt::Watchdog;
 use crate::adc::Adc;
+use crate::dma::DmaController;
 
 /// Peripheral bus managing all on-chip I/O devices.
 pub struct PeripheralBus {
@@ -14,6 +15,7 @@ pub struct PeripheralBus {
     pub gpio: GpioPorts,
     pub watchdog: Watchdog,
     pub adc: Adc,
+    pub dma: DmaController,
 }
 
 impl PeripheralBus {
@@ -23,6 +25,7 @@ impl PeripheralBus {
             gpio: GpioPorts::new(),
             watchdog: Watchdog::new(),
             adc: Adc::new(),
+            dma: DmaController::new(),
         }
     }
 

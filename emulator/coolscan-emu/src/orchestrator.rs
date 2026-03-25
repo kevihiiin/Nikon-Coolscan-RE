@@ -1286,7 +1286,32 @@ impl Emulator {
             self.bus.set_asic_reg(0x0041, self.asic.read(0x0041));
         }
         self.bus.set_asic_reg(0x0002, self.asic.read(0x0002));
-        self.asic.tick();
+        let asic_dma_done = self.asic.tick();
+
+        // If ASIC DMA completed, write CCD pixel data to ASIC RAM
+        if asic_dma_done && !self.asic.last_line_data.is_empty() {
+            let dest = self.asic.dma_address();
+            let data = self.asic.last_line_data.clone();
+            for (i, &b) in data.iter().enumerate() {
+                self.bus.write_byte(dest + i as u32, b);
+            }
+            log::debug!("CCD: {} bytes written to ASIC RAM at 0x{:06X}", data.len(), dest);
+        }
+
+        // --- DMA sync ---
+        // Route on-chip I/O DMA register writes to the DMA controller model.
+        // DMA registers: 0x20-0x2F (channels), 0x90 (DMAOR).
+        for &offset in &[0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x27,
+                         0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2F, 0x90] {
+            let bus_val = self.bus.onchip_io[offset as usize];
+            let model_val = self.peripherals.dma.read(offset);
+            if bus_val == model_val { continue; }
+            if let Some(ch) = self.peripherals.dma.write(offset, bus_val) {
+                log::debug!("DMA ch{}: triggered MAR=0x{:06X} ETCR={}",
+                    ch, self.peripherals.dma.channels[ch].mar,
+                    self.peripherals.dma.channels[ch].etcr);
+            }
+        }
     }
 
     /// Check peripherals for interrupt conditions.
@@ -1317,9 +1342,21 @@ impl Emulator {
         }
 
         // CCD trigger → Vec 49
-        if self.asic.ccd_trigger_pending {
-            self.asic.ccd_trigger_pending = false;
+        if self.asic.take_ccd_trigger() {
             self.irq.assert_interrupt(vectors::VEC49, vectors::PRIORITY_MEDIUM);
+        }
+
+        // ASIC DMA completion → Vec 49 (CCD line readout complete)
+        if self.asic.take_dma_complete() {
+            self.irq.assert_interrupt(vectors::VEC49, vectors::PRIORITY_MEDIUM);
+        }
+
+        // H8 DMA completion → Vec 45 (DEND0B) / Vec 47 (DEND1B)
+        if self.peripherals.dma.take_complete(0) {
+            self.irq.assert_interrupt(vectors::DEND0B, vectors::PRIORITY_MEDIUM);
+        }
+        if self.peripherals.dma.take_complete(1) {
+            self.irq.assert_interrupt(vectors::DEND1B, vectors::PRIORITY_MEDIUM);
         }
     }
 
