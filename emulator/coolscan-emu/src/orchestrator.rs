@@ -1734,7 +1734,14 @@ impl Emulator {
         }
 
         let sense = self.bus.read_word(FW_SENSE_CODE);
-        let data = self.bus.isp1581_drain(256 * 1024);
+        let mut data = self.bus.isp1581_drain(256 * 1024);
+
+        if self.firmware_dispatch && data.len() > 8 {
+            // The dispatch-level post-handler at FW:0x01117A always sends an
+            // 8-byte compact sense summary header from 0x4007D6 before the
+            // actual response data. Strip it for a clean result.
+            data = data[8..].to_vec();
+        }
 
         ScsiResult {
             sense_key: ((sense >> 8) & 0x0F) as u8,

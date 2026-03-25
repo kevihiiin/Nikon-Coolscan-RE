@@ -769,9 +769,8 @@ fn gate_firmware_request_sense() {
     emu.bus.write_byte(0x400085, 0);
 
     // Run TUR first to initialize the sense buffer at 0x4007DE.
-    // TUR sets byte 0 to 0x70 (valid + current errors header) which the
-    // REQUEST SENSE handler needs to build a proper response.
     let tur = emu.scsi_command(&cdb_tur());
+    eprintln!("TUR: sense_key={}, data_len={}", tur.sense_key, tur.data.len());
     assert_eq!(tur.sense_key, 0, "TUR should return GOOD");
 
     let r = emu.scsi_command(&cdb_request_sense(18));
@@ -783,27 +782,26 @@ fn gate_firmware_request_sense() {
             eprintln!("  [{:3}] {:02X?}", i * 16, chunk);
         }
     }
-    // The firmware builds correct sense data but at offset 80 in the output.
-    // Extract and verify.
-    if let Some(pos) = r.data.windows(1).position(|w| w[0] == 0x70) {
-        let end = (pos + 18).min(r.data.len());
-        let sense_data = &r.data[pos..end];
-        eprintln!("  Found 0x70 at offset {}: {:02X?}", pos, sense_data);
+    // Verify first 18 bytes match Rust emulation (firmware may send extra padding)
+    assert!(r.data.len() >= 18, "FW REQUEST SENSE should produce at least 18 bytes, got {}", r.data.len());
+    let fw_sense = &r.data[..18];
+    eprintln!("  FW sense[0..18]: {:02X?}", fw_sense);
 
-        // Compare sense key with Rust emulation
-        let mut config_emu = Config::test_default();
-        config_emu.firmware_dispatch = false;
-        let mut emu2 = boot_with_config(&config_emu);
-        emu2.bus.write_word(0x4007B0, 0x0000);
-        let r_emu = emu2.scsi_command(&cdb_request_sense(18));
-        eprintln!("  EMU: {:02X?}", &r_emu.data);
+    // Compare against Rust emulation
+    let mut config_emu = Config::test_default();
+    config_emu.firmware_dispatch = false;
+    let mut emu2 = boot_with_config(&config_emu);
+    emu2.bus.write_word(0x4007B0, 0x0000);
+    let r_emu = emu2.scsi_command(&cdb_request_sense(18));
+    eprintln!("  EMU sense:       {:02X?}", &r_emu.data);
 
-        if sense_data.len() >= 8 && r_emu.data.len() >= 8 {
-            assert_eq!(sense_data[0], r_emu.data[0], "Response code must match (0x70)");
-            assert_eq!(sense_data[2] & 0x0F, r_emu.data[2] & 0x0F, "Sense key must match");
-            eprintln!("  MATCH: firmware sense response matches Rust emulation!");
-        }
-    }
+    assert_eq!(fw_sense[0], r_emu.data[0], "Response code must match (0x70)");
+    assert_eq!(fw_sense[2] & 0x0F, r_emu.data[2] & 0x0F, "Sense key must match");
+    // Byte 7 differs: FW=0x0B vs EMU=0x0A (additional sense length)
+    // This is a known 1-byte discrepancy in the additional length field
+    assert_eq!(fw_sense[0], 0x70, "Standard sense response");
+    assert_eq!(fw_sense[2], 0x00, "NO SENSE for GOOD status");
+    eprintln!("  REQUEST SENSE: firmware matches expected format!");
 
     assert_eq!(r.sense_key, 0, "FW REQUEST SENSE should return GOOD");
 
