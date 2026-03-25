@@ -833,6 +833,59 @@ impl Emulator {
                 // WRITE(10): accept data-out by DTC
                 self.handle_write();
             }
+            0x1C => {
+                // RECEIVE DIAGNOSTIC RESULTS: return diagnostic data.
+                // The scanner uses this after SEND DIAGNOSTIC to read results.
+                // Return zeros (no diagnostic data available).
+                let alloc_len = self.bus.read_byte(FW_CDB_BUFFER + 4) as usize;
+                let xfer_len = alloc_len.min(256);
+                if xfer_len > 0 {
+                    let data = vec![0u8; xfer_len];
+                    self.bus.isp1581_push_to_host(&data);
+                }
+                self.scsi_good();
+                log::info!("SCSI EMU: RECEIVE DIAGNOSTIC → {} bytes (zeros)", xfer_len);
+            }
+            0x3B => {
+                // WRITE BUFFER: firmware flash update attempt.
+                // Not an emulation goal — return CHECK CONDITION with
+                // DATA PROTECT / WRITE PROTECTED sense (SK=7, ASC=0x27).
+                let xfer_len = self.cdb_xfer_len_24() as usize;
+                if xfer_len > 0 {
+                    let _data = self.bus.isp1581_drain_host_data(xfer_len);
+                }
+                self.bus.write_word(FW_SENSE_CODE, 0x0727); // SK=7 DATA PROTECT, ASC=0x27
+                log::warn!("SCSI EMU: WRITE BUFFER → DATA PROTECT (write-protected, {} bytes discarded)", xfer_len);
+            }
+            0x3C => {
+                // READ BUFFER: return buffer contents.
+                // Mode 0x00 = combined header + data, mode 0x02 = data only.
+                let mode = self.bus.read_byte(FW_CDB_BUFFER + 1) & 0x07;
+                let alloc_len = self.cdb_xfer_len_24() as usize;
+                let xfer_len = alloc_len.min(4096);
+                if mode == 0x00 && xfer_len >= 4 {
+                    // Combined: 4-byte header (buffer capacity) + data
+                    let mut data = vec![0u8; xfer_len];
+                    // Report 0 buffer capacity
+                    data[1] = 0x00; data[2] = 0x00; data[3] = 0x00;
+                    self.bus.isp1581_push_to_host(&data);
+                } else if xfer_len > 0 {
+                    let data = vec![0u8; xfer_len];
+                    self.bus.isp1581_push_to_host(&data);
+                }
+                self.scsi_good();
+                log::info!("SCSI EMU: READ BUFFER mode {} → {} bytes", mode, xfer_len);
+            }
+            0xD0 => {
+                // PHASE QUERY: return current SCSI command phase byte.
+                // NKDUSCAN.dll sends this to check if the scanner is ready
+                // for data transfer. Phase byte at 0x40049C:
+                //   0x00 = idle/ready, 0x01 = data-in, 0x02 = data-out
+                let phase = self.bus.read_byte(0x40049C);
+                self.bus.isp1581_push_to_host(&[phase]);
+                self.scsi_good();
+                log::info!("SCSI EMU: PHASE QUERY → phase=0x{:02X}", phase);
+            }
             0xC0 | 0xC1 => {
                 // VENDOR C0/C1: trigger operations — stub GOOD
                 self.scsi_good();
@@ -2095,7 +2148,7 @@ impl Emulator {
             self.bus.write_byte(0x404E96, 1);
         }
 
-        let max_handler_insns = 500_000u64;
+        let max_handler_insns = 5_000_000u64;
         let mut executed = 0u64;
         let mut error = false;
         let mut last_pc = 0u32;
@@ -2173,6 +2226,12 @@ impl Emulator {
             // Sync peripherals (timers tick, ASIC countdown, etc.)
             self.sync_peripherals();
             self.check_peripherals();
+
+            // Auto-feed watchdog every 50K instructions to prevent timeout
+            // during long firmware handler execution (calibration, scan setup).
+            if executed.is_multiple_of(50_000) {
+                self.peripherals.watchdog.write(0x5A);
+            }
         }
 
         // On error (timeout, unknown insn, SLEEP), set hardware error sense

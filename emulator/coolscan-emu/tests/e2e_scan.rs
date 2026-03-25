@@ -1341,3 +1341,120 @@ fn phase11_full_sequence_firmware_dispatch() {
     eprintln!("Phase 11.7: full NikonScan sequence via firmware dispatch OK");
 }
 
+// ==========================================================================
+// Post-Phase 11: Edge cases and missing bits
+// ==========================================================================
+
+/// WRITE BUFFER (0x3B) returns DATA PROTECT (write-protected).
+#[test]
+fn post_write_buffer_protected() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // CDB: WRITE BUFFER, mode=0, buffer_id=0, offset=0, length=4
+    let cdb = vec![0x3B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00];
+    let data_out = vec![0xDE, 0xAD, 0xBE, 0xEF];
+    let r = emu.scsi_command_out(&cdb, &data_out);
+    // SK=7 (DATA PROTECT), ASC=0x27 (WRITE PROTECTED)
+    assert_eq!(r.sense_key, 7, "WRITE BUFFER should return DATA PROTECT");
+    assert_eq!(r.asc, 0x27, "ASC should be 0x27 (WRITE PROTECTED)");
+}
+
+/// READ BUFFER (0x3C) returns zeros.
+#[test]
+fn post_read_buffer_zeros() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // CDB: READ BUFFER mode=0 (combined), alloc_len=32
+    let cdb = vec![0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00];
+    let r = emu.scsi_command(&cdb);
+    assert_eq!(r.sense_key, 0, "READ BUFFER should return GOOD");
+    assert_eq!(r.data.len(), 32, "Should return 32 bytes");
+    assert!(r.data.iter().all(|&b| b == 0), "All bytes should be zero");
+}
+
+/// RECEIVE DIAGNOSTIC (0x1C) returns zeros.
+#[test]
+fn post_receive_diagnostic() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // CDB: RECEIVE DIAGNOSTIC RESULTS, alloc_len=16
+    let cdb = vec![0x1C, 0x00, 0x00, 0x00, 0x10, 0x00];
+    let r = emu.scsi_command(&cdb);
+    assert_eq!(r.sense_key, 0, "RECEIVE DIAGNOSTIC should return GOOD");
+    assert_eq!(r.data.len(), 16, "Should return 16 bytes");
+}
+
+/// Phase query (0xD0) returns phase byte.
+#[test]
+fn post_phase_query() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // CDB: vendor 0xD0 (phase query)
+    let cdb = vec![0xD0, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let r = emu.scsi_command(&cdb);
+    assert_eq!(r.sense_key, 0, "PHASE QUERY should return GOOD");
+    assert_eq!(r.data.len(), 1, "Should return 1 phase byte");
+    // Phase 0x00 = idle (no scan in progress)
+    assert_eq!(r.data[0], 0x00, "Phase should be idle (0x00)");
+}
+
+/// Flash log area writes are accepted (not rejected as read-only).
+#[test]
+fn post_flash_log_write() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Write to flash log area 1 (0x60000)
+    emu.bus.write_byte(0x60000, 0xAB);
+    let val = emu.bus.read_byte(0x60000);
+    assert_eq!(val, 0xAB, "Flash log area write should persist");
+
+    // Write to flash log area 2 (0x70000)
+    emu.bus.write_byte(0x70000, 0xCD);
+    let val = emu.bus.read_byte(0x70000);
+    assert_eq!(val, 0xCD, "Flash log area 2 write should persist");
+
+    // Normal flash area should still reject writes (read-only)
+    let before = emu.bus.read_byte(0x10000);
+    emu.bus.write_byte(0x10000, 0xFF);
+    let after = emu.bus.read_byte(0x10000);
+    assert_eq!(before, after, "Non-log flash area should be read-only");
+}
+
+/// Multi-pass scan: second SCAN regenerates data.
+#[test]
+fn post_multi_pass_scan() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // RESERVE → SET WINDOW → SCAN (pass 1) → READ → SCAN (pass 2) → READ
+    let r = emu.scsi_command(&cdb_reserve());
+    assert_eq!(r.sense_key, 0, "RESERVE");
+
+    let wd = build_window_descriptor();
+    let r = emu.scsi_command_out(&cdb_set_window(wd.len() as u32), &wd);
+    assert_eq!(r.sense_key, 0, "SET WINDOW");
+
+    // SCAN pass 1 (op_type=0x01 = start scan)
+    let r = emu.scsi_command(&cdb_scan(0x01));
+    assert_eq!(r.sense_key, 0, "SCAN pass 1");
+
+    // READ image data (DTC=0x00, qualifier=0x00)
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 1024));
+    assert_eq!(r.sense_key, 0, "READ pass 1");
+    assert!(!r.data.is_empty(), "Pass 1 should return data");
+
+    // SCAN pass 2 — should reset and work
+    let r = emu.scsi_command(&cdb_scan(0x01));
+    assert_eq!(r.sense_key, 0, "SCAN pass 2");
+
+    // READ again — should return data from beginning
+    let r = emu.scsi_command(&cdb_read(0x00, 0x00, 1024));
+    assert_eq!(r.sense_key, 0, "READ pass 2");
+    assert!(!r.data.is_empty(), "Pass 2 should return data");
+}
+

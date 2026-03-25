@@ -202,7 +202,13 @@ impl MemoryBus {
         let addr = addr & 0x00FF_FFFF;
         match decode_address(addr) {
             MemoryRegion::Flash => {
-                log::warn!("Write to read-only flash: 0x{:06X} = 0x{:02X}", addr, val);
+                // Allow writes to firmware log areas (0x60000-0x7FFFF).
+                // The firmware writes operational logs here during normal use.
+                if (0x60000..0x80000).contains(&addr) {
+                    self.flash[addr as usize] = val;
+                } else {
+                    log::warn!("Write to read-only flash: 0x{:06X} = 0x{:02X}", addr, val);
+                }
             }
             MemoryRegion::Ram => self.ram[(addr - 0x400000) as usize] = val,
             MemoryRegion::AsicRam => self.asic_ram[(addr - 0x800000) as usize] = val,
