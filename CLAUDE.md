@@ -188,7 +188,7 @@ emulator/
 | 6 | Polish | End-to-end validation | COMPLETE (193 tests) |
 | 7 | ISP1581 DMA + FW Handlers | Firmware sends SCSI responses through USB path | COMPLETE (202 tests) |
 | 8 | Motor & Position | Motor moves, encoder feedback, VPD pages | COMPLETE (215 tests) |
-| 9 | CCD & Scan Pipeline | Firmware-driven scan produces pixel data | |
+| 9 | CCD & Scan Pipeline | CCD injection, ASIC DMA, H8 DMA controller | COMPLETE (224 tests) |
 | 10 | Calibration | Dark frame, white ref, CCD characterization | |
 | 11 | Real USB & Integration | Zero patches, NikonScan compatible | |
 

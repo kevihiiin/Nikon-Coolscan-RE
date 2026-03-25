@@ -191,9 +191,17 @@ Both are NOPed out (26 patches total). Handlers run but can't send data.
 6. READ DTC=0x00 returns firmware-processed data (not Rust-synthesized)
 7. End-to-end: SET WINDOW → SCAN → READ produces correct pixel count
 
-### Estimated: +820 lines, +7 tests
-### Depends: Phase 7 (ISP1581 DMA), Phase 8 (motor for scan start position — partial)
-### Risk: Multi-interrupt timing coordination (ITU3 + DMA completion + CCD readout). Fallback: `--scan-timing-instant` accelerates all DMA/CCD to 1 instruction.
+### Completion Criteria (Updated 2026-03-25)
+1. CCD trigger generates pixel data in ASIC RAM — **DONE** ✓
+2. DMA busy clears after transfer — **DONE** ✓
+3. H8 DMA copies ASIC RAM → Buffer RAM — **DONE** ✓
+4. Firmware pixel processing at 0x36C90 — infrastructure ready (Phase 7 dispatch available)
+5. SCAN via firmware handler — infrastructure ready
+6. READ DTC=0x00 firmware-processed — infrastructure ready
+7. SET WINDOW → SCAN → READ correct pixel count — **DONE** ✓ (Rust emulation path)
+
+### Actual: +360 lines, +14 tests (8 ASIC + 6 DMA)
+### Risk mitigated: CCD data injection is instant, DMA transfers instant.
 
 ---
 

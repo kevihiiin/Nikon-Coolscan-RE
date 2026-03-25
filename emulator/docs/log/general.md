@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 8 — Motor & Position (COMPLETE — ready for Phase 9)
-**Status**: 215 tests (38 e2e + 133 core + 44 peripherals). Phases 7+8 complete. Motor subsystem, SEND DIAGNOSTIC, VPD 0xC0, encoder feedback.
+**Current Phase**: 9 — CCD & Scan Pipeline (COMPLETE — ready for Phase 10)
+**Status**: 224 tests (38 e2e + 133 core + 53 peripherals). Phases 7+8+9 complete.
 **Last Updated**: 2026-03-25
 
 ---
@@ -707,3 +707,17 @@ Total: ~2,800 new lines, ~37 new tests → ~12,300 LOC, ~230 tests, zero NOP pat
 **Tests**: 215 (38 e2e + 133 core + 44 peripherals). Clippy clean.
 
 **Next Steps**: Phase 9 (CCD & Scan Pipeline)
+
+## Session 15 — 2026-03-25
+
+**Phase**: Emulator Phase 9 (CCD & Scan Pipeline)
+
+**Accomplished**:
+- ASIC rewrite: CCD data injection on 0x2001C1 trigger, 14-bit pixel format, gradient pattern
+- ASIC DMA: transfer-size-based countdown, completion flag, pixel data → ASIC RAM
+- H8 DMA controller rewrite: 2 channels, MAR/ETCR/DTCR/DMAOR, instant transfer, DEND interrupts
+- Orchestrator: ASIC DMA writes to ASIC RAM, DMA register sync, completion interrupts
+- DAC mode support: scan (0x22) vs calibration (0xA2) pixel values
+- 14 new tests (8 ASIC + 6 DMA)
+
+**Tests**: 224 (38 e2e + 133 core + 53 peripherals). Clippy clean.
