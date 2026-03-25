@@ -1824,6 +1824,14 @@ impl Emulator {
         // EP Data Port writes (each write_word pushes 2 bytes to EP2 IN FIFO).
         self.bus.write_word(0x407DCA, 2);
 
+        // Pre-populate adapter type at 0x400773. The INQUIRY handler loads
+        // ER3=0x400773 and uses this as the adapter index for VPD page lookup
+        // and INQUIRY string selection. Index 1 = SA-Mount (SA-21).
+        // The firmware's boot adapter detection may not work fully in our model.
+        if self.bus.read_byte(0x400773) == 0 {
+            self.bus.write_byte(0x400773, 1); // SA-Mount adapter
+        }
+
         let max_handler_insns = 500_000u64;
         let mut executed = 0u64;
         let mut error = false;

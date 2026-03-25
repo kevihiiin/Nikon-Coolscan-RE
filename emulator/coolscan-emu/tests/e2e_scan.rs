@@ -660,6 +660,14 @@ fn gate_trace_inquiry_isp1581_access() {
     config.firmware_dispatch = true;
     let mut emu = boot_with_config(&config);
 
+    // Check adapter state right after boot
+    let adapter_byte = emu.bus.read_byte(0x400773);
+    eprintln!("  After boot: adapter @0x400773 = 0x{:02X}", adapter_byte);
+    // Also check nearby bytes that might be the actual adapter index
+    for addr in [0x400773u32, 0x40087Bu32, 0x400880u32] {
+        eprintln!("  @0x{:06X} = 0x{:02X}", addr, emu.bus.read_byte(addr));
+    }
+
     // Restore INQUIRY handler's 2 NOPed calls to their original JSR instructions:
     //   0x026042: JSR @0x01374A (response manager)
     //   0x02604A: JSR @0x014090 (data transfer)
@@ -673,19 +681,37 @@ fn gate_trace_inquiry_isp1581_access() {
     assert_eq!(r.sense_key, 0, "FW INQUIRY should complete GOOD");
 
     eprintln!("FW INQUIRY: sense={}, data_len={}", r.sense_key, r.data.len());
-    if r.data.len() >= 36 {
-        eprintln!("  first 36 bytes: {:02X?}", &r.data[..36]);
-        let vendor = String::from_utf8_lossy(&r.data[8..16]);
-        let product = String::from_utf8_lossy(&r.data[16..32]);
-        eprintln!("  vendor='{}' product='{}'", vendor.trim(), product.trim());
+    // Show all non-zero bytes to find any INQUIRY data
+    for (i, chunk) in r.data.chunks(16).enumerate() {
+        if chunk.iter().any(|&b| b != 0) {
+            eprintln!("  [{:3}] {:02X?}", i * 16, chunk);
+        }
+    }
+    if let Some(pos) = r.data.windows(5).position(|w| w == b"Nikon") {
+        eprintln!("  Found 'Nikon' at offset {}", pos);
     }
 
-    // Check INQUIRY buffer in RAM directly
+    // Check INQUIRY buffer in RAM: was it populated during firmware boot?
     let mut ram_buf = Vec::new();
     for i in 0..36u32 {
         ram_buf.push(emu.bus.read_byte(0x4008A2 + i));
     }
-    eprintln!("  RAM buffer @0x4008A2: {:02X?}", &ram_buf);
-    let ram_vendor = String::from_utf8_lossy(&ram_buf[8..16]);
-    eprintln!("  RAM vendor='{}'", ram_vendor.trim());
+    eprintln!("  RAM @0x4008A2 (INQUIRY buffer): {:02X?}", &ram_buf[..8]);
+    if ram_buf[8..16].iter().any(|&b| b != 0) {
+        let vendor = String::from_utf8_lossy(&ram_buf[8..16]);
+        let product = String::from_utf8_lossy(&ram_buf[16..32]);
+        eprintln!("  vendor='{}' product='{}'", vendor, product);
+    } else {
+        eprintln!("  (vendor/product bytes are zero — handler didn't populate from flash template)");
+        // Check adapter state at 0x400773
+        let adapter = emu.bus.read_byte(0x400773);
+        eprintln!("  adapter_state @0x400773 = 0x{:02X}", adapter);
+        // Check the INQUIRY flash template directly
+        let mut flash_buf = Vec::new();
+        for i in 0..36u32 {
+            flash_buf.push(emu.bus.read_byte(0x170CE + i));
+        }
+        let flash_vendor = String::from_utf8_lossy(&flash_buf[8..16]);
+        eprintln!("  flash template @0x170CE vendor='{}'", flash_vendor);
+    }
 }
