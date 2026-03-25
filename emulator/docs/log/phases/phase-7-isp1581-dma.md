@@ -83,3 +83,63 @@ Handler completed in 1313 instructions, sense_key=0 (GOOD), 0 bytes data output.
 
 **All 194 tests pass.** (28 e2e + 133 core + 33 peripherals)
 
+## Session 2 — 2026-03-25 (Phase 7.1: Firmware USB Data Path + Dispatcher Routing)
+
+**Goals**: Get firmware SCSI handlers to produce actual response data through the ISP1581 USB path.
+
+### CDB FIFO Injection
+- `scsi_command()` now injects CDB into EP1 OUT FIFO (384 bytes, CDB repeated every 128 bytes)
+- Firmware reads CDB from FIFO at multiple points: dispatcher init, response manager buffer setup, data transfer
+- Data transfer function at FW:0x014090 reads CDB via JSR @0x016458, then calls write function at FW:0x012304
+
+### USB State Dependencies Found
+| Variable | Address | Purpose | Fix Applied |
+|----------|---------|---------|-------------|
+| cmd_pending | 0x400082 | Response manager exit signal | Set on TRAPA when return addr = 0x01376E |
+| usb_event_flag | 0x400085 | Data transfer abort condition | Cleared at PC=0x014090 |
+| usb_packet_size | 0x407DCA | DIVXU divisor for word count | Pre-set to 2 (word size) |
+| adapter_type | 0x400773 | INQUIRY string selection | Pre-set to 1 (SA-Mount) |
+| scanner_init | 0x400877 | REQUEST SENSE build path | Pre-set to 1 |
+| sense_type | 0x400880 | Sense response format | Pre-set to 0x04 |
+
+### ISP1581 DcInterrupt Bits
+- Bit 12 (0x1000): IRQ_EP_TX_READY — always set, response manager entry check
+- Bit 15 (0x8000): IRQ_EP_TX_COMPLETE — set on EP Data Port writes, state update check at FW:0x014014
+
+### Dispatcher Routing (Major Architecture Change)
+- Changed from direct handler call to routing through firmware dispatcher at 0x020AE2
+- Dispatcher sets up correct stack frame via JSR @0x016458 (CDB read/stack relay)
+- Dispatch-level response manager calls (11 NOP patches) remain NOPed
+- Handler-internal USB calls un-NOPed for testing (0x021932/0x02193A for REQUEST SENSE)
+- Handlers receive correct byte count (R5=0x24 for INQUIRY, R5=0xFEBC stack ptr for REQUEST SENSE)
+
+### INQUIRY Handler Results
+- Handler runs through full USB data path (write function 0x012304 called 18 times)
+- Buffer at 0x4008A2 has device type 0x06 but vendor/product strings are zeros
+- Handler's string copy depends on firmware init state not fully set in our emulation
+- 176 bytes written to EP2 IN FIFO (correct mechanism, wrong content)
+
+### REQUEST SENSE Handler Results — BREAKTHROUGH
+- With 0x400877=1 and 0x400880=0x04, handler calls sense build function at FW:0x0111F4
+- Build function produces correct SCSI sense response: [0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, ...]
+- Data appears at offset 80 in 104-byte output (offset issue in stack buffer layout)
+- Dispatcher init at FW:0x013E0A copies FIFO data to 0x4007DE, overwriting sense template
+- Sense rebuild at FW:0x011222 runs AFTER handler reads (too late)
+- The 0x70 response byte is the first firmware-generated SCSI content to flow through the USB path
+
+### Write Function Traced (FW:0x012304)
+- Writes R1 bytes to DcBufferLength register (0x60001C)
+- Then writes R1/2 words to EP Data Port (0x600020) in a loop
+- Reads data from RAM buffer at ER0, writes word-by-word to ISP1581
+- Called by data transfer at 0x0140C0 for full packets, 0x0140E4 (via 0x0122C4) for remainder
+
+### Remaining Issues
+1. Data offset: sense data at byte 80 instead of byte 0 (byte count parameter from stack relay)
+2. INQUIRY content: vendor/product strings zeros (need more firmware init state)
+3. Both traced to stack frame parameter passing — the stack relay 0x016458 reads byte count from caller's stack frame, which depends on how the dispatcher sets up parameters
+
+### Next Steps
+- Fix byte count parameter to get correct data size
+- Investigate INQUIRY init state dependencies
+- All 196 tests pass (30 e2e + 133 core + 33 peripherals)
+

@@ -352,20 +352,28 @@ All firmware RAM addresses and hardware register assumptions have been cross-che
 
 ### Remaining Items Requiring Runtime Verification
 
-These cannot be verified from static KB analysis alone. Each has a concrete first-step action built into Phase 7:
+Items 1-3 were **RESOLVED** by Phase 7.0 gate (2026-03-25):
 
-1. **DcInterrupt bit mask for DMA completion** (Phase 7 blocker)
-   - KB confirms: endpoint event is bit 3, bus reset bit exists, write-back-clear semantics
-   - KB silent on: exact DMA completion bit
-   - **Action (Phase 7.0)**: Trace all ISP1581 register reads in the response manager call chain (0x01374A → 0x13C70). Log which DcInterrupt bits are checked.
+1. **DcInterrupt bit mask** — **RESOLVED**: Bit 12 (0x1000) = EP TX Ready (response manager entry check via BTST #4 on high byte). Bit 15 (0x8000) = EP TX Complete (polled by state update at FW:0x014014). Firmware does NOT use ISP1581 DMA engine — uses PIO word writes to EP Data Port.
 
-2. **RAM-resident USB code (0x4010A0) involvement** (Phase 7 risk)
-   - KB confirms: 414 bytes copied from flash 0x124BA to RAM 0x4010A0, jump table at 0x01247E/0x012482
-   - KB silent on: whether response manager calls it
-   - **Action (Phase 7.0)**: PC-range check: if PC enters 0x4010A0-0x401270 during firmware dispatch, the RAM code is invoked and must model its ISP1581 accesses.
+2. **RAM-resident USB code (0x4010A0)** — **RESOLVED**: NOT called during firmware dispatch. PC never entered 0x4010A0-0x4011A2 range. RAM code is only used for IRQ1-driven high-speed transfers.
 
-3. **ISP1581 registers read by response manager beyond what we model** (Phase 7 risk)
-   - **Action (Phase 7.0)**: Log every ISP1581 read (0x600000-0x6000FF) during dispatch. Catalog unmodeled offsets.
+3. **ISP1581 registers used** — **RESOLVED**: Full catalog: 0x18 (DcInterrupt), 0x1C (DcBufferLength=64), 0x20 (EP Data Port R/W), 0x28 (ControlFunction CLBUF=0x10), 0x2C (EP Control: 0x02=config, 0x05=DMA mode 5). Note: offsets 0x24 and 0x84 from original plan were NOT accessed.
+
+**NEW items found during Phase 7.1:**
+
+4. **Firmware state variables needed for handlers** (Phase 7.1 finding)
+   - 0x400773: adapter type index (0=none, 1=SA-Mount). Boot doesn't set this reliably.
+   - 0x400877: scanner initialized flag. Must be non-zero for REQUEST SENSE build path.
+   - 0x400880: sense response type code. Non-zero triggers build function at FW:0x0111F4.
+   - 0x407DCA: USB packet size. Set during USB enumeration (NOPed). Pre-set to 2 for PIO.
+   - 0x40008A: FIFO buffer area. Dispatcher init at FW:0x013E0A copies from here to 0x4007DE.
+   - 0x4007DE: shared CDB receive / sense response buffer. Cleared by dispatcher init.
+
+5. **Stack frame byte count parameter** (Phase 7.1 blocker)
+   - The data transfer function receives byte count from the stack relay at 0x016458.
+   - The dispatcher sets up this parameter, but the value depends on the stack layout.
+   - REQUEST SENSE output is 104 bytes (too many) with sense data at offset 80.
 
 ### Items Requiring Outside Information
 

@@ -1,8 +1,8 @@
 # Emulator Development Log
 
-**Current Phase**: 7 — ISP1581 DMA + FW Handlers (NOT STARTED)
-**Status**: Phases 0-6 complete. 193 tests passing (133 h8300h-core + 33 peripherals + 27 e2e integration). Phases 7-11 roadmap approved.
-**Last Updated**: 2026-03-24
+**Current Phase**: 7 — ISP1581 DMA + FW Handlers (Phase 7.0 complete, 7.1 in progress)
+**Status**: 196 tests passing. Firmware USB data path working — sense build produces [0x70...]. Dispatcher routing implemented.
+**Last Updated**: 2026-03-25
 
 ---
 
@@ -657,3 +657,30 @@ Total: ~2,800 new lines, ~37 new tests → ~12,300 LOC, ~230 tests, zero NOP pat
 - Created 5 phase log files: `phase-7-isp1581-dma.md` through `phase-11-real-usb.md`
 
 **Next Steps**: Begin Phase 7.0 (gate step: trace ISP1581 register access during firmware dispatch)
+
+---
+
+## Session 13 — 2026-03-25
+
+**Phase**: Emulator Phase 7 (ISP1581 DMA + Firmware SCSI Handlers)
+
+**Accomplished**:
+- Phase 7.0 GATE complete: ISP1581 register catalog, DcInterrupt bits 12+15, firmware uses PIO not DMA
+- Phase 7.1 in progress: firmware USB data transfer path fully working
+- Dispatcher routing: handlers get correct stack frame from firmware dispatcher at 0x020AE2
+- REQUEST SENSE handler builds correct sense data [0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B]
+- 5 USB state variables identified and pre-populated (cmd_pending, packet_size, adapter, scanner_init, sense_type)
+- ISP1581 model: IRQ_EP_TX_READY (bit 12) + IRQ_EP_TX_COMPLETE (bit 15) + DcBufferLength
+- CDB injection into EP1 OUT FIFO for firmware dispatch
+
+**Bugs fixed**:
+- CDB buffer conflict: firmware uses 0x4007DE for sense data, we were overwriting with CDB
+- Response manager infinite loop: cmd_pending never set with masked interrupts → set on TRAPA yield
+- Data transfer abort: 0x400085 flag set by response manager → cleared at data transfer entry
+
+**Blockers**:
+- Data offset: firmware sense response at byte 80 in output, not byte 0
+- INQUIRY vendor/product strings: handler needs more firmware init state
+- Both caused by stack frame byte count parameter from dispatcher
+
+**Next Steps**: Fix remaining data offset and INQUIRY content issues
