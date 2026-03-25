@@ -70,6 +70,11 @@ impl GpioPorts {
         }
     }
 
+    /// Get the current adapter type.
+    pub fn adapter_type(&self) -> AdapterType {
+        self.adapter
+    }
+
     /// Set the simulated adapter type.
     pub fn set_adapter(&mut self, adapter: AdapterType) {
         self.adapter = adapter;

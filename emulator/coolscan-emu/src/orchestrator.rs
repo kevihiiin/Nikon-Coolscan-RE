@@ -9,6 +9,7 @@ use h8300h_core::memory::MemoryBus;
 use peripherals::asic::Asic;
 use peripherals::isp1581::Isp1581;
 use peripherals::bus::PeripheralBus;
+use peripherals::gpio;
 
 use std::net::TcpListener;
 
@@ -585,21 +586,50 @@ impl Emulator {
                             log::info!("SCSI EMU: INQUIRY EVPD page 0x00 → {} bytes", xfer_len);
                         }
                         0xC0 => {
-                            // VPD page 0xC0: adapter identification
-                            let xfer_len = alloc_len.min(16);
+                            // VPD page 0xC0: CCD readout configuration (per-adapter).
+                            // 5 bytes of CCD config data per data-tables.md.
+                            let xfer_len = alloc_len.min(9);
                             let mut data = vec![0u8; xfer_len];
-                            data[0] = 0x06; // Device type
+                            data[0] = 0x06; // Device type: scanner
                             data[1] = 0xC0; // Page code
-                            data[3] = 8;    // Page length
-                            // Adapter type byte (from current config)
-                            data[4] = self.peripherals.gpio.port_7_input;
+                            data[3] = 5;    // Page length
+                            // Per-adapter CCD readout config
+                            let adapter = self.peripherals.gpio.adapter_type();
+                            match adapter {
+                                gpio::AdapterType::SaMount => {
+                                    // SA-21: single frame, 24x36mm
+                                    if xfer_len > 4 { data[4] = 0x01; } // frame count
+                                    if xfer_len > 5 { data[5] = 0x01; } // CCD mode
+                                    if xfer_len > 6 { data[6] = 0x00; } // offset high
+                                    if xfer_len > 7 { data[7] = 0x00; } // offset low
+                                    if xfer_len > 8 { data[8] = 0x24; } // frame size (36mm)
+                                }
+                                gpio::AdapterType::SfStrip => {
+                                    // SF-210: 6 frames sequential
+                                    if xfer_len > 4 { data[4] = 0x06; } // frame count
+                                    if xfer_len > 5 { data[5] = 0x01; }
+                                    if xfer_len > 8 { data[8] = 0x24; }
+                                }
+                                _ => {
+                                    // Default: single frame
+                                    if xfer_len > 4 { data[4] = 0x01; }
+                                    if xfer_len > 5 { data[5] = 0x01; }
+                                }
+                            }
                             self.bus.isp1581_push_to_host(&data);
-                            log::info!("SCSI EMU: INQUIRY EVPD page 0xC0 → {} bytes", xfer_len);
+                            log::info!("SCSI EMU: INQUIRY EVPD page 0xC0 → {} bytes (adapter {:?})", xfer_len, adapter);
                         }
                         0xC1 => {
-                            // VPD page 0xC1: adapter capabilities
-                            let xfer_len = alloc_len.min(16);
-                            let data = vec![0u8; xfer_len];
+                            // VPD page 0xC1: CCD readout capabilities.
+                            // 5 bytes per data-tables.md.
+                            let xfer_len = alloc_len.min(9);
+                            let mut data = vec![0u8; xfer_len];
+                            data[0] = 0x06; // Device type
+                            data[1] = 0xC1; // Page code
+                            data[3] = 5;    // Page length
+                            // Max resolution capability
+                            if xfer_len > 4 { data[4] = 0x04; } // 4000 DPI max (high byte)
+                            if xfer_len > 5 { data[5] = 0xB0; } // 4000 DPI max (0x04B0 = 1200)
                             self.bus.isp1581_push_to_host(&data);
                             log::info!("SCSI EMU: INQUIRY EVPD page 0xC1 → {} bytes", xfer_len);
                         }

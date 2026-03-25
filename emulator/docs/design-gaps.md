@@ -131,16 +131,15 @@ Both are NOPed out (26 patches total). Handlers run but can't send data.
 **8.6 Home Sensor in Port 7** (`gpio.rs`, +20 lines)
 - Dynamic home sensor bit in Port 7 based on motor position
 
-### Completion Criteria
-1. Motor position tracks correctly with stepper phase writes
-2. Encoder RAM vars update with position
-3. Motor home sequence completes (position → 0)
-4. SEND DIAGNOSTIC motor commands complete without timeout
-5. VPD page 0xC0 returns adapter-appropriate boundary data
+### Completion Criteria (Updated 2026-03-25)
+1. Motor position tracks correctly with stepper phase writes — **DONE** ✓
+2. Encoder RAM vars update with position — **DONE** ✓
+3. Motor home sequence completes (position → 0) — **DONE** ✓
+4. SEND DIAGNOSTIC motor commands complete without timeout — **DONE** ✓
+5. VPD page 0xC0 returns adapter-appropriate data — **DONE** ✓ (CCD readout config, not boundary data — boundary = READ DTC 0x88)
 
-### Estimated: +636 lines, +8 tests
-### Depends: Phase 7 (partial — motor model itself is independent, but SEND DIAGNOSTIC via firmware needs ISP1581 DMA)
-### Risk: Motor timing sensitivity. Fallback: `--motor-instant` flag that teleports motor to target.
+### Actual: +180 lines motor.rs, +80 lines orchestrator, 13 new tests
+### Risk mitigated: instant_mode flag for testing (teleport to target).
 
 ---
 

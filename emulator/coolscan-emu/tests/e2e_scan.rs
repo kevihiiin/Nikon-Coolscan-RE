@@ -728,6 +728,24 @@ fn test_home_sensor_in_port7() {
     assert_eq!(port7 & 0x02, 0x00, "Home sensor bit should be clear when not at home");
 }
 
+// --- Phase 8: VPD page 0xC0 adapter-specific ---
+
+#[test]
+fn test_vpd_c0_adapter_specific() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // VPD page 0xC0 should return adapter-specific CCD config
+    let r = emu.scsi_command(&cdb_inquiry_evpd(0xC0, 9));
+    assert!(r.is_good(), "VPD 0xC0 should return GOOD");
+    assert_eq!(r.data.len(), 9, "VPD 0xC0 should be 9 bytes (header + 5 data)");
+    assert_eq!(r.data[0], 0x06, "Device type: scanner");
+    assert_eq!(r.data[1], 0xC0, "Page code");
+    assert_eq!(r.data[3], 5, "Page length");
+    // Default adapter is SA-Mount → single frame
+    assert_eq!(r.data[4], 0x01, "SA-Mount: 1 frame");
+}
+
 // --- Phase 7 Gate: ISP1581 Register Access Trace ---
 
 /// Phase 7.0 GATE: Trace ISP1581 register accesses during INQUIRY firmware dispatch.

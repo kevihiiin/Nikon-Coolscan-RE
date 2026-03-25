@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 7 — ISP1581 DMA + FW Handlers (COMPLETE — ready for Phase 8)
-**Status**: 202 tests passing (32 e2e + 133 core + 37 peripherals). INQUIRY byte-for-byte, REQUEST SENSE [0x70], MODE SENSE tested, ISP1581 unit tests, error path, clippy clean. 15 commits this session.
+**Current Phase**: 8 — Motor & Position (COMPLETE — ready for Phase 9)
+**Status**: 215 tests (38 e2e + 133 core + 44 peripherals). Phases 7+8 complete. Motor subsystem, SEND DIAGNOSTIC, VPD 0xC0, encoder feedback.
 **Last Updated**: 2026-03-25
 
 ---
