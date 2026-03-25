@@ -700,9 +700,63 @@ impl Emulator {
                 self.handle_scan();
             }
             0x1D => {
-                // SEND DIAGNOSTIC: state-dependent, always return GOOD in emulator
+                // SEND DIAGNOSTIC: interpret motor task codes from data-out.
+                // The host sends a 4-byte parameter with task code in bytes 0-1.
+                let param_data = self.bus.isp1581_drain_host_data(16);
+                let task_code = if param_data.len() >= 2 {
+                    ((param_data[0] as u16) << 8) | param_data[1] as u16
+                } else {
+                    0
+                };
+                match task_code {
+                    0x0400 => {
+                        // Motor stop
+                        self.motor.stop();
+                        log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x0400 → motor stop");
+                    }
+                    0x0430 => {
+                        // Motor home — drive to position 0
+                        self.motor.set_target(0);
+                        if self.motor.instant_mode {
+                            let motor = self.motor.active_motor_mut();
+                            motor.position = 0;
+                            motor.home_sensor = true;
+                            motor.running = false;
+                        }
+                        log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x0430 → motor home");
+                    }
+                    0x0440 => {
+                        // Relative move — param bytes 2-3 = step count
+                        let steps = if param_data.len() >= 4 {
+                            ((param_data[2] as i16) << 8 | param_data[3] as i16) as i32
+                        } else { 0 };
+                        let pos = self.motor.active_motor().position;
+                        self.motor.set_target(pos + steps);
+                        if self.motor.instant_mode {
+                            self.motor.active_motor_mut().position = pos + steps;
+                            self.motor.active_motor_mut().home_sensor = (pos + steps) == 0;
+                            self.motor.stop();
+                        }
+                        log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x0440 → relative move {} steps", steps);
+                    }
+                    0x0450 => {
+                        // Absolute move — param bytes 2-3 = target position
+                        let target = if param_data.len() >= 4 {
+                            ((param_data[2] as i16) << 8 | param_data[3] as i16) as i32
+                        } else { 0 };
+                        self.motor.set_target(target);
+                        if self.motor.instant_mode {
+                            self.motor.active_motor_mut().position = target;
+                            self.motor.active_motor_mut().home_sensor = target == 0;
+                            self.motor.stop();
+                        }
+                        log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x0450 → absolute move to {}", target);
+                    }
+                    _ => {
+                        log::info!("SCSI EMU: SEND DIAGNOSTIC task 0x{:04X} → GOOD (unhandled)", task_code);
+                    }
+                }
                 self.scsi_good();
-                log::info!("SCSI EMU: SEND DIAGNOSTIC → GOOD (emulated)");
             }
             0x24 => {
                 // SET WINDOW: parse and store window descriptor
@@ -1180,6 +1234,9 @@ impl Emulator {
             // encoder_delta = timer period estimate (use a fixed value)
             self.bus.write_word(0x405314, 100); // reasonable step period
         }
+        // Sync home sensor to GPIO Port 7
+        self.peripherals.gpio.home_sensor = self.motor.scan_motor.home_sensor;
+
         // Check motor completion: if running and reached target position
         if self.motor.active_motor().running && self.motor.active_motor().step_count > 0 {
             let motor = self.motor.active_motor();

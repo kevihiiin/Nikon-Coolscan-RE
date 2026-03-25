@@ -642,6 +642,92 @@ fn test_scan_data_file_missing() {
     assert_ne!(r.sense_key, 0, "SCAN with missing file should fail, not silently succeed");
 }
 
+// --- Phase 8: Motor commands ---
+
+#[test]
+fn test_motor_send_diagnostic_home() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Move motor away from home first
+    emu.motor.set_mode(2);
+    emu.motor.scan_motor.position = 500;
+    emu.motor.scan_motor.home_sensor = false;
+    emu.motor.instant_mode = true; // Instant teleport for testing
+
+    // SEND DIAGNOSTIC with task code 0x0430 (home)
+    let task_data = vec![0x04, 0x30, 0x00, 0x00];
+    let r = emu.scsi_command_out(&cdb_send_diagnostic(), &task_data);
+    assert!(r.is_good(), "Motor home should return GOOD");
+    assert_eq!(emu.motor.scan_motor.position, 0, "Motor should be at home");
+    assert!(emu.motor.scan_motor.home_sensor, "Home sensor should be active");
+}
+
+#[test]
+fn test_motor_send_diagnostic_relative_move() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    emu.motor.set_mode(2);
+    emu.motor.scan_motor.position = 100;
+    emu.motor.instant_mode = true;
+
+    // SEND DIAGNOSTIC with task code 0x0440 (relative move), +200 steps
+    let task_data = vec![0x04, 0x40, 0x00, 0xC8]; // 200 = 0x00C8
+    let r = emu.scsi_command_out(&cdb_send_diagnostic(), &task_data);
+    assert!(r.is_good(), "Relative move should return GOOD");
+    assert_eq!(emu.motor.scan_motor.position, 300, "Motor should be at 100+200=300");
+}
+
+#[test]
+fn test_motor_send_diagnostic_absolute_move() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    emu.motor.set_mode(2);
+    emu.motor.instant_mode = true;
+
+    // SEND DIAGNOSTIC with task code 0x0450 (absolute move to 750)
+    let task_data = vec![0x04, 0x50, 0x02, 0xEE]; // 750 = 0x02EE
+    let r = emu.scsi_command_out(&cdb_send_diagnostic(), &task_data);
+    assert!(r.is_good(), "Absolute move should return GOOD");
+    assert_eq!(emu.motor.scan_motor.position, 750);
+}
+
+#[test]
+fn test_motor_send_diagnostic_stop() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    emu.motor.set_mode(2);
+    emu.motor.scan_motor.running = true;
+
+    // SEND DIAGNOSTIC with task code 0x0400 (stop)
+    let task_data = vec![0x04, 0x00, 0x00, 0x00];
+    let r = emu.scsi_command_out(&cdb_send_diagnostic(), &task_data);
+    assert!(r.is_good(), "Motor stop should return GOOD");
+    assert!(!emu.motor.scan_motor.running, "Motor should be stopped");
+}
+
+#[test]
+fn test_home_sensor_in_port7() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // At home position, Port 7 should include home sensor bit
+    emu.motor.scan_motor.position = 0;
+    emu.motor.scan_motor.home_sensor = true;
+    emu.peripherals.gpio.home_sensor = true;
+
+    let port7 = emu.peripherals.gpio.read(0x8E);
+    assert_eq!(port7 & 0x02, 0x02, "Home sensor bit should be set in Port 7");
+
+    // Move away from home
+    emu.peripherals.gpio.home_sensor = false;
+    let port7 = emu.peripherals.gpio.read(0x8E);
+    assert_eq!(port7 & 0x02, 0x00, "Home sensor bit should be clear when not at home");
+}
+
 // --- Phase 7 Gate: ISP1581 Register Access Trace ---
 
 /// Phase 7.0 GATE: Trace ISP1581 register accesses during INQUIRY firmware dispatch.

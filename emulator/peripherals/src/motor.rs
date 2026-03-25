@@ -122,7 +122,7 @@ impl MotorSubsystem {
     }
 
     /// Get mutable reference to the currently active motor.
-    fn active_motor_mut(&mut self) -> &mut MotorState {
+    pub fn active_motor_mut(&mut self) -> &mut MotorState {
         match self.active_mode {
             3 => &mut self.af_motor,
             _ => &mut self.scan_motor, // modes 2, 6, or default

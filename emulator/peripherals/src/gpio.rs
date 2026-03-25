@@ -49,6 +49,8 @@ pub struct GpioPorts {
     pub lamp_on: bool,
     /// Configured adapter type.
     adapter: AdapterType,
+    /// Home sensor state (bit 1 of Port 7, active when motor at position 0).
+    pub home_sensor: bool,
 }
 
 impl GpioPorts {
@@ -64,6 +66,7 @@ impl GpioPorts {
             port_9_dr: 0,
             lamp_on: false,
             adapter: AdapterType::SaMount,
+            home_sensor: true, // Start at home
         }
     }
 
@@ -79,7 +82,14 @@ impl GpioPorts {
             0x83 => self.port_3_ddr,
             0x84 => self.port_3_dr,
             0x85 => self.port_4_dr,
-            0x8E => self.port_7_input, // Input port — returns configured value
+            0x8E => {
+                // Port 7: adapter type + home sensor (bit 1)
+                let mut val = self.port_7_input;
+                if self.home_sensor {
+                    val |= 0x02; // Bit 1 = home sensor active
+                }
+                val
+            }
             0xA2 => self.port_a_ddr,
             0xA3 => self.port_a_dr,
             0xC7 => self.port_9_ddr,
@@ -130,6 +140,7 @@ mod tests {
     #[test]
     fn test_set_adapter_updates_port7() {
         let mut gpio = GpioPorts::new();
+        gpio.home_sensor = false; // Clear home sensor for clean adapter test
         gpio.set_adapter(AdapterType::SfStrip);
         assert_eq!(gpio.port_7_input, 0x08);
         assert_eq!(gpio.read(0x8E), 0x08);
