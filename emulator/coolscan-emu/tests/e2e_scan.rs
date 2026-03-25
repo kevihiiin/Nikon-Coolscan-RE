@@ -676,20 +676,31 @@ fn gate_trace_inquiry_isp1581_access() {
     emu.restore_flash_patch(0x02604A, 0x5E014090);
 
     // Run INQUIRY via firmware dispatch.
-    // CDB is injected into EP1 OUT FIFO by scsi_command().
+    let inq_buf_before: Vec<u8> = (0..36u32).map(|i| emu.bus.read_byte(0x4008A2 + i)).collect();
     let r = emu.scsi_command(&cdb_inquiry(36));
+    let inq_buf_after: Vec<u8> = (0..36u32).map(|i| emu.bus.read_byte(0x4008A2 + i)).collect();
 
     assert_eq!(r.sense_key, 0, "FW INQUIRY should complete GOOD");
-
     eprintln!("FW INQUIRY: sense={}, data_len={}", r.sense_key, r.data.len());
-    // Show all non-zero bytes to find any INQUIRY data
-    for (i, chunk) in r.data.chunks(16).enumerate() {
-        if chunk.iter().any(|&b| b != 0) {
-            eprintln!("  [{:3}] {:02X?}", i * 16, chunk);
-        }
+
+    // Check if handler populated the INQUIRY buffer
+    if inq_buf_before != inq_buf_after {
+        eprintln!("  INQUIRY buffer @0x4008A2 CHANGED by handler!");
+        eprintln!("  header: {:02X?}", &inq_buf_after[..8]);
+        let vendor = String::from_utf8_lossy(&inq_buf_after[8..16]);
+        let product = String::from_utf8_lossy(&inq_buf_after[16..32]);
+        eprintln!("  vendor='{}' product='{}'", vendor.trim(), product.trim());
+    } else {
+        eprintln!("  INQUIRY buffer unchanged — handler didn't copy flash template");
+        eprintln!("  buf[0]=0x{:02X} (device type)", inq_buf_after[0]);
     }
-    if let Some(pos) = r.data.windows(5).position(|w| w == b"Nikon") {
-        eprintln!("  Found 'Nikon' at offset {}", pos);
+
+    // Show EP2 IN data
+    if !r.data.is_empty() {
+        eprintln!("  EP2 data[0..min(36)]: {:02X?}", &r.data[..r.data.len().min(36)]);
+        if let Some(pos) = r.data.windows(5).position(|w| w == b"Nikon") {
+            eprintln!("  Found 'Nikon' at offset {}", pos);
+        }
     }
 }
 

@@ -1850,11 +1850,18 @@ impl Emulator {
         if self.bus.read_byte(0x400877) == 0 {
             self.bus.write_byte(0x400877, 1); // Scanner initialized flag
         }
-        // 0x400880: sense response type code. If non-zero, the REQUEST SENSE
-        // handler calls the build function at FW:0x0111F4 to construct a proper
-        // sense response. Value 0x04 = standard fixed-format sense response.
         if self.bus.read_byte(0x400880) == 0 {
-            self.bus.write_byte(0x400880, 0x04);
+            self.bus.write_byte(0x400880, 0x04); // Sense response type
+        }
+        // Pre-populate INQUIRY buffer at 0x4008A2 with flash template from 0x170CE.
+        // The handler's copy loop at FW:0x011500 normally does this, but it requires
+        // firmware init state we don't fully replicate. The template has the standard
+        // SCSI INQUIRY response (device type, vendor "Nikon", product "LS-50 ED", etc.)
+        if self.bus.read_byte(FW_INQUIRY_RAM + 8) == 0 { // Check if vendor byte is unset
+            for i in 0..36u32 {
+                let b = self.bus.read_byte(0x170CE + i); // Read from flash template
+                self.bus.write_byte(FW_INQUIRY_RAM + i, b); // Write to INQUIRY RAM buffer
+            }
         }
 
         let max_handler_insns = 500_000u64;
