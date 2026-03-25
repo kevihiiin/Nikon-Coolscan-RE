@@ -1143,34 +1143,36 @@ fn phase11_isp1581_enum_registers() {
     let _ = env_logger::builder().is_test(true).try_init();
     let mut emu = boot_emulator();
 
-    // Chip ID should read as 0x1581 from offset 0x70
-    let chip_id_lo = emu.bus.read_byte(0x600070);
-    let chip_id_hi = emu.bus.read_byte(0x600071);
-    // ISP1581 is LE: lo byte at even addr, hi at odd
-    let _chip_id = ((chip_id_lo as u16) << 8) | chip_id_hi as u16;
-    // Note: byte ordering depends on MmioDevice impl. The word value is 0x1581.
-    eprintln!("Chip ID read: hi=0x{:02X} lo=0x{:02X}", chip_id_hi, chip_id_lo);
+    // Chip ID should read as 0x1581 from offset 0x70.
+    // ISP1581 MmioDevice byte ordering: even offset = high byte, odd = low byte.
+    let chip_id_hi = emu.bus.read_byte(0x600070); // (0x1581 >> 8) = 0x15
+    let chip_id_lo = emu.bus.read_byte(0x600071); // (0x1581 & 0xFF) = 0x81
+    assert_eq!(chip_id_hi, 0x15, "Chip ID high byte");
+    assert_eq!(chip_id_lo, 0x81, "Chip ID low byte");
 
-    // Write and read back Address register
+    // Write and read back Address register (offset 0x00)
     emu.bus.write_byte(0x600000, 0x00);
     emu.bus.write_byte(0x600001, 0x07); // address=7
-    let addr = emu.bus.read_byte(0x600001);
-    eprintln!("Address register: 0x{:02X}", addr);
+    let addr_lo = emu.bus.read_byte(0x600001);
+    assert_eq!(addr_lo, 0x07, "Address register low byte should read back");
 
-    // EP max packet size
-    emu.bus.write_byte(0x600004, 0x02);
-    emu.bus.write_byte(0x600005, 0x00); // 512 = 0x0200
-    eprintln!("EP max packet size written");
+    // EP max packet size (offset 0x04): write 512 (0x0200)
+    emu.bus.write_byte(0x600004, 0x02); // high byte
+    emu.bus.write_byte(0x600005, 0x00); // low byte
+    let pkt_hi = emu.bus.read_byte(0x600004);
+    let pkt_lo = emu.bus.read_byte(0x600005);
+    assert_eq!(pkt_hi, 0x02, "EP max packet high byte");
+    assert_eq!(pkt_lo, 0x00, "EP max packet low byte");
 
-    // HW config
+    // HW config (offset 0x16): write 0x0042
     emu.bus.write_byte(0x600016, 0x00);
     emu.bus.write_byte(0x600017, 0x42);
-    eprintln!("HW config written");
+    let hw_lo = emu.bus.read_byte(0x600017);
+    assert_eq!(hw_lo, 0x42, "HW config low byte readback");
 
-    // Verify boot + register access works without crash
+    // Verify register writes don't break SCSI dispatch
     let tur = emu.scsi_command(&cdb_tur());
     assert_eq!(tur.sense_key, 0, "TUR should still work after register writes");
-    eprintln!("Phase 11.1: ISP1581 enum registers OK");
 }
 
 /// Phase 11.2: Zero-patch mode — verify that --full-usb-init + --firmware-dispatch
@@ -1212,17 +1214,24 @@ fn phase11_irq1_cdb_injection() {
     let _ = env_logger::builder().is_test(true).try_init();
     let mut emu = boot_emulator();
 
+    // Before injection: no response data pending
+    assert!(!emu.has_response(), "EP2 IN should be empty before injection");
+
     // Inject a TUR CDB into ISP1581 EP1 OUT FIFO
     let cdb = cdb_tur();
     emu.inject_cdb_irq1(&cdb);
 
-    // Verify the data is in the FIFO (check has_response is false before processing)
-    // Run a few instructions to let the ISP1581 process
-    emu.run(100);
+    // Verify the ISP1581 now has IRQ pending (host_send_ep1 sets irq_pending)
+    assert!(emu.bus.isp1581_has_irq(), "IRQ1 should be pending after CDB injection");
 
-    // The response manager won't produce output via the normal mini-loop path,
-    // but we verify the API exists and the FIFO injection doesn't crash.
-    eprintln!("Phase 11.3: IRQ1 CDB injection API works (no crash)");
+    // Verify the CDB bytes are in the EP1 OUT FIFO by draining them
+    let fifo_data = emu.bus.isp1581_drain_host_data(64);
+    assert_eq!(fifo_data.len(), cdb.len(), "FIFO should contain injected CDB bytes");
+    assert_eq!(fifo_data[0], 0x00, "First byte should be TUR opcode (0x00)");
+
+    // Inject again for the run() test — verify no crash when firmware processes
+    emu.inject_cdb_irq1(&cdb_tur());
+    emu.run(100);
 }
 
 /// Phase 11.4: All 21 SCSI opcodes in firmware dispatch table.

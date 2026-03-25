@@ -97,8 +97,6 @@ pub struct Isp1581 {
     pub unlock: u16,
     /// Frame Number register at offset 0x74 (read-only, increments per SOF).
     pub frame_number: u16,
-    /// Endpoint Type register at offset 0x08 when written in EP config mode.
-    pub ep_type: u16,
 
     /// Whether SOFTCT has transitioned from 0→1 (device became visible on bus).
     /// Used to simulate bus reset after soft-connect.
@@ -129,7 +127,6 @@ impl Isp1581 {
             control_function: 0,
             unlock: 0,
             frame_number: 0,
-            ep_type: 0,
             bus_reset_pending: false,
         };
         // Set SOFTCT bit (bit 4) in Mode register to indicate USB connected.

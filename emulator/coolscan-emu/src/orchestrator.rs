@@ -1767,6 +1767,11 @@ impl Emulator {
     /// Send pending ISP1581 EP2 IN data back to TCP client (auto-push).
     /// This fires whenever firmware writes to EP2 IN between polls.
     fn send_tcp_response(&mut self) {
+        // When gadget is active, it owns the EP2 IN FIFO. Don't drain here
+        // or we'd steal response data meant for the real USB host.
+        if self.gadget.is_some() {
+            return;
+        }
         let data = self.bus.isp1581_drain(65536);
         if data.is_empty() {
             return;
@@ -2201,13 +2206,15 @@ impl Emulator {
     }
 
     /// Poll the gadget bridge for incoming data and send responses.
+    /// When the gadget is active, it owns the EP2 IN FIFO — TCP bridge
+    /// must not drain it (see `send_tcp_response()`).
     fn poll_gadget(&mut self) {
-        if self.gadget.is_none() {
-            return;
-        }
+        let gadget = match self.gadget.as_mut() {
+            Some(g) => g,
+            None => return,
+        };
         // Read data from host via EP1 OUT
-        let data = self.gadget.as_mut().unwrap().recv_ep1_out();
-        if let Some(cdb_data) = data {
+        if let Some(cdb_data) = gadget.recv_ep1_out() {
             log::info!("GADGET: received {} bytes from host", cdb_data.len());
             // Inject into ISP1581 EP1 OUT FIFO — firmware IRQ1 will handle it
             self.bus.isp1581_inject(&cdb_data);
@@ -2218,7 +2225,7 @@ impl Emulator {
             let response = self.bus.isp1581_drain(65536);
             if !response.is_empty() {
                 log::info!("GADGET: sending {} bytes to host", response.len());
-                self.gadget.as_mut().unwrap().send_ep2_in(&response);
+                gadget.send_ep2_in(&response);
             }
         }
     }
