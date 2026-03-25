@@ -1,0 +1,539 @@
+warning: constant `FW_CMD_PENDING2` is never used
+  --> coolscan-emu/src/orchestrator.rs:19:7
+   |
+19 | const FW_CMD_PENDING2: u32 = 0x400087;    // Secondary command flag
+   |       ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `FW_CDB_LEN` is never used
+  --> coolscan-emu/src/orchestrator.rs:20:7
+   |
+20 | const FW_CDB_LEN: u32 = 0x400088;         // CDB byte count
+   |       ^^^^^^^^^^
+
+warning: constant `FW_SYS_TICK` is never used
+  --> coolscan-emu/src/orchestrator.rs:27:7
+   |
+27 | const FW_SYS_TICK: u32 = 0x40076E;         // System tick timestamp
+   |       ^^^^^^^^^^^
+
+warning: constant `FW_WARM_BOOT` is never used
+  --> coolscan-emu/src/orchestrator.rs:28:7
+   |
+28 | const FW_WARM_BOOT: u32 = 0x400772;        // Warm-boot flag
+   |       ^^^^^^^^^^^^
+
+warning: constant `FW_INQUIRY_RAM` is never used
+  --> coolscan-emu/src/orchestrator.rs:31:7
+   |
+31 | const FW_INQUIRY_RAM: u32 = 0x4008A2;      // INQUIRY buffer in RAM
+   |       ^^^^^^^^^^^^^^
+
+warning: `coolscan-emu` (bin "coolscan-emu") generated 5 warnings
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running `target/release/coolscan-emu '../binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin' --max 500000000 --port 6581`
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu] Coolscan V Emulator v0.1.0
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu] Firmware: ../binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu] Adapter: SaMount
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu] Trace: false
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu::orchestrator] ISP1581 device model installed in memory bus
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu::orchestrator] Pre-installed 12 trampolines in on-chip RAM
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu::orchestrator] TCP bridge listening on port 6581
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu] Reset vector: 0x000100
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu] Starting emulation...
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu::orchestrator] MILESTONE: Reached main entry point (0x020334) after 8 instructions
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu::orchestrator] MILESTONE: Past I/O init table (0x020374) after 678 instructions
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu::orchestrator]   TSTR(0x60)=0xE0
+[2026-03-17T23:39:08.867Z INFO  coolscan_emu::orchestrator]   ITU0: TCR=0xA0 TIER=0x00 GRA=0x0000
+[2026-03-17T23:39:08.868Z INFO  coolscan_emu::orchestrator]   ITU1: TCR=0xC1 TIER=0x00 GRA=0x0000
+[2026-03-17T23:39:08.868Z INFO  coolscan_emu::orchestrator]   ITU2: TCR=0xA3 TIER=0x00 GRA=0x0000
+[2026-03-17T23:39:08.868Z INFO  coolscan_emu::orchestrator]   ITU3: TCR=0xA3 TIER=0x00 GRA=0x0000
+[2026-03-17T23:39:08.868Z INFO  coolscan_emu::orchestrator]   ITU4: TCR=0xA0 TIER=0x00 GRA=0x0000
+[2026-03-17T23:39:08.868Z INFO  coolscan_emu::orchestrator]   Port7(0x8E)=0x00
+[2026-03-17T23:39:08.868Z WARN  coolscan_emu::orchestrator] CTX SAVE AREA CHANGED outside handler! insn 10000 PC=0203F8 idx=55AA A_SP=000000->578355AA B_SP=000000->578455AA
+[2026-03-17T23:39:08.881Z WARN  coolscan_emu::orchestrator] CTX SAVE AREA CHANGED outside handler! insn 170000 PC=015ECE idx=0000 A_SP=578355AA->000000 B_SP=578455AA->000000
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] MILESTONE: Past trampoline install (0x0205FC) after 805254 instructions
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] MILESTONE: Interrupts enabled (0x020608) after 805264 instructions
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator]   CCR=C0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] JIT: Started ITU4 system tick (TCR=0xA3, GRA=0x2000, TSTR bit 4)
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] JIT context init: Context B SP=0x40CFE0, entry=0x029B16
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] JIT: NOPed 26/26 USB calls in flash
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#1 A->B at insn 805331 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#2 A->B at insn 805366 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#3 A->B at insn 805401 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#4 A->B at insn 805436 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#5 A->B at insn 805471 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#6 A->B at insn 805506 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#7 A->B at insn 805541 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#8 A->B at insn 805576 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#9 A->B at insn 805611 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.940Z INFO  coolscan_emu::orchestrator] CTX#10 A->B at insn 805646 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:08.972Z INFO  coolscan_emu::orchestrator] CTX#10000 A->B at insn 1155481 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:09.003Z INFO  coolscan_emu::orchestrator] CTX#20000 A->B at insn 1505689 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:09.036Z INFO  coolscan_emu::orchestrator] CTX#30000 A->B at insn 1855911 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:09.073Z INFO  coolscan_emu::orchestrator] CTX#40000 A->B at insn 2206119 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:09.104Z INFO  coolscan_emu::orchestrator] CTX#50000 A->B at insn 2556304 | SP=40F796 idx=0000 A_SP=000000 B_SP=40CFE0
+[2026-03-17T23:39:09.124Z INFO  coolscan_emu::orchestrator] MILESTONE: Main loop: USB endpoint enable (0x0126EE) after 2773050 instructions
+[2026-03-17T23:39:09.124Z INFO  coolscan_emu::orchestrator] MILESTONE: Reached Context A main loop (0x0207F2) after 2783761 instructions
+[2026-03-17T23:39:09.124Z INFO  coolscan_emu::orchestrator] MAIN LOOP INIT: Set USB state vars (session=02, cleared reset flags)
+[2026-03-17T23:39:09.124Z INFO  coolscan_emu::orchestrator] MAIN LOOP: reached scan state check (0x02083C) at insn 2783788
+[2026-03-17T23:39:09.124Z INFO  coolscan_emu::orchestrator]   USB state FW_USB_SESSION=02, flag 0x400084=00, flag 0x400085=00, flag 0x400086=00
+[2026-03-17T23:39:09.125Z INFO  coolscan_emu::orchestrator] MILESTONE: Main loop: cmd_pending check (0x013C70) after 2784518 instructions
+[2026-03-17T23:39:09.158Z INFO  coolscan_emu::orchestrator] CTX#60000 B->A at insn 3119130 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.251Z INFO  coolscan_emu::orchestrator] CTX#70000 B->A at insn 3984806 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.364Z INFO  coolscan_emu::orchestrator] CTX#80000 B->A at insn 4850482 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.444Z INFO  coolscan_emu::orchestrator] CTX#90000 B->A at insn 5716158 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.524Z INFO  coolscan_emu::orchestrator] CTX#100000 B->A at insn 6581886 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.607Z INFO  coolscan_emu::orchestrator] CTX#110000 B->A at insn 7447562 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.687Z INFO  coolscan_emu::orchestrator] CTX#120000 B->A at insn 8313238 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.765Z INFO  coolscan_emu::orchestrator] CTX#130000 B->A at insn 9178914 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.844Z INFO  coolscan_emu::orchestrator] CTX#140000 B->A at insn 10044597 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:09.922Z INFO  coolscan_emu::orchestrator] CTX#150000 B->A at insn 10910325 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.002Z INFO  coolscan_emu::orchestrator] CTX#160000 B->A at insn 11776001 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.080Z INFO  coolscan_emu::orchestrator] CTX#170000 B->A at insn 12641677 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.159Z INFO  coolscan_emu::orchestrator] CTX#180000 B->A at insn 13507353 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.238Z INFO  coolscan_emu::orchestrator] CTX#190000 B->A at insn 14373081 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.335Z INFO  coolscan_emu::orchestrator] CTX#200000 B->A at insn 15238757 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.416Z INFO  coolscan_emu::orchestrator] CTX#210000 B->A at insn 16104440 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.497Z INFO  coolscan_emu::orchestrator] CTX#220000 B->A at insn 16970116 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.581Z INFO  coolscan_emu::orchestrator] CTX#230000 B->A at insn 17835792 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.664Z INFO  coolscan_emu::orchestrator] CTX#240000 B->A at insn 18701520 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.744Z INFO  coolscan_emu::orchestrator] CTX#250000 B->A at insn 19567196 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.829Z INFO  coolscan_emu::orchestrator] CTX#260000 B->A at insn 20432872 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.912Z INFO  coolscan_emu::orchestrator] CTX#270000 B->A at insn 21298548 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:10.992Z INFO  coolscan_emu::orchestrator] CTX#280000 B->A at insn 22164224 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.073Z INFO  coolscan_emu::orchestrator] CTX#290000 B->A at insn 23029959 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.152Z INFO  coolscan_emu::orchestrator] CTX#300000 B->A at insn 23895635 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.232Z INFO  coolscan_emu::orchestrator] CTX#310000 B->A at insn 24761311 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.342Z INFO  coolscan_emu::orchestrator] CTX#320000 B->A at insn 25626987 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.425Z INFO  coolscan_emu::orchestrator] CTX#330000 B->A at insn 26492663 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.508Z INFO  coolscan_emu::orchestrator] CTX#340000 B->A at insn 27358391 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.587Z INFO  coolscan_emu::orchestrator] CTX#350000 B->A at insn 28224067 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.666Z INFO  coolscan_emu::orchestrator] CTX#360000 B->A at insn 29089750 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.746Z INFO  coolscan_emu::orchestrator] CTX#370000 B->A at insn 29955426 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.824Z INFO  coolscan_emu::orchestrator] CTX#380000 B->A at insn 30821154 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:11.921Z INFO  coolscan_emu::orchestrator] CTX#390000 B->A at insn 31686830 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.000Z INFO  coolscan_emu::orchestrator] CTX#400000 B->A at insn 32552506 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.083Z INFO  coolscan_emu::orchestrator] CTX#410000 B->A at insn 33418182 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.163Z INFO  coolscan_emu::orchestrator] CTX#420000 B->A at insn 34283858 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.241Z INFO  coolscan_emu::orchestrator] CTX#430000 B->A at insn 35149586 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.356Z INFO  coolscan_emu::orchestrator] CTX#440000 B->A at insn 36015269 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.436Z INFO  coolscan_emu::orchestrator] CTX#450000 B->A at insn 36880945 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.518Z INFO  coolscan_emu::orchestrator] CTX#460000 B->A at insn 37746621 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.605Z INFO  coolscan_emu::orchestrator] CTX#470000 B->A at insn 38612297 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.684Z INFO  coolscan_emu::orchestrator] CTX#480000 B->A at insn 39478025 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.763Z INFO  coolscan_emu::orchestrator] CTX#490000 B->A at insn 40343701 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.847Z INFO  coolscan_emu::orchestrator] CTX#500000 B->A at insn 41209377 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:12.849Z INFO  coolscan_emu::orchestrator] TCP client connected from 127.0.0.1:37360
+[2026-03-17T23:39:12.924Z INFO  coolscan_emu::orchestrator] CTX#510000 B->A at insn 42075053 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.002Z INFO  coolscan_emu::orchestrator] CTX#520000 B->A at insn 42940736 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.078Z INFO  coolscan_emu::orchestrator] CTX#530000 B->A at insn 43806464 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.156Z INFO  coolscan_emu::orchestrator] CTX#540000 B->A at insn 44672140 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.233Z INFO  coolscan_emu::orchestrator] CTX#550000 B->A at insn 45537816 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.326Z INFO  coolscan_emu::orchestrator] CTX#560000 B->A at insn 46403492 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.350Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [00 00 00 00 00 00]
+[2026-03-17T23:39:13.350Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x00 immediately
+[2026-03-17T23:39:13.350Z INFO  coolscan_emu::orchestrator] SCSI EMU: TUR → GOOD
+[2026-03-17T23:39:13.350Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:13.392Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [12 00 00 00 24 00]
+[2026-03-17T23:39:13.392Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x12 immediately
+[2026-03-17T23:39:13.392Z INFO  coolscan_emu::orchestrator] SCSI EMU: INQUIRY → 36 bytes
+[2026-03-17T23:39:13.392Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 36 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:13.407Z INFO  coolscan_emu::orchestrator] CTX#570000 B->A at insn 47269168 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.488Z INFO  coolscan_emu::orchestrator] CTX#580000 B->A at insn 48134896 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.568Z INFO  coolscan_emu::orchestrator] CTX#590000 B->A at insn 49000579 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.652Z INFO  coolscan_emu::orchestrator] CTX#600000 B->A at insn 49866255 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.729Z INFO  coolscan_emu::orchestrator] CTX#610000 B->A at insn 50731931 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.734Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:13.734Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [03 00 00 00 12 00]
+[2026-03-17T23:39:13.734Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x03 immediately
+[2026-03-17T23:39:13.734Z INFO  coolscan_emu::orchestrator] SCSI EMU: REQUEST SENSE → SK=0 ASC=00
+[2026-03-17T23:39:13.734Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 18 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:13.806Z INFO  coolscan_emu::orchestrator] CTX#620000 B->A at insn 51597659 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.888Z INFO  coolscan_emu::orchestrator] CTX#630000 B->A at insn 52463335 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:13.967Z INFO  coolscan_emu::orchestrator] CTX#640000 B->A at insn 53329011 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:14.044Z INFO  coolscan_emu::orchestrator] CTX#650000 B->A at insn 54194687 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:14.076Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [16 00 00 00 00 00]
+[2026-03-17T23:39:14.076Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x16 immediately
+[2026-03-17T23:39:14.076Z INFO  coolscan_emu::orchestrator] SCSI EMU: RESERVE → GOOD
+[2026-03-17T23:39:14.128Z INFO  coolscan_emu::orchestrator] CTX#660000 B->A at insn 55060363 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:14.208Z INFO  coolscan_emu::orchestrator] CTX#670000 B->A at insn 55926098 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:14.296Z INFO  coolscan_emu::orchestrator] CTX#680000 B->A at insn 56791774 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:14.382Z INFO  coolscan_emu::orchestrator] CTX#690000 B->A at insn 57657450 | SP=40CFE4 idx=0004 A_SP=40FFC8 B_SP=40CFC8
+[2026-03-17T23:39:14.418Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:14.418Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [15 10 00 00 04 00]
+[2026-03-17T23:39:14.418Z INFO  coolscan_emu::orchestrator] TCP: CDB buffered (data-out cmd 0x15), waiting for data-out
+[2026-03-17T23:39:14.459Z INFO  coolscan_emu::orchestrator] TCP: Data-Out inject, 4 bytes to EP1 OUT
+[2026-03-17T23:39:14.459Z INFO  coolscan_emu::orchestrator] TCP: Data-out received, processing cmd 0x15 now
+[2026-03-17T23:39:14.459Z INFO  coolscan_emu::orchestrator] SCSI EMU: MODE SELECT → GOOD (4 bytes consumed)
+[2026-03-17T23:39:14.843Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:14.843Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [1D 04 00 00 00 00]
+[2026-03-17T23:39:14.843Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x1D immediately
+[2026-03-17T23:39:14.843Z INFO  coolscan_emu::orchestrator] SCSI EMU: SEND DIAGNOSTIC → GOOD (emulated)
+[2026-03-17T23:39:15.225Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:15.225Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [24 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:15.225Z INFO  coolscan_emu::orchestrator] TCP: CDB buffered (data-out cmd 0x24), waiting for data-out
+[2026-03-17T23:39:15.265Z INFO  coolscan_emu::orchestrator] TCP: Data-Out inject, 80 bytes to EP1 OUT
+[2026-03-17T23:39:15.266Z INFO  coolscan_emu::orchestrator] TCP: Data-out received, processing cmd 0x24 now
+[2026-03-17T23:39:15.266Z INFO  coolscan_emu::orchestrator] SCSI EMU: SET WINDOW → GOOD (80 bytes stored)
+[2026-03-17T23:39:15.648Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:15.648Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [25 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:15.648Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x25 immediately
+[2026-03-17T23:39:15.648Z INFO  coolscan_emu::orchestrator] SCSI EMU: GET WINDOW → 80 bytes
+[2026-03-17T23:39:15.648Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 80 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:15.989Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 87 00 00 00 +4 bytes]
+[2026-03-17T23:39:15.989Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:15.989Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x87 → 24 bytes (scan params)
+[2026-03-17T23:39:15.989Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 24 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:16.330Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:16.330Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 88 00 00 00 +4 bytes]
+[2026-03-17T23:39:16.330Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:16.330Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x88 q=0 → 644 bytes
+[2026-03-17T23:39:16.330Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 644 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:16.671Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:16.671Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [2A 00 03 00 00 00 +4 bytes]
+[2026-03-17T23:39:16.671Z INFO  coolscan_emu::orchestrator] TCP: CDB buffered (data-out cmd 0x2A), waiting for data-out
+[2026-03-17T23:39:16.712Z INFO  coolscan_emu::orchestrator] TCP: Data-Out inject, 768 bytes to EP1 OUT
+[2026-03-17T23:39:16.712Z INFO  coolscan_emu::orchestrator] TCP: Data-out received, processing cmd 0x2A now
+[2026-03-17T23:39:16.712Z INFO  coolscan_emu::orchestrator] SCSI EMU: WRITE DTC=0x03 q=0 → GOOD (768 bytes)
+[2026-03-17T23:39:17.094Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:17.094Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [1B 00 00 00 00 00]
+[2026-03-17T23:39:17.094Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x1B immediately
+[2026-03-17T23:39:17.095Z INFO  coolscan_emu::orchestrator] SCSI EMU: SCAN op=0 → GOOD (300x300 8bpp, 270000 bytes image)
+[2026-03-17T23:39:17.476Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:17.476Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:17.476Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:17.476Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (265904 remaining)
+[2026-03-17T23:39:17.476Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:17.817Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:17.817Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:17.817Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:17.817Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (261808 remaining)
+[2026-03-17T23:39:17.817Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:18.158Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:18.158Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:18.158Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:18.158Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (257712 remaining)
+[2026-03-17T23:39:18.158Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:18.499Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:18.499Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:18.499Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:18.499Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (253616 remaining)
+[2026-03-17T23:39:18.499Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:18.841Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:18.841Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:18.841Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:18.841Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (249520 remaining)
+[2026-03-17T23:39:18.841Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:19.183Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:19.183Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:19.183Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:19.183Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (245424 remaining)
+[2026-03-17T23:39:19.183Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:19.525Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:19.525Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:19.525Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:19.525Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (241328 remaining)
+[2026-03-17T23:39:19.525Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:19.867Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:19.867Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:19.867Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:19.867Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (237232 remaining)
+[2026-03-17T23:39:19.867Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:20.209Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:20.209Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:20.209Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:20.209Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (233136 remaining)
+[2026-03-17T23:39:20.209Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:20.551Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:20.551Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:20.551Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:20.551Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (229040 remaining)
+[2026-03-17T23:39:20.551Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:20.893Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:20.893Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:20.893Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:20.893Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (224944 remaining)
+[2026-03-17T23:39:20.893Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:21.235Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:21.235Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:21.235Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:21.235Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (220848 remaining)
+[2026-03-17T23:39:21.235Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:21.577Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:21.577Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:21.577Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:21.577Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (216752 remaining)
+[2026-03-17T23:39:21.577Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:21.919Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:21.919Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:21.919Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:21.919Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (212656 remaining)
+[2026-03-17T23:39:21.919Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:22.261Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:22.261Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:22.261Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:22.261Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (208560 remaining)
+[2026-03-17T23:39:22.261Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:22.603Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:22.603Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:22.603Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:22.603Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (204464 remaining)
+[2026-03-17T23:39:22.603Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:22.944Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:22.944Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:22.944Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:22.944Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (200368 remaining)
+[2026-03-17T23:39:22.944Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:23.286Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:23.286Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:23.286Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:23.286Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (196272 remaining)
+[2026-03-17T23:39:23.286Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:23.628Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:23.628Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:23.628Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:23.628Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (192176 remaining)
+[2026-03-17T23:39:23.628Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:23.970Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:23.970Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:23.970Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:23.970Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (188080 remaining)
+[2026-03-17T23:39:23.970Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:24.311Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:24.311Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:24.311Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:24.311Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (183984 remaining)
+[2026-03-17T23:39:24.311Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:24.653Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:24.653Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:24.653Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:24.653Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (179888 remaining)
+[2026-03-17T23:39:24.653Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:24.994Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:24.994Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:24.994Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:24.994Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (175792 remaining)
+[2026-03-17T23:39:24.994Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:25.336Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:25.336Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:25.336Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:25.336Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (171696 remaining)
+[2026-03-17T23:39:25.336Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:25.678Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:25.678Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:25.678Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:25.678Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (167600 remaining)
+[2026-03-17T23:39:25.678Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:26.020Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:26.020Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:26.020Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:26.020Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (163504 remaining)
+[2026-03-17T23:39:26.020Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:26.362Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:26.362Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:26.362Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:26.362Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (159408 remaining)
+[2026-03-17T23:39:26.362Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:26.704Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:26.704Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:26.704Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:26.704Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (155312 remaining)
+[2026-03-17T23:39:26.704Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:27.046Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:27.046Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:27.046Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:27.046Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (151216 remaining)
+[2026-03-17T23:39:27.046Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:27.388Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:27.388Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:27.388Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:27.388Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (147120 remaining)
+[2026-03-17T23:39:27.388Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:27.730Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:27.730Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:27.730Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:27.730Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (143024 remaining)
+[2026-03-17T23:39:27.730Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:28.072Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:28.072Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:28.072Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:28.072Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (138928 remaining)
+[2026-03-17T23:39:28.072Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:28.414Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:28.414Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:28.414Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:28.414Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (134832 remaining)
+[2026-03-17T23:39:28.414Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:28.756Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:28.756Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:28.756Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:28.756Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (130736 remaining)
+[2026-03-17T23:39:28.756Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:29.098Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:29.098Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:29.098Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:29.098Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (126640 remaining)
+[2026-03-17T23:39:29.098Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:29.440Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:29.440Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:29.440Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:29.440Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (122544 remaining)
+[2026-03-17T23:39:29.440Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:29.782Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:29.782Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:29.782Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:29.782Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (118448 remaining)
+[2026-03-17T23:39:29.782Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:30.124Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:30.124Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:30.124Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:30.124Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (114352 remaining)
+[2026-03-17T23:39:30.124Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:30.466Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:30.466Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:30.466Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:30.466Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (110256 remaining)
+[2026-03-17T23:39:30.466Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:30.808Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:30.808Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:30.808Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:30.808Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (106160 remaining)
+[2026-03-17T23:39:30.808Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:31.150Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:31.150Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:31.150Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:31.150Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (102064 remaining)
+[2026-03-17T23:39:31.150Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:31.492Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:31.492Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:31.492Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:31.492Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (97968 remaining)
+[2026-03-17T23:39:31.492Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:31.834Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:31.834Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:31.834Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:31.834Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (93872 remaining)
+[2026-03-17T23:39:31.834Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:32.176Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:32.176Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:32.176Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:32.176Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (89776 remaining)
+[2026-03-17T23:39:32.176Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:32.518Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:32.518Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:32.518Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:32.518Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (85680 remaining)
+[2026-03-17T23:39:32.518Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:32.860Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:32.860Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:32.860Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:32.860Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (81584 remaining)
+[2026-03-17T23:39:32.860Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:33.201Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:33.201Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:33.201Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:33.201Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (77488 remaining)
+[2026-03-17T23:39:33.201Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:33.543Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:33.543Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:33.543Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:33.543Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (73392 remaining)
+[2026-03-17T23:39:33.543Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:33.884Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:33.884Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:33.884Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:33.884Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (69296 remaining)
+[2026-03-17T23:39:33.884Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:34.226Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:34.226Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:34.226Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:34.226Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (65200 remaining)
+[2026-03-17T23:39:34.226Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:34.568Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:34.568Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:34.568Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:34.568Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (61104 remaining)
+[2026-03-17T23:39:34.568Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:34.910Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:34.910Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:34.910Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:34.910Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (57008 remaining)
+[2026-03-17T23:39:34.910Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:35.252Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:35.252Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:35.252Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:35.252Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (52912 remaining)
+[2026-03-17T23:39:35.252Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:35.593Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:35.593Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:35.593Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:35.593Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (48816 remaining)
+[2026-03-17T23:39:35.593Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:35.935Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:35.935Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:35.935Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:35.935Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (44720 remaining)
+[2026-03-17T23:39:35.935Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:36.278Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:36.278Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:36.278Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:36.278Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (40624 remaining)
+[2026-03-17T23:39:36.278Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:36.620Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:36.620Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:36.620Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:36.620Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (36528 remaining)
+[2026-03-17T23:39:36.620Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:36.962Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:36.962Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:36.962Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:36.962Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (32432 remaining)
+[2026-03-17T23:39:36.962Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:37.304Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:37.304Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:37.304Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:37.304Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (28336 remaining)
+[2026-03-17T23:39:37.304Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:37.646Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:37.646Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:37.646Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:37.646Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (24240 remaining)
+[2026-03-17T23:39:37.646Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:37.988Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:37.988Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:37.988Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:37.988Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (20144 remaining)
+[2026-03-17T23:39:37.988Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:38.330Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:38.330Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:38.330Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:38.330Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (16048 remaining)
+[2026-03-17T23:39:38.330Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:38.672Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:38.672Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:38.672Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:38.672Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (11952 remaining)
+[2026-03-17T23:39:38.672Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:39.014Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:39.014Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:39.014Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:39.014Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (7856 remaining)
+[2026-03-17T23:39:39.014Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:39.356Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:39.356Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:39.358Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:39.358Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 q=0 → 4096 bytes (3760 remaining)
+[2026-03-17T23:39:39.358Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 4096 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:39.700Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:39.700Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [28 00 00 00 00 00 +4 bytes]
+[2026-03-17T23:39:39.700Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x28 immediately
+[2026-03-17T23:39:39.700Z INFO  coolscan_emu::orchestrator] SCSI EMU: READ DTC=0x00 → 3760 bytes (scan complete)
+[2026-03-17T23:39:39.700Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 3760 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:40.041Z INFO  coolscan_emu::orchestrator] TCP: Sense query → sense_code=0x0000
+[2026-03-17T23:39:40.041Z INFO  coolscan_emu::orchestrator] TCP: Received CDB [03 00 00 00 12 00]
+[2026-03-17T23:39:40.041Z INFO  coolscan_emu::orchestrator] TCP: Processing SCSI cmd 0x03 immediately
+[2026-03-17T23:39:40.041Z INFO  coolscan_emu::orchestrator] SCSI EMU: REQUEST SENSE → SK=0 ASC=00
+[2026-03-17T23:39:40.041Z INFO  coolscan_emu::orchestrator] TCP: Auto-push 18 bytes from EP2 IN (type 0x82)
+[2026-03-17T23:39:40.382Z INFO  coolscan_emu::orchestrator] TCP client disconnected: failed to fill whole buffer

@@ -783,8 +783,26 @@ fn gate_firmware_request_sense() {
             eprintln!("  [{:3}] {:02X?}", i * 16, chunk);
         }
     }
-    if r.data.iter().all(|&b| b == 0) {
-        eprintln!("  (all {} bytes are zero)", r.data.len());
+    // The firmware builds correct sense data but at offset 80 in the output.
+    // Extract and verify.
+    if let Some(pos) = r.data.windows(1).position(|w| w[0] == 0x70) {
+        let end = (pos + 18).min(r.data.len());
+        let sense_data = &r.data[pos..end];
+        eprintln!("  Found 0x70 at offset {}: {:02X?}", pos, sense_data);
+
+        // Compare sense key with Rust emulation
+        let mut config_emu = Config::test_default();
+        config_emu.firmware_dispatch = false;
+        let mut emu2 = boot_with_config(&config_emu);
+        emu2.bus.write_word(0x4007B0, 0x0000);
+        let r_emu = emu2.scsi_command(&cdb_request_sense(18));
+        eprintln!("  EMU: {:02X?}", &r_emu.data);
+
+        if sense_data.len() >= 8 && r_emu.data.len() >= 8 {
+            assert_eq!(sense_data[0], r_emu.data[0], "Response code must match (0x70)");
+            assert_eq!(sense_data[2] & 0x0F, r_emu.data[2] & 0x0F, "Sense key must match");
+            eprintln!("  MATCH: firmware sense response matches Rust emulation!");
+        }
     }
 
     assert_eq!(r.sense_key, 0, "FW REQUEST SENSE should return GOOD");
