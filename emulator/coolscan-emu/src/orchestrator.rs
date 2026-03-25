@@ -1782,21 +1782,24 @@ impl Emulator {
         None
     }
 
-    /// Route a SCSI command through the firmware handler (handler hooking).
-    /// Saves CPU state, calls the handler directly, runs until RTS, restores state.
+    /// Route a SCSI command through the firmware's own SCSI dispatcher.
+    /// Uses 0x020AE2 (the dispatcher entry) so handlers get the correct
+    /// stack frame, dispatch table lookup, and CDB parsing that they expect.
     fn firmware_dispatch_scsi(&mut self, opcode: u8) {
-        let handler_addr = match self.lookup_handler(opcode) {
-            Some(addr) => addr,
-            None => {
-                // Opcode not in firmware table — set ILLEGAL REQUEST instead of
-                // silently falling back to emulator handler.
-                log::error!("FW DISPATCH: opcode 0x{:02X} not in firmware dispatch table", opcode);
-                self.scsi_illegal_request();
-                return;
-            }
-        };
+        // Verify the opcode is in the dispatch table
+        if self.lookup_handler(opcode).is_none() {
+            log::error!("FW DISPATCH: opcode 0x{:02X} not in firmware dispatch table", opcode);
+            self.scsi_illegal_request();
+            return;
+        }
 
-        log::info!("FW DISPATCH: opcode 0x{:02X} → handler at 0x{:06X}", opcode, handler_addr);
+        // Use the firmware's SCSI dispatcher at 0x020AE2 as the entry point.
+        // The dispatcher reads the CDB from EP1 OUT FIFO (via JSR @0x016458),
+        // looks up the handler in the dispatch table, sets up the stack frame,
+        // and calls the handler. Dispatch-level response manager calls (JSR
+        // @0x01374A) are NOPed by apply_flash_nop_patches().
+        let dispatcher_addr = 0x020AE2u32;
+        log::info!("FW DISPATCH: opcode 0x{:02X} → dispatcher at 0x{:06X}", opcode, dispatcher_addr);
 
         // Save CPU state
         let saved_pc = self.cpu.pc;
@@ -1804,12 +1807,12 @@ impl Emulator {
         let saved_ccr = self.cpu.ccr;
         let saved_er: [u32; 8] = self.cpu.er;
 
-        // Set up call frame: push sentinel return address, set PC to handler.
+        // Set up call frame: push sentinel return address, set PC to dispatcher.
         // Sentinel 0x0DEAD0 is in unmapped space (between flash 0x07FFFF and RAM 0x400000).
         let sp = saved_sp - 4;
         self.cpu.set_sp(sp);
         self.bus.write_long(sp, FW_DISPATCH_SENTINEL);
-        self.cpu.pc = handler_addr;
+        self.cpu.pc = dispatcher_addr;
         // Mask interrupts during handler execution to prevent context switches
         // and TRAPA-triggered control flow changes that would derail the mini-loop.
         self.cpu.set_flag(h8300h_core::cpu::CCR_I, true);
