@@ -1,6 +1,6 @@
 # Phase 7: ISP1581 DMA & Firmware SCSI Handlers — Attempt Log
 
-**Status**: In progress (7.0 gate complete)
+**Status**: Phase 7.0 complete, Phase 7.1 INQUIRY+REQUEST SENSE working via firmware USB
 **Milestone**: Firmware sends SCSI responses through USB path (INQUIRY, REQUEST SENSE, MODE SENSE, GET WINDOW via firmware handlers)
 
 ---
@@ -142,4 +142,28 @@ Handler completed in 1313 instructions, sense_key=0 (GOOD), 0 bytes data output.
 - Fix byte count parameter to get correct data size
 - Investigate INQUIRY init state dependencies
 - All 196 tests pass (30 e2e + 133 core + 33 peripherals)
+
+### Session 2 Addendum — 2026-03-25 (Phase 7.1 Completion)
+
+**Final Results**:
+- REQUEST SENSE: firmware produces [70, 00, 00, 00, 00, 00, 00, 0B] at offset 0 ✓
+  - Dispatch-level data path via FW:0x01117A → 0x0111F4 (sense build) → 0x013FB2 → 0x012304 (write)
+  - 8-byte compact sense summary header stripped from output
+  - Response code (0x70) and sense key match Rust emulation
+- INQUIRY: firmware produces "Nikon   LS-50 ED        1.02" ✓
+  - Handler-internal data path via un-NOPed 0x026042/0x02604A
+  - INQUIRY buffer at 0x4008A2 pre-populated from flash template at 0x170CE
+  - Header: [06, 80, 02, 02, 1F, 00, 00, 00] (scanner, SCSI-2, format 2)
+- NOP patch added: 0x011186 (post-handler response manager in FW:0x01117A)
+- Total NOP patches: 27 (was 26: 5 USB init + 11 dispatch + 10 handler + 1 post-handler)
+
+**Architecture Findings**:
+- Two different data transfer architectures in firmware:
+  1. Dispatch-level: post-handler at 0x01117A sends compact sense via 0x013FB2
+  2. Handler-internal: individual handlers send their own response via 0x014090
+- Dispatch-level always sends 8-byte compact summary + actual response data
+- REQUEST SENSE uses dispatch-level (handler-internal NOPed)
+- INQUIRY uses handler-internal (dispatch-level sends wrong data for INQUIRY)
+
+**Tests**: 196 passing (30 e2e + 133 core + 33 peripherals)
 

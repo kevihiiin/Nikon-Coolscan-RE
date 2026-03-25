@@ -1,7 +1,7 @@
 # Emulator Development Log
 
-**Current Phase**: 7 — ISP1581 DMA + FW Handlers (Phase 7.0 complete, 7.1 in progress)
-**Status**: 196 tests passing. Firmware USB data path working — sense build produces [0x70...]. Dispatcher routing implemented.
+**Current Phase**: 7 — ISP1581 DMA + FW Handlers (Phase 7.1 INQUIRY+REQUEST SENSE working)
+**Status**: 196 tests passing. Firmware produces "Nikon LS-50 ED" INQUIRY + [0x70] sense via USB. 12 commits this session.
 **Last Updated**: 2026-03-25
 
 ---

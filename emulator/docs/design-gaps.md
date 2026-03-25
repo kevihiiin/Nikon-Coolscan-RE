@@ -370,10 +370,10 @@ Items 1-3 were **RESOLVED** by Phase 7.0 gate (2026-03-25):
    - 0x40008A: FIFO buffer area. Dispatcher init at FW:0x013E0A copies from here to 0x4007DE.
    - 0x4007DE: shared CDB receive / sense response buffer. Cleared by dispatcher init.
 
-5. **Stack frame byte count parameter** (Phase 7.1 blocker)
-   - The data transfer function receives byte count from the stack relay at 0x016458.
-   - The dispatcher sets up this parameter, but the value depends on the stack layout.
-   - REQUEST SENSE output is 104 bytes (too many) with sense data at offset 80.
+5. **Stack frame byte count parameter** — **RESOLVED** (Phase 7.1)
+   - REQUEST SENSE: dispatch-level path sends correct data; 8-byte header stripped
+   - INQUIRY: handler-internal path with pre-populated buffer at 0x4008A2
+   - Post-handler response manager at 0x011186 NOPed to prevent double data transfer
 
 ### Items Requiring Outside Information
 
