@@ -24,3 +24,26 @@
 
 These ASIC interactions are not yet modeled — currently accepted as no-op writes.
 Should not affect functionality until actual scan operations are attempted.
+
+---
+
+## 2026-03-25 — Phase 9: CCD Data Injection + DMA Completion Rewrite
+
+**Goal**: Model CCD pixel capture and ASIC DMA completion for the scan pipeline.
+
+**Changes**:
+- CCD trigger at 0x2001C1 now generates actual pixel data (was just setting a flag)
+- Pixel format: 14-bit CCD data in bits [15:2] of 16-bit words, big-endian
+- CcdSource enum: Pattern (gradient varying by position+line) or MidGray (fixed 0x2000)
+- DAC mode 0xA2 (calibration): produces low-value dark frame data
+- DMA busy countdown changed from fixed 50 to transfer-size-based (1 tick per 16 bytes)
+- tick() now returns bool indicating DMA completion
+- New fields: dma_complete_pending, ccd_source, line_counter, last_line_data
+- take_ccd_trigger() and take_dma_complete() for clean interrupt flag handling
+- Orchestrator writes pixel data to ASIC RAM on DMA completion
+
+**Tests**: 8 ASIC unit tests (up from 5), covering CCD trigger data generation,
+DMA completion pending, line counter, transfer-size-based countdown.
+
+**Result**: SUCCESS. All scan pipeline tests pass. ASIC model now generates realistic
+CCD pixel data that can be processed by firmware's pixel processing code at 0x36C90.
