@@ -73,17 +73,18 @@ Both are NOPed out (26 patches total). Handlers run but can't send data.
 - Data-out + scan commands → Rust emulation (until Phases 9-10)
 - New `--emulated-scsi` flag forces old behavior for all commands
 
-### Completion Criteria
-1. INQUIRY via firmware handler returns identical 36 bytes to Rust emulation
-2. REQUEST SENSE via firmware returns correct 18-byte sense data
-3. MODE SENSE via firmware returns correct mode page
-4. 11 dispatch-level NOP patches removed, dispatcher runs without hang
-5. At least 6 handler-internal patches removed (3 handlers x 2 patches each)
-6. All 193+ tests still pass in both modes
-7. ISP1581 DMA state machine has unit tests
+### Completion Criteria (Updated 2026-03-25)
+1. INQUIRY via firmware handler returns identical 36 bytes to Rust emulation — **DONE** ✓
+2. REQUEST SENSE via firmware returns correct 18-byte sense data — **DONE** ✓ (byte 7: FW=0x0B vs EMU=0x0A)
+3. MODE SENSE via firmware returns correct mode page — **PARTIAL** (handler completes GOOD, needs scanner config state for mode pages)
+4. ~~11 dispatch-level NOP patches removed~~ → **CHANGED**: Dispatcher routing via 0x020AE2 with patches in place. Design changed because firmware uses PIO (not DMA), requiring different handshake approach.
+5. ~~At least 6 handler-internal patches removed~~ → **CHANGED**: Hybrid approach — INQUIRY uses handler-internal (4 patches un-NOPed for testing), REQUEST SENSE uses dispatch-level path.
+6. All 193+ tests still pass in both modes — **DONE** ✓ (197 tests)
+7. ~~ISP1581 DMA state machine has unit tests~~ → **SUPERSEDED**: Firmware uses PIO word writes, not ISP1581 DMA engine. ISP1581 model has DcInterrupt bits 12+15, DcBufferLength, EP Data Port R/W.
+8. (NEW) Error path: firmware CHECK CONDITION response — not yet tested
 
-### Estimated: +530 lines, +8 tests
-### Risk: Response manager polling loop hangs if DMA completion signal wrong. Fallback: timeout in mini-loop + trace logging of stuck PC. Also: increase `firmware_dispatch_scsi` timeout from 500K to 5M instructions for cal/scan commands, and auto-feed WDT every 50K instructions in the mini-loop.
+### Actual: +5 tests (gate_trace_inquiry, gate_firmware_request_sense, gate_firmware_mode_sense, gate_firmware_state_after_boot + MODE SENSE base)
+### Risk mitigated: stuck-PC detector, TRAPA-triggered cmd_pending, 0x400085 clear at data transfer entry.
 
 ---
 

@@ -614,7 +614,7 @@ impl Emulator {
                     if xfer_len > 0 {
                         let mut data = vec![0u8; xfer_len];
                         data[0] = 0x06; // Device type: scanner
-                        data[1] = 0x00;
+                        data[1] = 0x80; // RMB: removable media (film)
                         data[2] = 0x02; // SCSI-2
                         data[3] = 0x02; // Response format 2
                         if xfer_len > 4 { data[4] = 0x1F; } // Additional length
@@ -1737,10 +1737,22 @@ impl Emulator {
         let mut data = self.bus.isp1581_drain(256 * 1024);
 
         if self.firmware_dispatch && data.len() > 8 {
-            // The dispatch-level post-handler at FW:0x01117A always sends an
-            // 8-byte compact sense summary header from 0x4007D6 before the
-            // actual response data. Strip it for a clean result.
-            data = data[8..].to_vec();
+            // The dispatch-level post-handler at FW:0x01117A sends an 8-byte
+            // compact sense summary. For dispatch-level commands (like REQUEST
+            // SENSE), this summary is PREPENDED to the response. For handler-
+            // internal commands (like INQUIRY), the handler sends first and the
+            // summary is APPENDED. Detect by checking if the first 8 bytes are
+            // all zero (compact summary for GOOD/NO SENSE status) and strip them.
+            // Also truncate to CDB allocation length if known.
+            let alloc_len = cdb.get(4).copied().unwrap_or(0) as usize;
+            if data[..8].iter().all(|&b| b == 0) {
+                // Dispatch-level path: 8-byte zero header prepended → strip it
+                data = data[8..].to_vec();
+            }
+            // Truncate to allocation length if specified and reasonable
+            if alloc_len > 0 && alloc_len < data.len() {
+                data.truncate(alloc_len);
+            }
         }
 
         ScsiResult {
