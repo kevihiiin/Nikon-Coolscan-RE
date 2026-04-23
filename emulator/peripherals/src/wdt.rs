@@ -37,9 +37,14 @@ impl Watchdog {
             return false;
         }
         self.counter += 1;
-        // Timeout after ~65536 ticks if not fed
+        // Timeout after ~65536 ticks if not fed. Auto-rearm so a single
+        // firmware hang produces one event, not a flood of per-instruction
+        // spam. The caller (orchestrator) is responsible for halting or
+        // surfacing the timeout if it cares.
         if self.counter > 65535 && !self.fed {
-            return true; // Reset!
+            self.counter = 0;
+            self.fed = true;
+            return true;
         }
         self.fed = false;
         false
@@ -101,6 +106,25 @@ mod tests {
             }
             assert!(!wdt.tick(), "should not fire when fed regularly");
         }
+    }
+
+    #[test]
+    fn test_timeout_rearms_not_spammy() {
+        // After a timeout fires once, subsequent ticks must not keep firing.
+        // Without auto-rearm, a single hang would log millions of identical
+        // timeout warnings (orchestrator calls tick() every instruction).
+        let mut wdt = Watchdog::new();
+        wdt.enabled = true;
+        let mut fires = 0;
+        for _ in 0..200_000 {
+            if wdt.tick() {
+                fires += 1;
+            }
+        }
+        // 200K ticks, no feeds → should fire ~3 times (once per 65K window),
+        // not 134K+ times (every tick after first timeout).
+        assert!((2..=5).contains(&fires),
+            "timeout should fire periodically, not spam every tick (fires={})", fires);
     }
 
     #[test]

@@ -125,6 +125,8 @@ pub mod vectors {
     pub const IMIA2: u8 = 32;      // ITU2 compare-match A (motor)
     pub const IMIA3: u8 = 36;      // ITU3 compare-match A (DMA burst)
     pub const IMIA4: u8 = 40;      // ITU4 compare-match A (system tick)
+    pub const IMIB4: u8 = 41;      // ITU4 compare-match B (same channel as IMIA4)
+    pub const OVI4: u8 = 42;       // ITU4 overflow (same channel as IMIA4)
     pub const DEND0B: u8 = 45;     // DMA ch0B completion
     pub const DEND1B: u8 = 47;     // DMA ch1B completion
     pub const VEC49: u8 = 49;      // CCD line readout

@@ -1337,6 +1337,16 @@ impl Emulator {
         // polled serial TX exits immediately. Firmware never blocks on RX.
         self.bus.onchip_io[0xB4] = self.peripherals.sci0.ssr;
 
+        // --- Watchdog feed sync ---
+        // Firmware writes 0x5A to TCSR (0xFFFFA8) to feed the watchdog. The
+        // bus stores the byte but can't call into the WDT model directly,
+        // so we detect the feed pattern here and forward it. Byte is consumed
+        // (cleared) so the feed fires exactly once per firmware write.
+        if self.bus.onchip_io[0xA8] == 0x5A {
+            self.peripherals.watchdog.write(0x5A);
+            self.bus.onchip_io[0xA8] = 0;
+        }
+
         // --- Motor sync ---
         // Detect stepper phase changes on Port A DR (0xA3) and track position.
         let port_a = self.bus.onchip_io[0xA3];
@@ -1403,26 +1413,33 @@ impl Emulator {
                     self.asic.write(off, v);
                 }
             }
-            // CCD line timing trigger (one-shot — asic.write generates pixel data)
-            let trig = self.bus.asic_reg(0x01C1);
-            if trig != self.asic.read(0x01C1) {
-                self.asic.write(0x01C1, trig);
-            }
+        }
+        // Edge-triggered CCD trigger: forward unconditionally per firmware
+        // write, not per byte-value change. Repeat writes of the same byte
+        // (e.g., 0x80 for every scan line) must all produce a line of pixels.
+        if let Some(trig) = self.bus.ccd_trigger_write.take() {
+            self.asic.write(0x01C1, trig);
         }
         self.bus.set_asic_reg(0x0002, self.asic.read(0x0002));
         let asic_dma_done = self.asic.tick();
 
-        // If ASIC DMA completed, write CCD pixel data to ASIC RAM and arm
-        // the DMA-complete IRQ. Setting the pending flag here (not in tick())
-        // guarantees Vec 49 fires exactly once per CCD line capture.
-        if asic_dma_done && !self.asic.last_line_data.is_empty() {
-            let dest = self.asic.dma_address();
-            let data = self.asic.last_line_data.clone();
-            for (i, &b) in data.iter().enumerate() {
-                self.bus.write_byte(dest + i as u32, b);
+        // DMA completion handling. Setting the pending flag here (not in tick())
+        // guarantees Vec 49 fires exactly once per CCD line capture. The flag
+        // is set unconditionally on completion — never gate on data presence or
+        // firmware hangs waiting for an IRQ that will never come.
+        if asic_dma_done {
+            if self.asic.last_line_data.is_empty() {
+                log::warn!("ASIC DMA completed with no pixel data — firmware \
+                    likely set dma_busy_countdown without triggering via 0x01C1");
+            } else {
+                let dest = self.asic.dma_address();
+                let data = self.asic.last_line_data.clone();
+                for (i, &b) in data.iter().enumerate() {
+                    self.bus.write_byte(dest + i as u32, b);
+                }
+                log::debug!("CCD: {} bytes written to ASIC RAM at 0x{:06X}", data.len(), dest);
             }
             self.asic.dma_complete_pending = true;
-            log::debug!("CCD: {} bytes written to ASIC RAM at 0x{:06X}", data.len(), dest);
         }
 
         // --- DMA sync ---
@@ -1450,8 +1467,10 @@ impl Emulator {
                 log::debug!("ITU4 compare-match -> Vec 40 queued (CCR.I={})", self.cpu.interrupt_masked() as u8);
             }
             let priority = match vec {
-                vectors::IMIA4 => vectors::PRIORITY_LOW,
-                vectors::IMIA2 | vectors::IMIA3 => vectors::PRIORITY_MEDIUM,
+                // ITU4 is the low-priority system tick — keep all three of its
+                // interrupt sources (IMIA, IMIB, OVI) at LOW so they can't
+                // preempt a running motor or DMA handler.
+                vectors::IMIA4 | vectors::IMIB4 | vectors::OVI4 => vectors::PRIORITY_LOW,
                 _ => vectors::PRIORITY_MEDIUM,
             };
             self.irq.assert_interrupt(vec, priority);

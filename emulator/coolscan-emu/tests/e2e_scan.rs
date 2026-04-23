@@ -650,6 +650,68 @@ fn test_asic_bus_sync_forwards_behavioral_regs() {
 }
 
 #[test]
+fn test_asic_ccd_trigger_fires_per_write_not_per_change() {
+    // Regression for M12 review finding: 0x2001C1 is edge-triggered. Firmware
+    // writes the same byte (0x80) for every scan line — an equality gate would
+    // silently skip line 2+ and stall multi-line scans.
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Line 1
+    emu.bus.write_byte(0x20014C, 0x01); // DMA count = 256 bytes
+    emu.bus.write_byte(0x2001C1, 0x80);
+    emu.step_one();
+    let line_1 = emu.asic.line_counter;
+
+    // Line 2 — identical byte to Line 1
+    emu.bus.write_byte(0x2001C1, 0x80);
+    emu.step_one();
+    let line_2 = emu.asic.line_counter;
+
+    // Line 3 — identical byte again
+    emu.bus.write_byte(0x2001C1, 0x80);
+    emu.step_one();
+    let line_3 = emu.asic.line_counter;
+
+    assert!(line_2 > line_1, "line_counter must advance on repeat trigger (was {} → {})", line_1, line_2);
+    assert!(line_3 > line_2, "line_counter must advance on third trigger (was {} → {})", line_2, line_3);
+    assert_eq!(line_3 - line_1, 2, "exactly two new lines after line 1");
+}
+
+#[test]
+fn test_watchdog_feed_reaches_model_via_bus() {
+    // Regression for M12 review finding: firmware writes 0x5A to 0xFFFFA8
+    // (TCSR) to feed the watchdog. Before the fix, those writes stopped at
+    // onchip_io[0xA8] and never reached peripherals.watchdog, so enabling
+    // --watchdog would always time out regardless of firmware behavior.
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+    emu.peripherals.watchdog.enabled = true;
+
+    // Advance the counter past 0 so the feed has something to clear.
+    for _ in 0..1000 {
+        emu.peripherals.watchdog.tick();
+    }
+    let before = emu.peripherals.watchdog.counter;
+    assert!(before > 100, "watchdog counter advanced");
+
+    // Simulate the firmware's feed: byte write to 0xFFFFA8.
+    emu.bus.write_byte(0xFFFFA8, 0x5A);
+    emu.step_one(); // triggers sync_peripherals (feed) then check_peripherals (tick)
+
+    // After a single step: feed resets counter to 0, then check_peripherals'
+    // tick increments to 1. Key assertion is that the counter dropped far below
+    // the pre-feed value — proof the feed reached the model.
+    assert!(emu.peripherals.watchdog.counter < before,
+        "feed sync must reset the watchdog counter (was {}, now {})",
+        before, emu.peripherals.watchdog.counter);
+    assert!(emu.peripherals.watchdog.counter <= 1,
+        "counter should be at most 1 after feed+tick");
+    assert_eq!(emu.bus.onchip_io[0xA8], 0,
+        "feed byte must be consumed (cleared) so it fires exactly once");
+}
+
+#[test]
 fn test_asic_sync_skips_when_not_dirty() {
     // sync_peripherals should NOT re-forward ASIC regs every cycle — the dirty
     // bit avoids a per-instruction register comparison loop.

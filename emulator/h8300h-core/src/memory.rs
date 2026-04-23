@@ -99,9 +99,16 @@ pub struct MemoryBus {
 
     /// Set when firmware writes to the ASIC region via the memory bus.
     /// Orchestrator's `sync_peripherals()` checks and clears this to forward
-    /// behavioral ASIC registers (DAC mode, DMA addr/count, CCD trigger) to
-    /// the `Asic` model — avoiding a per-cycle scan of the register array.
+    /// level-triggered config registers (DAC mode, DMA addr/count) to the
+    /// `Asic` model — avoiding a per-cycle scan of the register array.
     pub asic_dirty: bool,
+
+    /// Edge-triggered CCD line capture write to 0x2001C1. Each firmware write
+    /// must produce exactly one line of pixel data, regardless of byte value.
+    /// A bare dirty flag + equality gate would drop repeat writes of the same
+    /// byte (firmware typically writes 0x80 for every line) and stall scans
+    /// after line 1. Consumed (cleared) by `sync_peripherals()`.
+    pub ccd_trigger_write: Option<u8>,
 
     /// ISP1581 register backing (0x600000-0x6000FF).
     isp1581_regs: [u8; 256],
@@ -141,6 +148,7 @@ impl MemoryBus {
             onchip_io: [0x00; 256],
             asic_regs: [0x00; 0x1000],
             asic_dirty: false,
+            ccd_trigger_write: None,
             isp1581_regs: [0x00; 256],
             isp1581_device: None,
             isp1581_irq_pending: false,
@@ -223,8 +231,15 @@ impl MemoryBus {
             MemoryRegion::OnChipRam => self.onchip_ram[(addr - 0xFFFB80) as usize] = val,
             MemoryRegion::OnChipIo => self.write_onchip_io(addr, val),
             MemoryRegion::Asic => {
-                self.asic_regs[(addr - 0x200000) as usize] = val;
+                let offset = (addr - 0x200000) as usize;
+                self.asic_regs[offset] = val;
                 self.asic_dirty = true;
+                // 0x2001C1 is edge-triggered (every write fires a CCD line).
+                // Tracked separately so repeat writes of the same byte aren't
+                // coalesced by the level-triggered forwarding path.
+                if offset == 0x01C1 {
+                    self.ccd_trigger_write = Some(val);
+                }
             }
             MemoryRegion::Isp1581 => {
                 if let Some(ref mut dev) = self.isp1581_device {
