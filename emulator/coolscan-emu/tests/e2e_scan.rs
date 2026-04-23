@@ -616,6 +616,55 @@ fn test_asic_cold_boot_mode() {
 }
 
 #[test]
+fn test_asic_bus_sync_forwards_behavioral_regs() {
+    // Regression test for M12/C1: firmware writes to ASIC region must propagate
+    // to the Asic model so its side effects (pixel generation, DMA countdown)
+    // run. Before the fix, the model was dead code when reached via the bus.
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+
+    // Simulate firmware writing DAC mode, DMA address, DMA count, and CCD trigger
+    // to the ASIC region via the memory bus.
+    emu.bus.write_byte(0x2000C2, 0x22); // scan DAC mode
+    emu.bus.write_byte(0x200147, 0x80); // DMA addr hi
+    emu.bus.write_byte(0x200148, 0x00); // DMA addr mid
+    emu.bus.write_byte(0x200149, 0x00); // DMA addr lo
+    emu.bus.write_byte(0x20014B, 0x00); // DMA count hi
+    emu.bus.write_byte(0x20014C, 0x04); // DMA count mid — 1024 bytes
+    emu.bus.write_byte(0x20014D, 0x00); // DMA count lo
+    emu.bus.write_byte(0x2001C1, 0x80); // CCD trigger
+
+    assert!(emu.bus.asic_dirty, "bus writes must set asic_dirty");
+
+    // One instruction step runs sync_peripherals, forwarding the dirty regs.
+    emu.step_one();
+
+    assert!(!emu.bus.asic_dirty, "sync_peripherals clears asic_dirty");
+    assert_eq!(emu.asic.dac_mode(), 0x22, "DAC mode forwarded to model");
+    assert_eq!(emu.asic.dma_address(), 0x800000, "DMA address forwarded");
+    assert_eq!(emu.asic.dma_count(), 0x000400, "DMA count forwarded");
+    assert!(!emu.asic.last_line_data.is_empty(),
+        "CCD trigger must invoke asic.write side effect (pixel generation)");
+    assert_eq!(emu.asic.last_line_data.len(), 1024,
+        "pixel data length matches DMA count");
+}
+
+#[test]
+fn test_asic_sync_skips_when_not_dirty() {
+    // sync_peripherals should NOT re-forward ASIC regs every cycle — the dirty
+    // bit avoids a per-instruction register comparison loop.
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut emu = boot_emulator();
+    emu.step_one();
+    assert!(!emu.bus.asic_dirty, "dirty bit clear after step");
+    // Subsequent steps without ASIC writes keep it clear.
+    for _ in 0..10 {
+        emu.step_one();
+        assert!(!emu.bus.asic_dirty, "no spurious dirty re-set from unrelated steps");
+    }
+}
+
+#[test]
 fn test_firmware_dispatch_illegal_opcode() {
     let _ = env_logger::builder().is_test(true).try_init();
     let mut config = Config::test_default();

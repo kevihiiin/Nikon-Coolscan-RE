@@ -51,45 +51,67 @@ impl Timer {
         }
     }
 
-    /// Returns true if compare-match A interrupt should fire.
-    pub fn tick(&mut self) -> bool {
+    /// Tick the timer once. Returns a 3-slot array indicating which interrupts fire:
+    ///   [0] = IMIA (compare-match A)
+    ///   [1] = IMIB (compare-match B)
+    ///   [2] = OVI  (overflow)
+    /// Each slot is `Some(())` if the interrupt is enabled AND the condition matched.
+    /// TimerUnit maps these to actual vector numbers.
+    pub fn tick(&mut self) -> [Option<()>; 3] {
+        let mut irqs = [None; 3];
+
         let div = self.prescaler();
         if div == 0 {
-            return false;
+            return irqs;
         }
 
         self.prescale_count += 1;
         if self.prescale_count < div {
-            return false;
+            return irqs;
         }
         self.prescale_count = 0;
 
+        let old_tcnt = self.tcnt;
         self.tcnt = self.tcnt.wrapping_add(1);
+        let matched = self.tcnt;
 
-        // Check compare-match A
-        if self.tcnt == self.gra {
-            self.tsr |= 0x01; // IMFA flag
-            // Clear on compare-match if configured (TCR bits 5-4)
-            let cclr = (self.tcr >> 5) & 0x03;
+        // Overflow detection: TCNT wrapped from 0xFFFF to 0x0000
+        if old_tcnt == 0xFFFF && matched == 0x0000 {
+            self.tsr |= 0x04; // OVF flag (TSR bit 2)
+            if self.tier & 0x04 != 0 {
+                irqs[2] = Some(());
+            }
+        }
+
+        // Check GRA and GRB against the pre-clear TCNT value, defer clearing
+        let cclr = (self.tcr >> 5) & 0x03;
+        let mut clear_tcnt = false;
+
+        if matched == self.gra {
+            self.tsr |= 0x01; // IMFA
             if cclr == 1 {
-                self.tcnt = 0;
+                clear_tcnt = true;
             }
-            // Generate interrupt if IMIEA enabled (TIER bit 0)
             if self.tier & 0x01 != 0 {
-                return true;
+                irqs[0] = Some(());
             }
         }
 
-        // Check compare-match B
-        if self.tcnt == self.grb {
-            self.tsr |= 0x02; // IMFB flag
-            let cclr = (self.tcr >> 5) & 0x03;
+        if matched == self.grb {
+            self.tsr |= 0x02; // IMFB
             if cclr == 2 {
-                self.tcnt = 0;
+                clear_tcnt = true;
+            }
+            if self.tier & 0x02 != 0 {
+                irqs[1] = Some(());
             }
         }
 
-        false
+        if clear_tcnt {
+            self.tcnt = 0;
+        }
+
+        irqs
     }
 }
 
@@ -101,6 +123,10 @@ impl Default for Timer {
 
 /// Interrupt vectors for each timer's compare-match A (ITU0-ITU4).
 const IMIA_VECTORS: [u8; 5] = [24, 28, ITU2_IMIA_VEC, ITU3_IMIA_VEC, ITU4_IMIA_VEC];
+/// Interrupt vectors for each timer's compare-match B (ITU0-ITU4).
+const IMIB_VECTORS: [u8; 5] = [25, 29, 33, 37, 41];
+/// Interrupt vectors for each timer's overflow (ITU0-ITU4).
+const OVI_VECTORS: [u8; 5] = [26, 30, 34, 38, 42];
 
 pub struct TimerUnit {
     pub tstr: u8,  // Timer start register (bit n = ITUn running)
@@ -115,14 +141,25 @@ impl TimerUnit {
         }
     }
 
-    /// Tick all running timers. Returns interrupt vectors to fire (up to 5).
+    /// Tick all running timers. Returns interrupt vectors to fire (up to 15:
+    /// 5 channels x 3 possible sources — IMIA, IMIB, OVI).
     /// Uses a fixed-size array to avoid heap allocation on every tick.
-    pub fn tick(&mut self) -> [Option<u8>; 5] {
-        let mut irqs = [None; 5];
+    pub fn tick(&mut self) -> [Option<u8>; 15] {
+        let mut irqs = [None; 15];
 
         for i in 0..5 {
-            if self.tstr & (1 << i) != 0 && self.timers[i].tick() {
-                irqs[i] = Some(IMIA_VECTORS[i]);
+            if self.tstr & (1 << i) == 0 {
+                continue;
+            }
+            let results = self.timers[i].tick();
+            if results[0].is_some() {
+                irqs[i * 3] = Some(IMIA_VECTORS[i]);
+            }
+            if results[1].is_some() {
+                irqs[i * 3 + 1] = Some(IMIB_VECTORS[i]);
+            }
+            if results[2].is_some() {
+                irqs[i * 3 + 2] = Some(OVI_VECTORS[i]);
             }
         }
 
@@ -222,6 +259,10 @@ impl Default for TimerUnit {
 mod tests {
     use super::*;
 
+    fn imia_fired(irqs: [Option<()>; 3]) -> bool { irqs[0].is_some() }
+    fn imib_fired(irqs: [Option<()>; 3]) -> bool { irqs[1].is_some() }
+    fn ovi_fired(irqs: [Option<()>; 3]) -> bool { irqs[2].is_some() }
+
     #[test]
     fn test_timer_prescaler_div1() {
         let mut t = Timer::new();
@@ -229,9 +270,9 @@ mod tests {
         t.gra = 0x0003;
         t.tier = 0x01; // IMIEA enabled
         // Ticks: 1,2,3 → compare-match at 3
-        assert!(!t.tick());
-        assert!(!t.tick());
-        assert!(t.tick(), "compare-match A fires at TCNT==GRA");
+        assert!(!imia_fired(t.tick()));
+        assert!(!imia_fired(t.tick()));
+        assert!(imia_fired(t.tick()), "compare-match A fires at TCNT==GRA");
         assert_eq!(t.tsr & 0x01, 0x01, "IMFA flag set");
     }
 
@@ -243,10 +284,10 @@ mod tests {
         t.tier = 0x01;
         // Need 8 ticks to advance TCNT once
         for _ in 0..7 {
-            assert!(!t.tick());
+            assert!(!imia_fired(t.tick()));
         }
         // 8th tick: TCNT goes from 0 to 1 → match GRA=1
-        assert!(t.tick());
+        assert!(imia_fired(t.tick()));
     }
 
     #[test]
@@ -266,7 +307,7 @@ mod tests {
         t.tcr = 0x00;
         t.gra = 0x0001;
         t.tier = 0x00; // IMIEA disabled
-        assert!(!t.tick(), "tick returns false when IMIEA disabled");
+        assert!(!imia_fired(t.tick()), "tick returns None when IMIEA disabled");
         assert_eq!(t.tsr & 0x01, 0x01, "IMFA flag still set despite no IRQ");
     }
 
@@ -277,15 +318,15 @@ mod tests {
         tu.timers[2].gra = 0x0001;
         tu.timers[2].tier = 0x01;
 
-        // Timer 2 not started yet
+        // Timer 2 not started yet — IMIA slot for channel 2 is index 6
         tu.tstr = 0x00;
         let irqs = tu.tick();
-        assert!(irqs[2].is_none());
+        assert!(irqs[2 * 3].is_none());
 
         // Start timer 2 (bit 2)
         tu.tstr = 0x04;
         let irqs = tu.tick();
-        assert_eq!(irqs[2], Some(ITU2_IMIA_VEC));
+        assert_eq!(irqs[2 * 3], Some(ITU2_IMIA_VEC));
     }
 
     #[test]
@@ -297,6 +338,75 @@ mod tests {
         assert_eq!(t.tsr & 0x02, 0x00);
         t.tick(); // TCNT=2=GRB
         assert_eq!(t.tsr & 0x02, 0x02, "IMFB flag set");
+    }
+
+    #[test]
+    fn test_timer_compare_match_b_interrupt() {
+        // IMIB (TIER bit 1) enabled, GRB match must fire IMIB interrupt
+        let mut t = Timer::new();
+        t.tcr = 0x00;
+        t.grb = 0x0002;
+        t.tier = 0x02; // IMIEB enabled
+        assert!(!imib_fired(t.tick())); // TCNT=1
+        assert!(imib_fired(t.tick()), "IMIB fires when TIER bit 1 set and TCNT==GRB");
+    }
+
+    #[test]
+    fn test_timer_overflow_flag() {
+        // TCNT wraps 0xFFFF → 0x0000 sets OVF (TSR bit 2)
+        let mut t = Timer::new();
+        t.tcr = 0x00;
+        t.tcnt = 0xFFFF;
+        let irqs = t.tick();
+        assert_eq!(t.tcnt, 0x0000, "TCNT wrapped to 0");
+        assert_eq!(t.tsr & 0x04, 0x04, "OVF flag (TSR bit 2) set");
+        assert!(!ovi_fired(irqs), "no interrupt without OVIE");
+    }
+
+    #[test]
+    fn test_timer_overflow_interrupt() {
+        // OVIE (TIER bit 2) set — overflow fires interrupt
+        let mut t = Timer::new();
+        t.tcr = 0x00;
+        t.tcnt = 0xFFFF;
+        t.tier = 0x04; // OVIE
+        let irqs = t.tick();
+        assert!(ovi_fired(irqs), "OVI fires when TIER bit 2 set and TCNT wraps");
+    }
+
+    #[test]
+    fn test_timer_gra_grb_same_value() {
+        // When GRA == GRB, both IMFA and IMFB flags must set even if CCLR clears TCNT on GRA
+        let mut t = Timer::new();
+        t.tcr = 0x20; // CCLR=1 (clear on GRA match), phi/1
+        t.gra = 0x0005;
+        t.grb = 0x0005;
+        t.tier = 0x03; // IMIEA | IMIEB
+        for _ in 0..4 {
+            t.tick();
+        }
+        // 5th tick: TCNT=5=GRA=GRB → both match before clear
+        let irqs = t.tick();
+        assert_eq!(t.tsr & 0x03, 0x03, "both IMFA and IMFB flags set");
+        assert!(imia_fired(irqs), "IMIA fires");
+        assert!(imib_fired(irqs), "IMIB fires");
+        assert_eq!(t.tcnt, 0, "TCNT cleared after both checks (GRA-triggered)");
+    }
+
+    #[test]
+    fn test_timer_unit_imib_and_ovi_vectors() {
+        // Verify TimerUnit maps IMIB and OVI to correct vector numbers.
+        let mut tu = TimerUnit::new();
+        // ITU2: GRB match → Vec 33
+        tu.timers[2].grb = 0x0001;
+        tu.timers[2].tier = 0x02; // IMIEB
+        // ITU4: overflow → Vec 42
+        tu.timers[4].tcnt = 0xFFFF;
+        tu.timers[4].tier = 0x04; // OVIE
+        tu.tstr = 0x14; // bits 2 and 4
+        let irqs = tu.tick();
+        assert_eq!(irqs[2 * 3 + 1], Some(33), "ITU2 IMIB = Vec 33");
+        assert_eq!(irqs[4 * 3 + 2], Some(42), "ITU4 OVI = Vec 42");
     }
 
     #[test]
@@ -329,7 +439,7 @@ mod tests {
         t.tcr = 0x04; // external clock
         t.gra = 0x0001;
         t.tier = 0x01;
-        assert!(!t.tick(), "external clock source stops timer");
+        assert!(!imia_fired(t.tick()), "external clock source stops timer");
         assert_eq!(t.tcnt, 0);
     }
 }

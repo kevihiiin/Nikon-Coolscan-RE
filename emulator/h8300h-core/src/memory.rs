@@ -97,6 +97,12 @@ pub struct MemoryBus {
     /// If None, writes are accepted and reads return stored value.
     asic_regs: [u8; 0x1000],
 
+    /// Set when firmware writes to the ASIC region via the memory bus.
+    /// Orchestrator's `sync_peripherals()` checks and clears this to forward
+    /// behavioral ASIC registers (DAC mode, DMA addr/count, CCD trigger) to
+    /// the `Asic` model — avoiding a per-cycle scan of the register array.
+    pub asic_dirty: bool,
+
     /// ISP1581 register backing (0x600000-0x6000FF).
     isp1581_regs: [u8; 256],
 
@@ -134,6 +140,7 @@ impl MemoryBus {
             onchip_ram: vec![0x00; 0xFEFF - 0xFB80 + 1], // 896 bytes
             onchip_io: [0x00; 256],
             asic_regs: [0x00; 0x1000],
+            asic_dirty: false,
             isp1581_regs: [0x00; 256],
             isp1581_device: None,
             isp1581_irq_pending: false,
@@ -215,7 +222,10 @@ impl MemoryBus {
             MemoryRegion::BufferRam => self.buffer_ram[(addr - 0xC00000) as usize] = val,
             MemoryRegion::OnChipRam => self.onchip_ram[(addr - 0xFFFB80) as usize] = val,
             MemoryRegion::OnChipIo => self.write_onchip_io(addr, val),
-            MemoryRegion::Asic => self.asic_regs[(addr - 0x200000) as usize] = val,
+            MemoryRegion::Asic => {
+                self.asic_regs[(addr - 0x200000) as usize] = val;
+                self.asic_dirty = true;
+            }
             MemoryRegion::Isp1581 => {
                 if let Some(ref mut dev) = self.isp1581_device {
                     dev.write_byte(addr - 0x600000, val);

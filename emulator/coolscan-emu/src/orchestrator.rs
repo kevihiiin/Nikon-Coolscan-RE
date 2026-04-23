@@ -1332,10 +1332,15 @@ impl Emulator {
             self.peripherals.gpio.lamp_on = p4 & 0x01 == 0;
         }
 
+        // --- SCI0 sync ---
+        // SCI0 SSR at 0xFFFFB4 — pin TDRE=1 (transmit ready) so firmware's
+        // polled serial TX exits immediately. Firmware never blocks on RX.
+        self.bus.onchip_io[0xB4] = self.peripherals.sci0.ssr;
+
         // --- Motor sync ---
         // Detect stepper phase changes on Port A DR (0xA3) and track position.
         let port_a = self.bus.onchip_io[0xA3];
-        let dir_bit = self.bus.onchip_io[0x84] & 0x01 != 0; // Port 3 DDR bit 0
+        let dir_bit = self.bus.onchip_io[0x84] & 0x01 != 0; // Port 3 DR bit 0
         let motor_mode = self.bus.read_byte(0x400774);
         if motor_mode != self.motor.active_mode && motor_mode != 0 {
             self.motor.set_mode(motor_mode);
@@ -1373,16 +1378,50 @@ impl Emulator {
             self.asic.write(0x0001, master);
             self.bus.set_asic_reg(0x0041, self.asic.read(0x0041));
         }
+        // Firmware writes to 0x200000-0x200FFF go into the bus's asic_regs[]
+        // backing store. Forward behavioral registers to the Asic model so its
+        // side effects (DMA countdown, pixel generation) run. asic_dirty is set
+        // by MemoryBus::write_byte on any ASIC region write and cleared here.
+        if self.bus.asic_dirty {
+            self.bus.asic_dirty = false;
+            // DAC mode — affects calibration pixel levels (0x22 scan, 0xA2 cal)
+            let dac = self.bus.asic_reg(0x00C2);
+            if dac != self.asic.read(0x00C2) {
+                self.asic.write(0x00C2, dac);
+            }
+            // DMA buffer address (24-bit big-endian)
+            for &off in &[0x0147u16, 0x0148, 0x0149] {
+                let v = self.bus.asic_reg(off as usize);
+                if v != self.asic.read(off) {
+                    self.asic.write(off, v);
+                }
+            }
+            // DMA transfer count (24-bit big-endian)
+            for &off in &[0x014Bu16, 0x014C, 0x014D] {
+                let v = self.bus.asic_reg(off as usize);
+                if v != self.asic.read(off) {
+                    self.asic.write(off, v);
+                }
+            }
+            // CCD line timing trigger (one-shot — asic.write generates pixel data)
+            let trig = self.bus.asic_reg(0x01C1);
+            if trig != self.asic.read(0x01C1) {
+                self.asic.write(0x01C1, trig);
+            }
+        }
         self.bus.set_asic_reg(0x0002, self.asic.read(0x0002));
         let asic_dma_done = self.asic.tick();
 
-        // If ASIC DMA completed, write CCD pixel data to ASIC RAM
+        // If ASIC DMA completed, write CCD pixel data to ASIC RAM and arm
+        // the DMA-complete IRQ. Setting the pending flag here (not in tick())
+        // guarantees Vec 49 fires exactly once per CCD line capture.
         if asic_dma_done && !self.asic.last_line_data.is_empty() {
             let dest = self.asic.dma_address();
             let data = self.asic.last_line_data.clone();
             for (i, &b) in data.iter().enumerate() {
                 self.bus.write_byte(dest + i as u32, b);
             }
+            self.asic.dma_complete_pending = true;
             log::debug!("CCD: {} bytes written to ASIC RAM at 0x{:06X}", data.len(), dest);
         }
 
@@ -1416,6 +1455,12 @@ impl Emulator {
                 _ => vectors::PRIORITY_MEDIUM,
             };
             self.irq.assert_interrupt(vec, priority);
+        }
+
+        // Watchdog: advances the counter. Disabled by default, so existing runs
+        // are unaffected; the --watchdog flag enables timeout detection.
+        if self.peripherals.watchdog.tick() {
+            log::error!("WATCHDOG: timeout — firmware did not feed within window");
         }
 
         // ISP1581 tick (bus reset, deferred state transitions)

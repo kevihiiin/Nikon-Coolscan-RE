@@ -101,11 +101,15 @@ impl Asic {
 
     /// Tick the ASIC model (call each CPU instruction).
     /// Returns true if DMA just completed this tick.
+    ///
+    /// The orchestrator is responsible for writing CCD data to ASIC RAM and
+    /// then setting `dma_complete_pending` so Vec 49 fires exactly once.
+    /// Setting the pending flag here caused Vec 49 to double-fire — once via
+    /// `take_dma_complete()` and a second time via the tick return value.
     pub fn tick(&mut self) -> bool {
         if self.dma_busy_countdown > 0 {
             self.dma_busy_countdown -= 1;
             if self.dma_busy_countdown == 0 {
-                self.dma_complete_pending = true;
                 return true;
             }
         }
@@ -281,18 +285,29 @@ mod tests {
     }
 
     #[test]
-    fn test_dma_complete_pending() {
+    fn test_dma_complete_tick_returns_true_once() {
+        // tick() returns true on DMA completion but no longer sets
+        // dma_complete_pending (orchestrator does that). Guarantees Vec 49
+        // fires exactly once — not once from tick() and once from take_dma_complete.
         let mut asic = Asic::new();
         asic.write(0x014C, 0x01); // 256 bytes
         asic.write(0x01C1, 0x80);
 
         assert!(!asic.dma_complete_pending);
-        // Tick until completion
+        let mut completions = 0;
         for _ in 0..100 {
-            if asic.tick() { break; }
+            if asic.tick() { completions += 1; }
         }
-        assert!(asic.take_dma_complete(), "DMA complete should be pending");
-        assert!(!asic.take_dma_complete(), "Should be cleared after take");
+        assert_eq!(completions, 1, "tick returns true exactly once per DMA");
+        assert!(!asic.dma_complete_pending,
+            "tick must NOT set dma_complete_pending — orchestrator owns that");
+        assert!(!asic.take_dma_complete(),
+            "take_dma_complete returns false when nothing set it");
+
+        // Caller can arm the IRQ explicitly — the flag then clears on take.
+        asic.dma_complete_pending = true;
+        assert!(asic.take_dma_complete());
+        assert!(!asic.take_dma_complete(), "cleared after take");
     }
 
     #[test]

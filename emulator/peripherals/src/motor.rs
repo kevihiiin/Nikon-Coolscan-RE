@@ -2,7 +2,7 @@
 //!
 //! Two stepper motors: scan (carriage) and AF (autofocus).
 //! Stepper phase cycle on Port A (0xFFFFA3): 01→02→04→08 = 1 step.
-//! Direction control on Port 3 DDR (0xFFFF84) bit 0.
+//! Direction control on Port 3 DR (0xFFFF84) bit 0.
 //!
 //! The firmware drives motors via ITU2 interrupts (Vec 32) which write
 //! stepper phases to Port A. We detect phase transitions and track position.
@@ -98,7 +98,7 @@ impl MotorSubsystem {
             return 0; // Not a valid single-step transition
         }
 
-        // Direction: Port 3 DDR bit 0 controls direction.
+        // Direction: Port 3 DR bit 0 controls direction.
         // forward = direction_bit=false, reverse = direction_bit=true
         let step_dir: i32 = if direction_bit { -1 } else { 1 };
 

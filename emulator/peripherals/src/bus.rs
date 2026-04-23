@@ -8,6 +8,7 @@ use crate::gpio::GpioPorts;
 use crate::wdt::Watchdog;
 use crate::adc::Adc;
 use crate::dma::DmaController;
+use crate::sci::Sci;
 
 /// Peripheral bus managing all on-chip I/O devices.
 pub struct PeripheralBus {
@@ -16,6 +17,9 @@ pub struct PeripheralBus {
     pub watchdog: Watchdog,
     pub adc: Adc,
     pub dma: DmaController,
+    /// SCI channel 0 (0xFFFFB0-B5). Stub: SSR pinned to 0x84 (TDRE=1) so
+    /// firmware TX-ready polling exits immediately. Firmware never blocks on SCI RX.
+    pub sci0: Sci,
 }
 
 impl PeripheralBus {
@@ -26,6 +30,7 @@ impl PeripheralBus {
             watchdog: Watchdog::new(),
             adc: Adc::new(),
             dma: DmaController::new(),
+            sci0: Sci::new(),
         }
     }
 
