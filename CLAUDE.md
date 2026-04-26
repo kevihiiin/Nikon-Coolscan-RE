@@ -192,7 +192,9 @@ emulator/
 | 10 | Calibration | Dark frame, white ref, CCD characterization | COMPLETE (230 tests) |
 | 11 | Real USB & Integration | Zero patches, NikonScan compatible | COMPLETE (240 tests) |
 
-**Roadmap details**: See `emulator/docs/design-gaps.md` for full Phase 7-11 plan.
+**Roadmap**: See `emulator/docs/roadmap.md` for phase history + forward milestones (M12-M16).
+**Backlog**: See `emulator/docs/backlog.md` for open issues with fix directions and file:line pointers.
+**Next milestone**: M12 (Firmware-Path Correctness) — ASIC sync, SCI routing, ITU timers, motor direction.
 
 ### Emulator Key Constants
 
