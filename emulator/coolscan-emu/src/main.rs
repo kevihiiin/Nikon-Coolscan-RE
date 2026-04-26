@@ -45,18 +45,32 @@ fn main() {
     }
 
     // Set up USB gadget bridge if requested — wired into emulator's run loop
+    let mut gadget_active = false;
     if gadget_requested {
         log::info!("Setting up USB gadget bridge...");
         match emu.setup_gadget() {
             Ok(()) => {
                 log::info!("USB gadget ready — connect a USB host to use real USB transport");
+                gadget_active = true;
             }
             Err(e) => {
                 log::error!("USB gadget setup failed: {e}");
                 log::error!("  Requires root + USB gadget kernel support (configfs + functionfs)");
-                log::error!("  Falling back to TCP-only bridge");
+                if emu.tcp_bridge_active {
+                    log::warn!("  Continuing with TCP-only bridge on port {}", config.tcp_port);
+                }
             }
         }
+    }
+
+    // Final transport check: if the user asked for any transport at all, make
+    // sure at least one is actually working. Otherwise the emulator runs
+    // firmware indefinitely while accepting no commands — exactly the silent
+    // failure the M13 fail-fast was meant to prevent.
+    if (gadget_requested || tcp_requested) && !gadget_active && !emu.tcp_bridge_active {
+        log::error!("No transport available — TCP bind and gadget setup both failed");
+        log::error!("  Free port {} or check kernel USB gadget support", config.tcp_port);
+        std::process::exit(1);
     }
 
     log::info!("Reset vector: 0x{:06X}", emu.reset_vector());

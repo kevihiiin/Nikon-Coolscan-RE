@@ -132,12 +132,16 @@ pub struct Emulator {
 
 /// Extract complete TCP bridge frames from an accumulator buffer.
 ///
-/// Frame wire format: `[len_hi, len_lo, msg_type, payload...]` where `len`
-/// is big-endian payload length. Fully-parsed bytes are drained from `buf`;
-/// a trailing partial frame stays put for the next call. Returns Err on an
-/// oversized payload claim — the caller should disconnect and clear.
-fn extract_tcp_frames(buf: &mut Vec<u8>) -> Result<Vec<(u8, Vec<u8>)>, String> {
-    const MAX_PAYLOAD: usize = 65536;
+/// Frame wire format: `[len_hi, len_lo, msg_type, payload...]`. Length is
+/// big-endian u16 (range 0..=65535), so by construction a payload claim
+/// can't exceed what 16 bits encode — no per-frame ceiling is needed and
+/// no error path is reachable. Combined with the per-poll read cap on the
+/// caller side, the accumulator can never grow past ~65538 bytes leftover
+/// after parsing (one in-flight unsatisfied claim).
+///
+/// Fully-parsed bytes are drained from `buf`; a trailing partial frame stays
+/// put for the next call.
+fn extract_tcp_frames(buf: &mut Vec<u8>) -> Vec<(u8, Vec<u8>)> {
     let mut frames = Vec::new();
     let mut pos = 0usize;
     while buf.len() - pos >= 3 {
@@ -145,9 +149,6 @@ fn extract_tcp_frames(buf: &mut Vec<u8>) -> Result<Vec<(u8, Vec<u8>)>, String> {
         let len_lo = buf[pos + 1];
         let msg_type = buf[pos + 2];
         let payload_len = ((len_hi as usize) << 8) | len_lo as usize;
-        if payload_len > MAX_PAYLOAD {
-            return Err(format!("payload length {} exceeds max ({})", payload_len, MAX_PAYLOAD));
-        }
         if buf.len() - pos < 3 + payload_len {
             break; // Incomplete frame — wait for more bytes
         }
@@ -158,7 +159,7 @@ fn extract_tcp_frames(buf: &mut Vec<u8>) -> Result<Vec<(u8, Vec<u8>)>, String> {
     if pos > 0 {
         buf.drain(0..pos);
     }
-    Ok(frames)
+    frames
 }
 
 impl Emulator {
@@ -377,10 +378,23 @@ impl Emulator {
             self.log_milestone(i);
         }
 
-        log::info!(
-            "Emulation stopped after {} instructions. PC=0x{:06X}",
-            max_instructions, self.cpu.pc
-        );
+        // The for-loop only completes if it ran to max_instructions — every
+        // other exit path uses early return with its own log. So reaching
+        // here means the cap was hit. If the user passed `--max N`, they
+        // probably want to know their run was truncated; if they passed
+        // u64::MAX (default unlimited), this never fires in practice.
+        if max_instructions == u64::MAX {
+            log::info!(
+                "Emulation completed {} instructions (unlimited cap). PC=0x{:06X}",
+                max_instructions, self.cpu.pc
+            );
+        } else {
+            log::warn!(
+                "Emulation hit instruction cap ({}). PC=0x{:06X}. \
+                 Pass `--max 0` for unlimited or a higher `--max` value.",
+                max_instructions, self.cpu.pc
+            );
+        }
         self.dump_state();
     }
 
@@ -1701,12 +1715,15 @@ impl Emulator {
         let mut disconnect = false;
         if let Some(ref mut stream) = self.tcp_client {
             use std::io::Read;
-            // Drain whatever bytes are available into the per-connection
-            // read buffer. Non-blocking read() can return partial data at
-            // any point — we must not lose the bytes we did receive, so the
-            // accumulated buffer is parsed for complete frames afterward.
+            // Drain whatever bytes are available into the per-connection read
+            // buffer. We bound the work per poll: a fast or adversarial peer
+            // shouldn't be able to monopolize the CPU loop. Once we've taken
+            // ~64 KB this poll, yield back so the firmware can run and we
+            // can drain on the next 1000-instruction tick.
             let mut tmp = [0u8; 4096];
-            loop {
+            const MAX_BYTES_PER_POLL: usize = 64 * 1024;
+            let mut read_this_poll = 0usize;
+            while read_this_poll < MAX_BYTES_PER_POLL {
                 match stream.read(&mut tmp) {
                     Ok(0) => {
                         // Peer closed cleanly
@@ -1716,6 +1733,11 @@ impl Emulator {
                     }
                     Ok(n) => {
                         self.tcp_read_buffer.extend_from_slice(&tmp[..n]);
+                        read_this_poll += n;
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                        // EINTR (signal during syscall) — retry per Rust convention.
+                        continue;
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         break; // No more data right now
@@ -1730,14 +1752,11 @@ impl Emulator {
         }
         // Parse complete frames out of the accumulator. Any trailing bytes
         // that don't form a full header+payload stay buffered for next poll.
-        match extract_tcp_frames(&mut self.tcp_read_buffer) {
-            Ok(new_frames) => frames.extend(new_frames),
-            Err(e) => {
-                log::error!("TCP: {}. Disconnecting.", e);
-                disconnect = true;
-            }
-        }
+        frames.extend(extract_tcp_frames(&mut self.tcp_read_buffer));
         if disconnect {
+            if !self.tcp_read_buffer.is_empty() {
+                log::info!("TCP: dropping {} buffered bytes on disconnect", self.tcp_read_buffer.len());
+            }
             self.tcp_client = None;
             self.tcp_read_buffer.clear();
         }
@@ -2466,7 +2485,7 @@ mod tcp_frame_tests {
     #[test]
     fn test_extract_single_complete_frame() {
         let mut buf = vec![0x00, 0x02, 0x01, 0xAA, 0xBB];
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert_eq!(frames, vec![(0x01, vec![0xAA, 0xBB])]);
         assert!(buf.is_empty());
     }
@@ -2477,34 +2496,31 @@ mod tcp_frame_tests {
             0x00, 0x01, 0x01, 0xAA,             // frame 1: type 0x01, payload [0xAA]
             0x00, 0x02, 0x05, 0x11, 0x22,       // frame 2: type 0x05, payload [0x11, 0x22]
         ];
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert_eq!(frames, vec![(0x01, vec![0xAA]), (0x05, vec![0x11, 0x22])]);
         assert!(buf.is_empty());
     }
 
     #[test]
     fn test_partial_header_stays_buffered() {
-        // Only 2 of the 3 header bytes have arrived — must not parse.
         let mut buf = vec![0x00, 0x01];
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert!(frames.is_empty());
         assert_eq!(buf, vec![0x00, 0x01], "partial header preserved");
     }
 
     #[test]
     fn test_partial_payload_stays_buffered() {
-        // Header says 4 bytes of payload but only 2 bytes arrived.
         let mut buf = vec![0x00, 0x04, 0x01, 0xAA, 0xBB];
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert!(frames.is_empty());
         assert_eq!(buf, vec![0x00, 0x04, 0x01, 0xAA, 0xBB], "partial payload preserved");
     }
 
     #[test]
     fn test_complete_frame_plus_trailing_partial() {
-        // One complete frame followed by half of a second frame's header.
         let mut buf = vec![0x00, 0x01, 0x01, 0xAA, 0x00];
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert_eq!(frames, vec![(0x01, vec![0xAA])]);
         assert_eq!(buf, vec![0x00], "trailing partial header preserved");
     }
@@ -2516,33 +2532,48 @@ mod tcp_frame_tests {
         let mut buf: Vec<u8> = Vec::new();
         for byte in [0x00u8, 0x02, 0x01] {
             buf.push(byte);
-            let frames = extract_tcp_frames(&mut buf).unwrap();
+            let frames = extract_tcp_frames(&mut buf);
             assert!(frames.is_empty(), "header not yet complete after byte 0x{:02X}", byte);
         }
         buf.push(0xAA);
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert!(frames.is_empty(), "payload still short after one byte");
         buf.push(0xBB);
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert_eq!(frames, vec![(0x01, vec![0xAA, 0xBB])]);
     }
 
     #[test]
     fn test_zero_length_payload() {
         let mut buf = vec![0x00, 0x00, 0x02];
-        let frames = extract_tcp_frames(&mut buf).unwrap();
+        let frames = extract_tcp_frames(&mut buf);
         assert_eq!(frames, vec![(0x02, vec![])]);
         assert!(buf.is_empty());
     }
 
     #[test]
-    fn test_oversized_payload_errors() {
-        let mut buf = vec![0xFF, 0xFF, 0x01]; // claims 65535 bytes — at max
-        let frames = extract_tcp_frames(&mut buf).unwrap();
-        assert!(frames.is_empty(), "at-max payload is waiting for bytes, not rejected");
+    fn test_max_wire_payload_size_accepted() {
+        // The wire encoding caps payload length at 16 bits — 65535 is the
+        // largest single-frame payload. Verify it parses cleanly.
+        let mut buf = Vec::with_capacity(3 + 0xFFFF);
+        buf.extend_from_slice(&[0xFF, 0xFF, 0x01]);
+        buf.extend(std::iter::repeat_n(0xAA, 0xFFFF));
+        let frames = extract_tcp_frames(&mut buf);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].0, 0x01);
+        assert_eq!(frames[0].1.len(), 0xFFFF);
+    }
 
-        let mut buf = vec![0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00]; // 65535, then junk
-        // 65535 is under the 65536 ceiling, so no error — still waiting for bytes.
-        assert!(extract_tcp_frames(&mut buf).unwrap().is_empty());
+    #[test]
+    fn test_stateful_parsing_across_calls() {
+        // Drain consumed bytes, preserve incomplete tail, pick up later.
+        let mut buf = vec![0x00, 0x02, 0x01, 0xAA, 0xBB, 0x00, 0x03];
+        let frames = extract_tcp_frames(&mut buf);
+        assert_eq!(frames, vec![(0x01, vec![0xAA, 0xBB])]);
+        assert_eq!(buf, vec![0x00, 0x03], "incomplete next header preserved");
+        buf.extend_from_slice(&[0x02, 0xCC, 0xDD, 0xEE]);
+        let frames = extract_tcp_frames(&mut buf);
+        assert_eq!(frames, vec![(0x02, vec![0xCC, 0xDD, 0xEE])]);
+        assert!(buf.is_empty());
     }
 }

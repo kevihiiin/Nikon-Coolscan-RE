@@ -122,8 +122,8 @@ impl Config {
                         Ok(0) => u64::MAX, // explicit "unlimited"
                         Ok(v) => v,
                         Err(_) => {
-                            eprintln!("Warning: invalid --max value '{}', using unlimited", args[i + 1]);
-                            u64::MAX
+                            eprintln!("Error: invalid --max value '{}'. Pass a u64 (0 = unlimited).", args[i + 1]);
+                            std::process::exit(2);
                         }
                     };
                     i += 2;
