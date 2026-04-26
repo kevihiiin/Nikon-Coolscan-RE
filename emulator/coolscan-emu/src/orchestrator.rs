@@ -282,7 +282,29 @@ impl Emulator {
 
     /// Run the emulator for up to max_instructions.
     pub fn run(&mut self, max_instructions: u64) {
+        self.run_with_shutdown(max_instructions, None);
+    }
+
+    /// Same as `run`, but checks `shutdown` periodically and exits the loop
+    /// cleanly (so `Drop` impls — notably `GadgetBridge` — fire) when set.
+    pub fn run_with_shutdown(
+        &mut self,
+        max_instructions: u64,
+        shutdown: Option<&std::sync::atomic::AtomicBool>,
+    ) {
+        use std::sync::atomic::Ordering;
         for i in 0..max_instructions {
+            if let Some(flag) = shutdown
+                && i % 1000 == 0
+                && flag.load(Ordering::Relaxed)
+            {
+                log::warn!(
+                    "Shutdown signal received — exiting after {} instructions at PC=0x{:06X}",
+                    i, self.cpu.pc
+                );
+                self.dump_state();
+                return;
+            }
             if self.cpu.sleeping {
                 self.check_peripherals();
                 // Only wake from SLEEP when a maskable IRQ is pending AND

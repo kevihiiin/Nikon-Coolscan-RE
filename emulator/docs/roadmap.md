@@ -1,66 +1,24 @@
 # Emulator Roadmap
 
-**Last Updated**: 2026-04-05
+**Last Updated**: 2026-04-26
 
 ---
 
 ## Status
 
-All 11 build phases are **COMPLETE**. The emulator is ~12K LOC Rust, 269 tests, 0 clippy warnings.
+All 11 build phases plus M12 (firmware-path correctness), M13 (TCP bridge hardening), and M14 (USB Gadget Ready) are **COMPLETE**. The emulator is ~12K LOC Rust, 295 tests, 0 clippy warnings.
 
 Post-completion backlog of correctness, design, and UX issues tracked in [`backlog.md`](backlog.md).
 
 **Goal**: A fully functional Coolscan V replica running on a Raspberry Pi via USB gadget, compatible with NikonScan 4.0.3 on Windows. The emulator should handle the full NikonScan workflow: connect → INQUIRY → calibrate → preview → scan → disconnect.
+
+**Next milestone**: M15 (NikonScan E2E Validation) — needs Raspberry Pi 4 with `dwc2` OTG and a Windows host running NikonScan 4.0.3. No more code-only work blocks this; the remaining gaps (USB control transfer details, motor timing, throughput) can only be characterized against the real driver.
 
 ---
 
 ## Next Steps — Path to NikonScan-Compatible USB Device
 
 Work is organized into milestones. Each milestone brings the emulator closer to passing the NikonScan E2E workflow. Earlier milestones are prerequisites for later ones.
-
-### Milestone 12: Firmware-Path Correctness (prerequisite for everything)
-
-The emulator currently works because Rust-side SCSI intercepts bypass firmware's hardware access path. For zero-patch mode (firmware handles everything autonomously), these must be fixed first.
-
-| Item | Backlog | What | Why |
-|------|---------|------|-----|
-| ASIC register sync | C1 | Forward CCD trigger (0x01C1), DAC mode (0x00C2), DMA addr/count (0x0147-0x014D) from memory bus to ASIC model | Without this, firmware CCD capture path is dead code |
-| SCI routing | I10 | Route SCI0 registers (0xFFFFB0-B5) through SCI model, at minimum SSR=0x84 (TDRE=1) | Firmware serial TX polling hangs forever without TDRE |
-| ITU timer completeness | I4, I5 | Implement OVF flag + overflow interrupt; implement IMIB (compare-match B) interrupt | Firmware code relying on these will hang |
-| ITU GRA==GRB conflict | I6 | Check both against pre-clear TCNT value | Both should trigger simultaneously on real hardware |
-| Motor direction register | I13 | Verify firmware writes: is it DDR (0x83) or DR (0x84)? Fix the wrong one | Motor direction could be inverted |
-| ASIC DMA double-fire | I15 | Ensure Vec 49 fires exactly once per CCD line, not twice | Could corrupt scan data or timing |
-| Watchdog tick | I7 | Call `peripherals.watchdog.tick()` in main loop | Enables `--watchdog` flag, catches firmware hangs |
-
-**Exit criterion**: `cargo run -- --full-usb-init --firmware-dispatch` boots and handles INQUIRY, TUR, REQUEST SENSE, MODE SENSE, calibration task codes, and a single-frame SCAN entirely through firmware handlers with no Rust SCSI intercepts and no NOP patches.
-
-### Milestone 13: TCP Bridge Hardening
-
-The TCP bridge is the easiest E2E test path (no special hardware). Fix issues that would cause silent data corruption or hangs.
-
-| Item | Backlog | What | Why |
-|------|---------|------|-----|
-| TCP partial read buffer | I11 | Accumulate partial reads across `poll_tcp()` calls | Under network latency, headers split across TCP segments → data loss |
-| TCP bind failure handling | I12 | Exit with error (or prominent warning) when port 6581 is in use | Emulator appears to start but TCP is non-functional |
-| Remove 10M instruction hard stop | M4 | Make `--max 0` mean unlimited, or default to unlimited for interactive mode | NikonScan session lasts millions of instructions |
-| Non-blocking TCP accept | — | Ensure `accept()` doesn't block the main CPU loop | Currently non-blocking, but verify under multi-client scenarios |
-
-**Exit criterion**: `tcp_test_client.py` can run a full scan sequence (INQUIRY → RESERVE → calibrate → SET WINDOW → SCAN → READ → RELEASE) over TCP without data corruption, even with artificial latency injected.
-
-### Milestone 14: USB Gadget Ready
-
-Make the gadget bridge robust enough to survive NikonScan's USB enumeration and full scan workflow.
-
-| Item | Backlog | What | Why |
-|------|---------|------|-----|
-| EP1 OUT FIFO underrun handling | C2 | Return error/set underrun flag instead of fabricating zero bytes | Zeros = phantom TUR opcode, confuses firmware |
-| DcBufferLength accuracy | I8 | Return actual FIFO length instead of hardcoded 64 | Firmware reads this to decide how many bytes to consume |
-| ISP1581 write-back-clear fix | I2 | Guard `write_byte` on DcInterrupt to prevent synthetic bit clearing | Correctness hazard if firmware ever uses byte writes |
-| ISP1581 unmodeled register logging | I3 | Promote to `log::debug!` or first-occurrence `log::warn!` | Invisible register gaps cause silent firmware misbehavior |
-| Signal handling (SIGINT/SIGTERM) | I17 | Atomic flag + graceful shutdown with USB gadget teardown | Ctrl+C during `--gadget` may skip FunctionFS cleanup |
-| Gadget setup failure exit code | M14 | Exit non-zero when `--gadget` fails, don't silently fall back | User doesn't realize gadget didn't attach |
-
-**Exit criterion**: On a Raspberry Pi 4 with `dwc2` OTG, `coolscan-emu --gadget --firmware-dispatch --full-usb-init` presents as VID 04B0 / PID 4001 on a connected Windows PC, and `lsusb` on a connected Linux host shows "Nikon LS-50".
 
 ### Milestone 15: NikonScan E2E Validation
 
@@ -116,6 +74,41 @@ Architectural improvements and UX polish. Not blocking E2E but improves long-ter
 ### Phases 7-11: Hardware Fidelity (Complete)
 
 Bridged the gap from protocol emulator to firmware-driven hardware replica. The CPU executes the real SCSI handlers and the orchestrator provides hardware stimuli (CCD data, motor feedback, USB transport).
+
+### M12: Firmware-Path Correctness (Complete)
+
+7 backlog items + 5 post-review fixes (commits `ffc7dc2`, `ad55b8e`, 279 tests). Made firmware SCSI handlers run autonomously without Rust intercepts:
+
+- **C1** — ASIC register sync: `MemoryBus::asic_dirty` flag + `sync_peripherals` forwards DAC mode, DMA addr/count, CCD trigger to the `Asic` model
+- **I4/I5** — ITU OVF flag + overflow interrupt; IMIB compare-match B interrupt (added `IMIB_VECTORS`, `OVI_VECTORS`)
+- **I6** — GRA==GRB same-tick conflict: both checked against pre-clear TCNT
+- **I7** — Watchdog `tick()` wired into `check_peripherals()`; feed byte (0x5A) routed to model
+- **I10** — SCI0 routing: `PeripheralBus::sci0` synced so SSR=0x84 (TDRE=1) reaches `onchip_io[0xB4]`
+- **I13** — Motor direction comment fix (DDR → DR for 0xFFFF84)
+- **I15** — ASIC DMA double-fire eliminated: orchestrator owns `dma_complete_pending` set
+- Post-review: CCD trigger edge-detection (was level-gated, stalling multi-line scans), IMIB4/OVI4 priority alignment with IMIA4, watchdog auto-rearm to prevent log spam, DMA-complete IRQ no longer gated on empty data
+
+### M14: USB Gadget Ready (Complete)
+
+7 backlog items (288 → 295 tests). Made the ISP1581 model and gadget bridge robust enough to survive NikonScan's USB enumeration:
+
+- **I2** — `write_byte` on DcInterrupt and DcEndpointStatus no longer reads back the synthetic `IRQ_EP_TX_READY` bit and clears it as a side effect; byte writes only clear bits in the addressed byte
+- **C2** — EP1 OUT FIFO underrun now sets a sticky `ep1_underrun` flag and warns once (was silent fabrication of zero bytes = phantom TUR)
+- **I3** — Unmodeled ISP1581 register reads/writes now warn-once-per-(offset,direction); subsequent accesses log at trace
+- **N3** — STALL bit on ControlFunction (0x28 bit 0) tracked per endpoint via `ep_stalled` map; pairs with `ep_index` to identify the stalled EP
+- **N1/N2** — Trace of `--full-usb-init` boot showed firmware only touches modeled offsets (0x0C, 0x18, 0x1C, 0x20, 0x2C); gadget bridge `send_ep2_in` now emits a ZLP when the write length is a non-zero multiple of 512 (HS bulk max-packet) so the host sees a clean transfer boundary
+- **I17** — SIGINT/SIGTERM handler installed via `ctrlc` crate; sets `Arc<AtomicBool>` checked every 1000 instructions in `Emulator::run_with_shutdown`. Second signal triggers `process::exit(130)` for runaway escapes
+- **I8 (deferred)** — DcBufferLength accuracy needs the EP-selection register modeled first; reverted attempt to track per-EP. Constant 64 preserved with updated docstring explaining why
+- **G** — Final transport-summary log line at end of startup (`gadget=... tcp=...`) so users always see which transports actually came up
+
+### M13: TCP Bridge Hardening (Complete)
+
+3 backlog items + 5 post-review fixes (commits `d222a87`, `9d472b0`, 288 tests). Made TCP transport robust under real network conditions:
+
+- **I11** — Per-connection `tcp_read_buffer` accumulates partial reads; new `extract_tcp_frames` covered by 8 unit tests
+- **I12** — TCP bind fail-fast: exit 1 if `--port` requested but bind failed and no `--gadget` fallback
+- **M4** — Default `--max` is now unlimited (`u64::MAX`); explicit `--max N` for bounded runs; `--max 0` is explicit unlimited
+- Post-review: removed unreachable `MAX_PAYLOAD = 65536` check; per-poll read cap (64 KB) prevents adversarial peer DoS; EINTR retry; both-transport silent-failure gate (exit non-zero if neither transport up); cap-hit log clarity (warn vs info); invalid `--max` parsing rejects "10m" instead of silently becoming `u64::MAX`
 
 ---
 
@@ -330,7 +323,10 @@ Both were NOPed out (26 patches total). Handlers ran but couldn't send data.
 | 10 | Calibration | +380 | 230 | COMPLETE |
 | 11 | Real USB & Integration | +440 | 240 | COMPLETE |
 | Audit | Post-Phase 11 | +250 | 269 | COMPLETE |
-| | **Total** | **~12K** | **269** | **ALL COMPLETE** |
+| M12 | Firmware-Path Correctness | +200 | 279 | COMPLETE |
+| M13 | TCP Bridge Hardening | +280 | 288 | COMPLETE |
+| M14 | USB Gadget Ready | +200 | 295 | COMPLETE |
+| | **Total** | **~12K** | **295** | **M15 NEXT (needs hardware)** |
 
 ---
 

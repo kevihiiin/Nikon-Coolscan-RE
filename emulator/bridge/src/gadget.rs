@@ -29,6 +29,14 @@ const FUNCTIONFS_STRINGS_MAGIC: u32 = 2;
 const FUNCTIONFS_HAS_FS_DESC: u32 = 1;
 const FUNCTIONFS_HAS_HS_DESC: u32 = 2;
 
+/// USB 2.0 bulk endpoint max-packet-size (high-speed). FunctionFS will split
+/// any larger write into this many bytes per USB packet; the last packet is
+/// short, which terminates the bulk transfer. If a write is a non-zero
+/// multiple of this size we send a zero-length packet to mark end-of-data,
+/// otherwise the host may wait for more data on transfers that happen to
+/// land on a boundary.
+const HS_BULK_MAX_PACKET: usize = 512;
+
 /// USB gadget bridge state.
 pub struct GadgetBridge {
     /// Path to the gadget in configfs (e.g., /sys/kernel/config/usb_gadget/coolscan).
@@ -251,10 +259,22 @@ impl UsbBridge for GadgetBridge {
     }
 
     fn send_ep2_in(&mut self, data: &[u8]) {
-        if let Some(ref mut ep2) = self.ep2_in
-            && let Err(e) = ep2.write_all(data)
+        let Some(ref mut ep2) = self.ep2_in else {
+            return;
+        };
+        if let Err(e) = ep2.write_all(data) {
+            log::warn!("EP2 IN write error after {} bytes: {e}", data.len());
+            self.connected = false;
+            return;
+        }
+        // ZLP termination: if the write's length is a non-zero multiple of
+        // the bulk max-packet-size, the host has no in-band signal that the
+        // transfer is over. Send an empty write so FunctionFS emits a ZLP.
+        if !data.is_empty()
+            && data.len().is_multiple_of(HS_BULK_MAX_PACKET)
+            && let Err(e) = ep2.write_all(&[])
         {
-            log::warn!("EP2 IN write error: {e}");
+            log::warn!("EP2 IN ZLP write error: {e}");
             self.connected = false;
         }
     }

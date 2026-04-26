@@ -1,17 +1,23 @@
 # Emulator Backlog
 
 **Created**: 2026-03-27
-**Updated**: 2026-04-05
+**Updated**: 2026-04-26
 **Source**: Full codebase review (4 parallel agents: silent-failure-hunter, design-reviewer, CLI/UX-reviewer, peripheral-correctness), plus gap analysis for NikonScan E2E compatibility
-**Scope**: ~12K LOC Rust across 26 source files, 269 tests
+**Scope**: ~12K LOC Rust across 26 source files, 288 tests
 
 Items are ordered by priority within each severity tier. Each item includes the original finding detail so it can be actioned without re-analysis. Cross-references to [`roadmap.md`](roadmap.md) milestones are shown in brackets.
+
+**Resolved in M12** (commits `ffc7dc2`, `ad55b8e`): C1, I4, I5, I6, I7, I10, I13, I15.
+**Resolved in M13** (commits `d222a87`, `9d472b0`): I11, I12, M4.
+**Resolved in M14**: C2, I2, I3, I17, N3 (STALL), N2 (ZLP). I8 deferred (needs EP-selection modeling first).
+
+The descriptions of resolved items are kept below for historical reference but are tagged with `[RESOLVED]`.
 
 ---
 
 ## Critical
 
-### C1. ASIC registers not synced from memory bus to ASIC model [M12]
+### C1. ASIC registers not synced from memory bus to ASIC model [M12] [RESOLVED]
 
 **Files**: `h8300h-core/src/memory.rs:218`, `coolscan-emu/src/orchestrator.rs:1368-1376`
 
@@ -27,7 +33,7 @@ The emulator works only because SCSI-level intercepts bypass the firmware's hard
 
 ---
 
-### C2. ISP1581 EP1 OUT FIFO silently returns 0 on underrun [M14]
+### C2. ISP1581 EP1 OUT FIFO silently returns 0 on underrun [M14] [RESOLVED]
 
 **File**: `peripherals/src/isp1581.rs:176-177`
 
@@ -88,7 +94,7 @@ Lines 1381-1382 clone `self.asic.last_line_data` (a `Vec<u8>` up to several KB) 
 
 ---
 
-### I2. ISP1581 `write_byte` on write-back-clear registers causes data loss [M14]
+### I2. ISP1581 `write_byte` on write-back-clear registers causes data loss [M14] [RESOLVED]
 
 **File**: `peripherals/src/isp1581.rs:349-355`
 
@@ -98,7 +104,7 @@ Lines 1381-1382 clone `self.asic.last_line_data` (a `Vec<u8>` up to several KB) 
 
 ---
 
-### I3. ISP1581 unmodeled register reads/writes invisible at default log level [M14]
+### I3. ISP1581 unmodeled register reads/writes invisible at default log level [M14] [RESOLVED]
 
 **Files**: `peripherals/src/isp1581.rs:192-195` (reads), `peripherals/src/isp1581.rs:256-258` (writes)
 
@@ -108,7 +114,7 @@ Unmodeled ISP1581 registers return 0 (reads) or are dropped (writes) with only `
 
 ---
 
-### I4. ITU timer: no overflow flag (OVF) or overflow interrupt [M12]
+### I4. ITU timer: no overflow flag (OVF) or overflow interrupt [M12] [RESOLVED]
 
 **File**: `peripherals/src/itu.rs:67`
 
@@ -116,7 +122,7 @@ When TCNT overflows from 0xFFFF to 0x0000, the H8/3003 sets TSR bit 2 (OVF) and 
 
 ---
 
-### I5. ITU timer: compare-match B never generates interrupt [M12]
+### I5. ITU timer: compare-match B never generates interrupt [M12] [RESOLVED]
 
 **File**: `peripherals/src/itu.rs:83-90`
 
@@ -124,7 +130,7 @@ When TCNT overflows from 0xFFFF to 0x0000, the H8/3003 sets TSR bit 2 (OVF) and 
 
 ---
 
-### I6. ITU timer: GRA==GRB conflict on same tick [M12]
+### I6. ITU timer: GRA==GRB conflict on same tick [M12] [RESOLVED]
 
 **File**: `peripherals/src/itu.rs:70-90`
 
@@ -134,7 +140,7 @@ When GRA == GRB: code first matches GRA (line 70), potentially clearing TCNT to 
 
 ---
 
-### I7. Watchdog `tick()` never called from orchestrator [M12]
+### I7. Watchdog `tick()` never called from orchestrator [M12] [RESOLVED]
 
 **File**: `coolscan-emu/src/orchestrator.rs` (missing call), `peripherals/src/wdt.rs:35`
 
@@ -144,7 +150,10 @@ The watchdog model has `tick()` but it is never called. The counter never advanc
 
 ---
 
-### I8. DcBufferLength always returns 64, ignoring actual FIFO state [M14]
+### I8. DcBufferLength always returns 64, ignoring actual FIFO state [M14] [DEFERRED]
+
+**Update 2026-04-26 (M14)**: Attempted to make DcBufferLength reflect EP1 OUT FIFO length. This broke `gate_trace_inquiry_isp1581_access` because the firmware's response manager at FW:0x013D7E reads DcBufferLength after writing EP Control to confirm the IN endpoint has buffer space — a non-zero return is required or the manager loops forever. Per-EP accuracy needs the EP-selection register modeled first. Reverted to the constant 64 with an updated comment explaining why. The actionable correctness piece (silent zero on underrun) is covered by the new `ep1_underrun` flag (C2 fix below).
+
 
 **File**: `peripherals/src/isp1581.rs:158-165`
 
@@ -168,7 +177,7 @@ Unmodeled ports/registers silently return 0 or drop writes with zero logging. Th
 
 ---
 
-### I10. SCI module defined but never integrated into bus routing [M12]
+### I10. SCI module defined but never integrated into bus routing [M12] [RESOLVED]
 
 **File**: `peripherals/src/sci.rs` (not routed in `bus.rs` or orchestrator)
 
@@ -178,7 +187,7 @@ SCI struct exists with `ssr = 0x84` (TDRE=1) but is never instantiated in `Perip
 
 ---
 
-### I11. TCP `read_exact` on non-blocking socket loses partial reads [M13]
+### I11. TCP `read_exact` on non-blocking socket loses partial reads [M13] [RESOLVED]
 
 **File**: `coolscan-emu/src/orchestrator.rs:1593-1623`
 
@@ -188,7 +197,7 @@ SCI struct exists with `ssr = 0x84` (TDRE=1) but is never instantiated in `Perip
 
 ---
 
-### I12. TCP bind failure logged but emulator continues silently [M13]
+### I12. TCP bind failure logged but emulator continues silently [M13] [RESOLVED]
 
 **File**: `coolscan-emu/src/orchestrator.rs:182-194`
 
@@ -198,7 +207,7 @@ If port 6581 is in use, the error scrolls past among many info-level boot messag
 
 ---
 
-### I13. Motor direction reads Port 3 DR (0x84) but comment says DDR (0x83) [M12]
+### I13. Motor direction reads Port 3 DR (0x84) but comment says DDR (0x83) [M12] [RESOLVED]
 
 **Files**: `coolscan-emu/src/orchestrator.rs:1338`, `peripherals/src/motor.rs:5`
 
@@ -218,7 +227,7 @@ If the decoder ever produces a `Bcc` or `Bsr` with an unexpected operand type (n
 
 ---
 
-### I15. ASIC DMA completion may double-fire Vec 49 interrupt [M12]
+### I15. ASIC DMA completion may double-fire Vec 49 interrupt [M12] [RESOLVED]
 
 **File**: `coolscan-emu/src/orchestrator.rs:1377-1441`
 
@@ -238,7 +247,7 @@ Default log level is `info`. ~100+ `log::info!` calls in the orchestrator produc
 
 ---
 
-### I17. No signal handling for graceful shutdown [M14]
+### I17. No signal handling for graceful shutdown [M14] [RESOLVED]
 
 **File**: `coolscan-emu/src/main.rs` (missing)
 
@@ -292,7 +301,7 @@ A value of 0 runs zero instructions and exits immediately, which could confuse u
 
 ---
 
-### M4. Default `max_instructions=10M` is a hard stop with no warning [M13]
+### M4. Default `max_instructions=10M` is a hard stop with no warning [M13] [RESOLVED]
 
 **File**: `coolscan-emu/src/config.rs:73`
 
@@ -482,7 +491,10 @@ Organized by milestone (see [`roadmap.md`](roadmap.md) for milestone description
 
 Items identified during NikonScan E2E compatibility analysis that aren't covered by the original audit.
 
-### N1. No USB SET_ADDRESS / GET_DESCRIPTOR handling in ISP1581 model [M14]
+### N1. No USB SET_ADDRESS / GET_DESCRIPTOR handling in ISP1581 model [M14] [INVESTIGATED]
+
+**Update 2026-04-26 (M14)**: Traced `--full-usb-init --firmware-dispatch` for 5M instructions. Firmware only touches modeled offsets (0x0C, 0x18, 0x1C, 0x20, 0x2C). Without a USB host driving enumeration the firmware's USB init code stalls at SOFTCT toggle — there are no missing registers to add for the no-host case. Future surprises will be caught by I3's warn-once mechanism. Real enumeration registers can only be characterized in M15 against NikonScan.
+
 
 **File**: `peripherals/src/isp1581.rs`
 
@@ -490,7 +502,7 @@ NikonScan (via Windows USB stack) sends standard USB control transfers during en
 
 **Action**: Trace `--full-usb-init` boot and catalog which ISP1581 registers are read/written during USB init. Add any missing registers.
 
-### N2. No USB bulk transfer chunking / short-packet handling [M14]
+### N2. No USB bulk transfer chunking / short-packet handling [M14] [RESOLVED]
 
 **File**: `peripherals/src/isp1581.rs`, `bridge/src/gadget.rs`
 
@@ -498,7 +510,7 @@ Real USB bulk transfers are chunked into max-packet-size (512B for USB 2.0). The
 
 **Action**: Test with a large INQUIRY EVPD response and verify FunctionFS handles chunking, or implement explicit max-packet-size chunking in the gadget bridge.
 
-### N3. No USB STALL / NAK handling [M14]
+### N3. No USB STALL / NAK handling [M14] [RESOLVED]
 
 **File**: `peripherals/src/isp1581.rs`
 

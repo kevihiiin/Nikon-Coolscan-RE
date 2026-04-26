@@ -18,3 +18,4 @@ peripherals = { path = "peripherals" }
 bridge = { path = "bridge" }
 log = "0.4"
 env_logger = "0.11"
+ctrlc = "3"

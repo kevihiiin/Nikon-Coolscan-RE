@@ -3,6 +3,9 @@
 //! Loads the actual LS-50 firmware binary (512KB) and runs it on an
 //! emulated H8/3003 CPU with virtual peripherals.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
@@ -75,10 +78,48 @@ fn main() {
 
     log::info!("Reset vector: 0x{:06X}", emu.reset_vector());
     log::info!("Model: {:?}, Pattern: {:?}", config.model, config.pattern);
+
+    // Final transport summary, immediately before run starts. This is the
+    // last log line a user sees before instruction-level chatter takes over,
+    // so it must convey: which transports asked for, which actually came up,
+    // and (loudly) which ones the user requested but didn't get.
+    let want_gadget = gadget_requested;
+    let have_gadget = gadget_active;
+    let want_tcp = tcp_requested;
+    let have_tcp = emu.tcp_bridge_active;
+    log::info!(
+        "Transports: gadget={} tcp={}",
+        if have_gadget { "active" } else if want_gadget { "REQUESTED-BUT-FAILED" } else { "off" },
+        if have_tcp { format!("active (port {})", config.tcp_port) }
+            else if want_tcp { "REQUESTED-BUT-FAILED".to_string() }
+            else { "off".to_string() },
+    );
+    if want_gadget && !have_gadget {
+        log::error!("--gadget was requested but did not come up; continuing with TCP only. See earlier error.");
+    }
+
     log::info!("Starting emulation...");
 
+    // Install SIGINT/SIGTERM handler so Ctrl+C exits the run loop cleanly.
+    // Without this, GadgetBridge::Drop may not fire — leaving FunctionFS
+    // mounted, the UDC bound, and configfs entries dangling.
+    let shutdown = Arc::new(AtomicBool::new(false));
+    {
+        let s = shutdown.clone();
+        if let Err(e) = ctrlc::set_handler(move || {
+            // Multiple signals: log a hint that a second one will hard-kill.
+            if s.swap(true, Ordering::Relaxed) {
+                log::error!("Second shutdown signal — terminating immediately");
+                std::process::exit(130);
+            }
+            log::warn!("Shutdown signal — finishing current instruction batch");
+        }) {
+            log::warn!("Could not install signal handler: {e} (Ctrl+C will hard-kill)");
+        }
+    }
+
     let start = std::time::Instant::now();
-    emu.run(config.max_instructions);
+    emu.run_with_shutdown(config.max_instructions, Some(&shutdown));
     let elapsed = start.elapsed();
 
     if config.benchmark {

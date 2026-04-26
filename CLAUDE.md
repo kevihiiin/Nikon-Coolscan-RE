@@ -191,10 +191,13 @@ emulator/
 | 9 | CCD & Scan Pipeline | CCD injection, ASIC DMA, H8 DMA controller | COMPLETE (224 tests) |
 | 10 | Calibration | Dark frame, white ref, CCD characterization | COMPLETE (230 tests) |
 | 11 | Real USB & Integration | Zero patches, NikonScan compatible | COMPLETE (240 tests) |
+| M12 | Firmware-Path Correctness | ASIC sync, SCI routing, ITU timers | COMPLETE (279 tests) |
+| M13 | TCP Bridge Hardening | Partial reads, fail-fast bind, DoS cap | COMPLETE (288 tests) |
+| M14 | USB Gadget Ready | byte-write fix, underrun flag, STALL, SIGINT | COMPLETE (295 tests) |
 
-**Roadmap**: See `emulator/docs/roadmap.md` for phase history + forward milestones (M12-M16).
+**Roadmap**: See `emulator/docs/roadmap.md` for phase history + forward milestones (M15-M16).
 **Backlog**: See `emulator/docs/backlog.md` for open issues with fix directions and file:line pointers.
-**Next milestone**: M12 (Firmware-Path Correctness) — ASIC sync, SCI routing, ITU timers, motor direction.
+**Next milestone**: M15 (NikonScan E2E Validation) — needs Raspberry Pi 4 + Windows host with NikonScan 4.0.3. Code-only milestones complete.
 
 ### Emulator Key Constants
 

@@ -22,7 +22,7 @@
 //!   0x60007C  Unlock (R/W) — unlock device register
 //!   0x600084  DMA Count (W) — transfer byte count
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 /// ISP1581 interrupt register bits (at offset 0x18, DcInterrupt).
 /// These are the global interrupt flags that the firmware polls.
@@ -52,6 +52,12 @@ pub const IRQ_SUSPEND: u16 = 1 << 5;
 
 /// DcInterrupt bit 8: High-speed status.
 pub const IRQ_HIGH_SPEED: u16 = 1 << 8;
+
+/// ControlFunction (0x28) bit 0: STALL the currently-selected endpoint.
+/// Per ISP1581 datasheet Table 60. Firmware writes this when it cannot
+/// service a request — host sees a STALL handshake on the next transfer
+/// to that endpoint and must clear it via CLEAR_FEATURE.
+pub const CTRL_FUNC_STALL: u16 = 1 << 0;
 
 pub struct Isp1581 {
     /// Endpoint status register at 0x08 (per-endpoint events).
@@ -101,6 +107,25 @@ pub struct Isp1581 {
     /// Whether SOFTCT has transitioned from 0→1 (device became visible on bus).
     /// Used to simulate bus reset after soft-connect.
     pub bus_reset_pending: bool,
+
+    /// Sticky flag set when firmware reads the EP Data Port with fewer than
+    /// 2 bytes in the EP1 OUT FIFO. The hardware would NAK in that case;
+    /// we still return zeros (no choice from a memory read) but expose the
+    /// state so callers can detect the bug. Cleared by `clear_ep1_underrun()`.
+    pub ep1_underrun: bool,
+
+    /// Set of (offset, "r"|"w") tuples we have already warned about for
+    /// unmodeled register access. First touch warns; subsequent touches log
+    /// at trace level. Catches firmware behavior gaps without spamming.
+    unmodeled_seen: HashSet<(u32, &'static str)>,
+
+    /// STALL state per endpoint, indexed by `ep_index` value at the time
+    /// firmware wrote the STALL bit. Real hardware stalls "the selected
+    /// endpoint", so the active selection at write time determines which
+    /// EP gets the stall. A real USB host would see a STALL handshake on
+    /// the next transfer and must issue CLEAR_FEATURE to clear it; for
+    /// emulator visibility the orchestrator can inspect this map.
+    pub ep_stalled: HashSet<u16>,
 }
 
 impl Isp1581 {
@@ -128,6 +153,9 @@ impl Isp1581 {
             unlock: 0,
             frame_number: 0,
             bus_reset_pending: false,
+            ep1_underrun: false,
+            unmodeled_seen: HashSet::new(),
+            ep_stalled: HashSet::new(),
         };
         // Set SOFTCT bit (bit 4) in Mode register to indicate USB connected.
         // Without this, firmware skips all USB processing.
@@ -157,9 +185,27 @@ impl Isp1581 {
             }
             0x1C => {
                 // DcBufferLength — number of bytes in the selected endpoint buffer.
-                // The response manager at FW:0x013D7E reads this after writing
-                // EP Control (0x2C). If 0, it returns "not ready" and the caller loops.
-                // Return 64 (max packet size for full-speed USB).
+                //
+                // The "selected endpoint" is set via EP Control (0x2C) /
+                // EndpointIndex; we do not currently track that selection, so
+                // we return a single value that satisfies both code paths the
+                // firmware actually exercises:
+                //
+                // - Response phase (IN, FW:0x013D7E): firmware writes EP
+                //   Control then reads DcBufferLength. A zero would make the
+                //   manager loop forever waiting for buffer space; any
+                //   non-zero is read as "ready to send a packet".
+                // - CDB receive (OUT): the IRQ1 path injects a fixed CDB
+                //   length and the firmware reads exactly that many words,
+                //   so DcBufferLength is not consulted on this path in
+                //   practice.
+                //
+                // Returning the max-packet-size constant 64 satisfies the
+                // response path and is the value real ISP1581 hardware would
+                // report for an empty IN buffer ready to accept data.
+                // I8 (per-EP accuracy) cannot be done correctly without
+                // modeling the EP selection, and the underrun flag (C2) is
+                // the more useful signal for the silent-corruption case.
                 64
             }
             0x1E => {
@@ -171,7 +217,12 @@ impl Isp1581 {
                 // EP Data Port: read 16-bit word from EP1 OUT FIFO (LE: low byte first)
                 let fifo_len = self.ep1_out_fifo.len();
                 if fifo_len < 2 {
-                    log::warn!("ISP1581: EP1 OUT FIFO underrun ({} bytes available, 2 needed)", fifo_len);
+                    if !self.ep1_underrun {
+                        log::warn!("ISP1581: EP1 OUT FIFO underrun ({} bytes available, 2 needed) — fabricated zeros may be misread as TUR opcode", fifo_len);
+                    } else {
+                        log::trace!("ISP1581: EP1 OUT FIFO continued underrun ({} bytes)", fifo_len);
+                    }
+                    self.ep1_underrun = true;
                 }
                 let lo = self.ep1_out_fifo.pop_front().unwrap_or(0);
                 let hi = self.ep1_out_fifo.pop_front().unwrap_or(0);
@@ -190,7 +241,11 @@ impl Isp1581 {
             0x74 => self.frame_number,
             0x7C => self.unlock,
             _ => {
-                log::trace!("ISP1581: unmodeled register read at offset 0x{:02X}", offset);
+                if self.unmodeled_seen.insert((offset, "r")) {
+                    log::warn!("ISP1581: unmodeled register read at offset 0x{:02X} (returning 0; further reads logged at trace)", offset);
+                } else {
+                    log::trace!("ISP1581: unmodeled register read at offset 0x{:02X}", offset);
+                }
                 0
             }
         }
@@ -249,12 +304,29 @@ impl Isp1581 {
                 // VENDP (bit 3): validate endpoint — signals end of data transfer.
                 // We don't need to do anything for CLBUF/VENDP in our model since
                 // FIFOs are always available.
+                //
+                // STALL (bit 0): firmware asks the controller to stall the
+                // currently-selected endpoint. Track it so the orchestrator
+                // (or a real gadget transport) can propagate the stall to
+                // the host. Writing 0 to the bit clears the stall.
+                let ep = self.ep_index;
+                if val & CTRL_FUNC_STALL != 0 {
+                    if self.ep_stalled.insert(ep) {
+                        log::warn!("ISP1581: STALL set on EP index 0x{:04X}", ep);
+                    }
+                } else if self.ep_stalled.remove(&ep) {
+                    log::info!("ISP1581: STALL cleared on EP index 0x{:04X}", ep);
+                }
             }
             0x2C => self.ep_control = val,
             0x7C => self.unlock = val,
             0x84 => self.dma_count = val,
             _ => {
-                log::trace!("ISP1581: unmodeled register write at offset 0x{:02X} = 0x{:04X}", offset, val);
+                if self.unmodeled_seen.insert((offset, "w")) {
+                    log::warn!("ISP1581: unmodeled register write at offset 0x{:02X} = 0x{:04X} (dropped; further writes logged at trace)", offset, val);
+                } else {
+                    log::trace!("ISP1581: unmodeled register write at offset 0x{:02X} = 0x{:04X}", offset, val);
+                }
             }
         }
     }
@@ -285,6 +357,8 @@ impl Isp1581 {
         self.ep_status |= IRQ_EP_EVENT;
         self.dc_interrupt |= IRQ_EP_EVENT;
         self.irq_pending = true;
+        // Fresh data clears any prior underrun condition.
+        self.ep1_underrun = false;
     }
 
     /// Read data from EP2 IN FIFO (host receives this).
@@ -344,6 +418,18 @@ impl h8300h_core::memory::MmioDevice for Isp1581 {
         // Guard: byte write on EP Data Port would read_word (popping FIFO) as side effect
         if word_offset == 0x20 {
             log::warn!("ISP1581: byte write on EP Data Port (offset 0x{:02X}) — skipping to avoid FIFO corruption", offset);
+            return;
+        }
+        // Write-back-clear registers (DcInterrupt 0x18, DcEndpointStatus 0x08):
+        // a normal read-modify-write would (a) include synthetic bits from
+        // read_word() in the merged value and (b) cause write_word's `&= !val`
+        // to clear bits in the byte the firmware wasn't writing. For these
+        // registers a byte write must only clear bits in the addressed byte;
+        // the other byte's stored bits stay untouched. Build a word that is
+        // zero in the unaddressed byte and write it directly.
+        if word_offset == 0x08 || word_offset == 0x18 {
+            let word_val = if offset & 1 == 0 { (val as u16) << 8 } else { val as u16 };
+            Isp1581::write_word(self, word_offset, word_val);
             return;
         }
         let old_word = Isp1581::read_word(self, word_offset);
@@ -464,10 +550,42 @@ mod tests {
     }
 
     #[test]
-    fn test_dc_buffer_length() {
+    fn test_dc_buffer_length_returns_max_packet_size() {
+        // DcBufferLength returns 64 (max packet size for full-speed USB).
+        // This is read by the response manager at FW:0x013D7E and must be
+        // non-zero or it loops forever. Per-EP accuracy (backlog I8) cannot
+        // be modeled without tracking which endpoint is selected.
         let mut isp = Isp1581::new();
-        // DcBufferLength at offset 0x1C should return 64 (max packet size)
         assert_eq!(isp.read_word(0x1C), 64);
+    }
+
+    #[test]
+    fn test_ep1_underrun_flag_set_on_empty_read() {
+        // C2 regression: reading the EP Data Port with an empty FIFO must
+        // surface as a sticky underrun flag rather than silently producing a
+        // zero word that firmware would parse as a TUR opcode.
+        let mut isp = Isp1581::new();
+        assert!(!isp.ep1_underrun, "underrun starts clear");
+
+        // Empty FIFO read fabricates zero AND sets underrun.
+        let val = isp.read_word(0x20);
+        assert_eq!(val, 0x0000, "empty FIFO returns 0 (no choice from a memory read)");
+        assert!(isp.ep1_underrun, "underrun flag is set");
+
+        // Fresh injection clears the flag.
+        isp.host_send_ep1(&[0xAA, 0xBB]);
+        assert!(!isp.ep1_underrun, "underrun cleared by fresh data");
+    }
+
+    #[test]
+    fn test_ep1_underrun_flag_set_on_partial_read() {
+        // FIFO with 1 byte → reading a 16-bit word still underruns.
+        let mut isp = Isp1581::new();
+        isp.host_send_ep1(&[0xAA]); // 1 byte only
+        let val = isp.read_word(0x20);
+        assert_eq!(val & 0x00FF, 0xAA, "available byte is returned");
+        assert_eq!(val & 0xFF00, 0x0000, "missing byte fabricated as 0");
+        assert!(isp.ep1_underrun, "partial-word read sets underrun");
     }
 
     #[test]
@@ -552,5 +670,119 @@ mod tests {
 
         assert_eq!(isp.ep_status, 0);
         assert!(!isp.irq_pending);
+    }
+
+    #[test]
+    fn test_stall_set_and_cleared_per_ep() {
+        // N3: firmware writes STALL to ControlFunction (0x28) bit 0 with
+        // EP selected via ep_index (0x1C). Track per-EP so the orchestrator
+        // can propagate stall to a real USB host.
+        let mut isp = Isp1581::new();
+        assert!(isp.ep_stalled.is_empty());
+
+        // Select EP1 OUT, set STALL.
+        isp.write_word(0x1C, 0x0001);
+        isp.write_word(0x28, CTRL_FUNC_STALL);
+        assert!(isp.ep_stalled.contains(&0x0001), "EP1 stalled");
+
+        // Select EP2 IN, set STALL — both stalls coexist.
+        isp.write_word(0x1C, 0x0082);
+        isp.write_word(0x28, CTRL_FUNC_STALL);
+        assert!(isp.ep_stalled.contains(&0x0082), "EP2 stalled");
+        assert!(isp.ep_stalled.contains(&0x0001), "EP1 stall persists");
+
+        // Clear STALL on EP2 IN by writing 0 to ControlFunction with EP2 selected.
+        isp.write_word(0x28, 0);
+        assert!(!isp.ep_stalled.contains(&0x0082), "EP2 stall cleared");
+        assert!(isp.ep_stalled.contains(&0x0001), "EP1 still stalled");
+    }
+
+    #[test]
+    fn test_unmodeled_register_warns_once_then_traces() {
+        // I3 regression: unmodeled offsets must surface at warn level on
+        // first touch so silent firmware behavior gaps are visible.
+        // Subsequent touches at trace level prevent log spam in tight loops.
+        let mut isp = Isp1581::new();
+        // Pick offsets that aren't in the modeled set.
+        let unmodeled_offset = 0x40;
+        assert!(!isp.unmodeled_seen.contains(&(unmodeled_offset, "r")));
+        let _ = isp.read_word(unmodeled_offset);
+        assert!(isp.unmodeled_seen.contains(&(unmodeled_offset, "r")));
+        // Repeated reads do not re-insert (set semantics) and log at trace.
+        let _ = isp.read_word(unmodeled_offset);
+        assert_eq!(isp.unmodeled_seen.len(), 1);
+
+        // Writes track separately from reads.
+        isp.write_word(unmodeled_offset, 0xDEAD);
+        assert!(isp.unmodeled_seen.contains(&(unmodeled_offset, "w")));
+        assert_eq!(isp.unmodeled_seen.len(), 2, "read and write tracked separately");
+    }
+
+    #[test]
+    fn test_byte_write_to_dc_interrupt_does_not_clear_other_byte() {
+        // Regression for I2: a byte write to one half of DcInterrupt must
+        // not clear bits in the other half. Previously the read-modify-write
+        // path would (a) include the synthetic IRQ_EP_TX_READY bit and (b)
+        // do `dc_interrupt &= !merged_value`, clearing bits the firmware
+        // never wrote.
+        use h8300h_core::memory::MmioDevice;
+
+        let mut isp = Isp1581::new();
+        // Set IRQ_EP_EVENT (bit 3) — sits in the low byte.
+        isp.dc_interrupt = IRQ_EP_EVENT;
+
+        // Byte-write 0x00 to the high byte of DcInterrupt. Intent: clear
+        // nothing in the high byte (and definitely don't touch the low byte).
+        MmioDevice::write_byte(&mut isp, 0x18, 0x00);
+
+        assert_eq!(
+            isp.dc_interrupt & IRQ_EP_EVENT,
+            IRQ_EP_EVENT,
+            "low-byte bits must survive a high-byte write of 0",
+        );
+    }
+
+    #[test]
+    fn test_byte_write_to_dc_interrupt_clears_addressed_byte_only() {
+        // Byte write of 0x08 to the low byte clears only IRQ_EP_EVENT.
+        // Bits in the high byte stay put.
+        use h8300h_core::memory::MmioDevice;
+
+        let mut isp = Isp1581::new();
+        // Plant a bit in each byte. IRQ_BUS_RESET (bit 6) is low byte;
+        // IRQ_HIGH_SPEED (bit 8) is the lowest bit of the high byte.
+        isp.dc_interrupt = IRQ_BUS_RESET | IRQ_HIGH_SPEED | IRQ_EP_EVENT;
+
+        // Low-byte byte address is 0x19 (high byte is 0x18 since H8 is BE).
+        MmioDevice::write_byte(&mut isp, 0x19, IRQ_EP_EVENT as u8);
+
+        assert_eq!(isp.dc_interrupt & IRQ_EP_EVENT, 0, "addressed bit cleared");
+        assert_eq!(
+            isp.dc_interrupt & IRQ_BUS_RESET,
+            IRQ_BUS_RESET,
+            "other low-byte bits unchanged",
+        );
+        assert_eq!(
+            isp.dc_interrupt & IRQ_HIGH_SPEED,
+            IRQ_HIGH_SPEED,
+            "high-byte bits untouched by low-byte write",
+        );
+    }
+
+    #[test]
+    fn test_byte_write_to_ep_status_isolates_bytes() {
+        // Same regression for the other write-back-clear register (0x08).
+        use h8300h_core::memory::MmioDevice;
+
+        let mut isp = Isp1581::new();
+        isp.ep_status = 0x0108; // bit 8 in high byte, bit 3 (IRQ_EP_EVENT) in low byte
+
+        // Write 0 to high byte → high-byte bit must persist.
+        MmioDevice::write_byte(&mut isp, 0x08, 0x00);
+        assert_eq!(isp.ep_status, 0x0108, "byte write of 0 must be a no-op");
+
+        // Now clear just the low byte's IRQ_EP_EVENT.
+        MmioDevice::write_byte(&mut isp, 0x09, IRQ_EP_EVENT as u8);
+        assert_eq!(isp.ep_status, 0x0100, "high-byte bit survives, low-byte bit cleared");
     }
 }

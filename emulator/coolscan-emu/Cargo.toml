@@ -11,3 +11,4 @@ peripherals.workspace = true
 bridge.workspace = true
 log.workspace = true
 env_logger.workspace = true
+ctrlc.workspace = true
