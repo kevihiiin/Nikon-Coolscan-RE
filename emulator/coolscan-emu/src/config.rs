@@ -70,7 +70,11 @@ impl Config {
         let mut firmware_path: Option<PathBuf> = None;
         let mut adapter = AdapterType::SaMount;
         let mut trace = false;
-        let mut max_instructions = 10_000_000;
+        // Default to unlimited. Real NikonScan sessions run tens of millions
+        // of instructions — the old 10M cap silently cut them short. Pass
+        // `--max N` to bound a run (e.g., benchmarks, CI); `--max 0` is
+        // explicit for "run forever".
+        let mut max_instructions: u64 = u64::MAX;
         let mut tcp_port = 6581;
         let mut watchdog = false;
         let mut gadget = false;
@@ -114,11 +118,12 @@ impl Config {
                     i += 1;
                 }
                 "--max" if i + 1 < args.len() => {
-                    max_instructions = match args[i + 1].parse() {
+                    max_instructions = match args[i + 1].parse::<u64>() {
+                        Ok(0) => u64::MAX, // explicit "unlimited"
                         Ok(v) => v,
                         Err(_) => {
-                            eprintln!("Warning: invalid --max value '{}', using 10000000", args[i + 1]);
-                            10_000_000
+                            eprintln!("Warning: invalid --max value '{}', using unlimited", args[i + 1]);
+                            u64::MAX
                         }
                     };
                     i += 2;
@@ -207,7 +212,8 @@ fn print_usage() {
     eprintln!("  --adapter <TYPE>     Simulated film adapter [default: mount]");
     eprintln!("                       Values: none, mount/sa21, strip/sf210, aps/ia20, feeder/sa30, test");
     eprintln!("  --port <PORT>        TCP bridge port [default: 6581]");
-    eprintln!("  --max <N>            Max instructions to execute [default: 10000000]");
+    eprintln!("  --max <N>            Max instructions to execute [default: unlimited]");
+    eprintln!("                       Pass 0 for explicit unlimited; positive N caps the run.");
     eprintln!("  --trace              Enable instruction-level tracing");
     eprintln!("  --watchdog           Enable watchdog timer");
     eprintln!("  --gadget             Enable Linux USB gadget bridge (requires root)");

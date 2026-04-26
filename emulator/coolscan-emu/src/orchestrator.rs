@@ -86,6 +86,18 @@ pub struct Emulator {
     tcp_listener: Option<TcpListener>,
     /// Connected TCP client stream.
     tcp_client: Option<std::net::TcpStream>,
+    /// True if `--port` was requested and the listener bound successfully.
+    /// Callers (main.rs) use this to fail-fast when TCP is required but bind
+    /// failed (e.g., port already in use). Without this signal, a startup
+    /// error would be buried in boot logs and the emulator would appear to
+    /// start normally with a non-functional bridge.
+    pub tcp_bridge_active: bool,
+    /// Accumulator for partial TCP reads. Non-blocking `read()` can return
+    /// fewer bytes than a full frame header + payload; we buffer partials
+    /// until a complete frame is available, then drain it for processing.
+    /// Fixes the silent data-loss bug where `read_exact` on a non-blocking
+    /// socket discarded already-read bytes when the remainder wasn't ready.
+    tcp_read_buffer: Vec<u8>,
     /// Pending data-out CDB: stored when a data-out command arrives before its data.
     /// When data-out arrives, the command is processed immediately.
     pending_dataout_opcode: Option<u8>,
@@ -116,6 +128,37 @@ pub struct Emulator {
     emulated_scsi: bool,
     /// USB gadget bridge (connects ISP1581 to real USB host).
     gadget: Option<Box<dyn UsbBridge>>,
+}
+
+/// Extract complete TCP bridge frames from an accumulator buffer.
+///
+/// Frame wire format: `[len_hi, len_lo, msg_type, payload...]` where `len`
+/// is big-endian payload length. Fully-parsed bytes are drained from `buf`;
+/// a trailing partial frame stays put for the next call. Returns Err on an
+/// oversized payload claim — the caller should disconnect and clear.
+fn extract_tcp_frames(buf: &mut Vec<u8>) -> Result<Vec<(u8, Vec<u8>)>, String> {
+    const MAX_PAYLOAD: usize = 65536;
+    let mut frames = Vec::new();
+    let mut pos = 0usize;
+    while buf.len() - pos >= 3 {
+        let len_hi = buf[pos];
+        let len_lo = buf[pos + 1];
+        let msg_type = buf[pos + 2];
+        let payload_len = ((len_hi as usize) << 8) | len_lo as usize;
+        if payload_len > MAX_PAYLOAD {
+            return Err(format!("payload length {} exceeds max ({})", payload_len, MAX_PAYLOAD));
+        }
+        if buf.len() - pos < 3 + payload_len {
+            break; // Incomplete frame — wait for more bytes
+        }
+        let payload = buf[pos + 3..pos + 3 + payload_len].to_vec();
+        frames.push((msg_type, payload));
+        pos += 3 + payload_len;
+    }
+    if pos > 0 {
+        buf.drain(0..pos);
+    }
+    Ok(frames)
 }
 
 impl Emulator {
@@ -211,8 +254,10 @@ impl Emulator {
             last_ctx_b_sp: 0,
             ctx_switch_count: 0,
             milestones_seen: std::collections::HashSet::new(),
+            tcp_bridge_active: tcp_listener.is_some(),
             tcp_listener,
             tcp_client: None,
+            tcp_read_buffer: Vec::new(),
             pending_dataout_opcode: None,
             reserved: false,
             scan_active: false,
@@ -1643,6 +1688,8 @@ impl Emulator {
             } else {
                 log::info!("TCP client connected from {}", addr);
                 self.tcp_client = Some(stream);
+                // Fresh connection — discard any residue from the previous client.
+                self.tcp_read_buffer.clear();
             }
         }
 
@@ -1654,29 +1701,24 @@ impl Emulator {
         let mut disconnect = false;
         if let Some(ref mut stream) = self.tcp_client {
             use std::io::Read;
+            // Drain whatever bytes are available into the per-connection
+            // read buffer. Non-blocking read() can return partial data at
+            // any point — we must not lose the bytes we did receive, so the
+            // accumulated buffer is parsed for complete frames afterward.
+            let mut tmp = [0u8; 4096];
             loop {
-                let mut header = [0u8; 3]; // [len_hi, len_lo, type]
-                match stream.read_exact(&mut header) {
-                    Ok(()) => {
-                        let payload_len = ((header[0] as usize) << 8) | header[1] as usize;
-                        let msg_type = header[2];
-                        if payload_len > 65536 {
-                            log::error!("TCP: payload length {} exceeds max (65536). Disconnecting.", payload_len);
-                            disconnect = true;
-                            break;
-                        }
-                        let mut payload = vec![0u8; payload_len];
-                        if payload_len > 0
-                            && let Err(e) = stream.read_exact(&mut payload)
-                        {
-                            log::warn!("TCP read payload error: {}. Disconnecting.", e);
-                            disconnect = true;
-                            break;
-                        }
-                        frames.push((msg_type, payload));
+                match stream.read(&mut tmp) {
+                    Ok(0) => {
+                        // Peer closed cleanly
+                        log::info!("TCP client disconnected (EOF)");
+                        disconnect = true;
+                        break;
+                    }
+                    Ok(n) => {
+                        self.tcp_read_buffer.extend_from_slice(&tmp[..n]);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        break; // No more data — done reading
+                        break; // No more data right now
                     }
                     Err(e) => {
                         log::info!("TCP client disconnected: {}", e);
@@ -1686,8 +1728,18 @@ impl Emulator {
                 }
             }
         }
+        // Parse complete frames out of the accumulator. Any trailing bytes
+        // that don't form a full header+payload stay buffered for next poll.
+        match extract_tcp_frames(&mut self.tcp_read_buffer) {
+            Ok(new_frames) => frames.extend(new_frames),
+            Err(e) => {
+                log::error!("TCP: {}. Disconnecting.", e);
+                disconnect = true;
+            }
+        }
         if disconnect {
             self.tcp_client = None;
+            self.tcp_read_buffer.clear();
         }
         for (msg_type, payload) in frames {
             self.handle_tcp_message(msg_type, &payload);
@@ -2404,5 +2456,93 @@ impl Emulator {
         self.sync_peripherals();
         self.check_peripherals();
         true
+    }
+}
+
+#[cfg(test)]
+mod tcp_frame_tests {
+    use super::extract_tcp_frames;
+
+    #[test]
+    fn test_extract_single_complete_frame() {
+        let mut buf = vec![0x00, 0x02, 0x01, 0xAA, 0xBB];
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert_eq!(frames, vec![(0x01, vec![0xAA, 0xBB])]);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_extract_two_frames_in_one_buffer() {
+        let mut buf = vec![
+            0x00, 0x01, 0x01, 0xAA,             // frame 1: type 0x01, payload [0xAA]
+            0x00, 0x02, 0x05, 0x11, 0x22,       // frame 2: type 0x05, payload [0x11, 0x22]
+        ];
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert_eq!(frames, vec![(0x01, vec![0xAA]), (0x05, vec![0x11, 0x22])]);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_partial_header_stays_buffered() {
+        // Only 2 of the 3 header bytes have arrived — must not parse.
+        let mut buf = vec![0x00, 0x01];
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert!(frames.is_empty());
+        assert_eq!(buf, vec![0x00, 0x01], "partial header preserved");
+    }
+
+    #[test]
+    fn test_partial_payload_stays_buffered() {
+        // Header says 4 bytes of payload but only 2 bytes arrived.
+        let mut buf = vec![0x00, 0x04, 0x01, 0xAA, 0xBB];
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert!(frames.is_empty());
+        assert_eq!(buf, vec![0x00, 0x04, 0x01, 0xAA, 0xBB], "partial payload preserved");
+    }
+
+    #[test]
+    fn test_complete_frame_plus_trailing_partial() {
+        // One complete frame followed by half of a second frame's header.
+        let mut buf = vec![0x00, 0x01, 0x01, 0xAA, 0x00];
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert_eq!(frames, vec![(0x01, vec![0xAA])]);
+        assert_eq!(buf, vec![0x00], "trailing partial header preserved");
+    }
+
+    #[test]
+    fn test_split_header_reassembly() {
+        // Simulates TCP delivering bytes one at a time. Nothing parses
+        // until the full frame arrives; then it comes out cleanly.
+        let mut buf: Vec<u8> = Vec::new();
+        for byte in [0x00u8, 0x02, 0x01] {
+            buf.push(byte);
+            let frames = extract_tcp_frames(&mut buf).unwrap();
+            assert!(frames.is_empty(), "header not yet complete after byte 0x{:02X}", byte);
+        }
+        buf.push(0xAA);
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert!(frames.is_empty(), "payload still short after one byte");
+        buf.push(0xBB);
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert_eq!(frames, vec![(0x01, vec![0xAA, 0xBB])]);
+    }
+
+    #[test]
+    fn test_zero_length_payload() {
+        let mut buf = vec![0x00, 0x00, 0x02];
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert_eq!(frames, vec![(0x02, vec![])]);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_oversized_payload_errors() {
+        let mut buf = vec![0xFF, 0xFF, 0x01]; // claims 65535 bytes — at max
+        let frames = extract_tcp_frames(&mut buf).unwrap();
+        assert!(frames.is_empty(), "at-max payload is waiting for bytes, not rejected");
+
+        let mut buf = vec![0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00]; // 65535, then junk
+        // 65535 is under the 65536 ceiling, so no error — still waiting for bytes.
+        assert!(extract_tcp_frames(&mut buf).unwrap().is_empty());
     }
 }

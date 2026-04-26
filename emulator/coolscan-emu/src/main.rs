@@ -30,7 +30,19 @@ fn main() {
     };
 
     let gadget_requested = config.gadget;
+    let tcp_requested = config.tcp_port > 0;
     let mut emu = coolscan_emu::orchestrator::Emulator::new(&firmware, &config);
+
+    // If TCP was requested but bind failed (e.g., port already in use), fail
+    // fast so the user notices. Without this, the error scrolls past in boot
+    // logs and the emulator appears to start with a silently-dead bridge.
+    // Gadget-only runs don't care about TCP, so only enforce when TCP is the
+    // primary transport.
+    if tcp_requested && !emu.tcp_bridge_active && !gadget_requested {
+        log::error!("TCP bridge failed to bind port {} — no transport available", config.tcp_port);
+        log::error!("  Either free the port, pass --port <N> with a different port, or use --gadget");
+        std::process::exit(1);
+    }
 
     // Set up USB gadget bridge if requested — wired into emulator's run loop
     if gadget_requested {
