@@ -27,7 +27,10 @@
 //! - Mutex critical sections are tiny (deque push/drain), so contention
 //!   stays negligible at the protocol's traffic profile.
 
-use crate::nikon_ids::{BCD_DEVICE, MANUFACTURER, PRODUCT, PRODUCT_ID, SERIAL, VENDOR_ID};
+use crate::nikon_ids::{
+    BCD_DEVICE, BULK_HS_MAX_PACKET, EP1_OUT_ADDR, EP2_IN_ADDR, MANUFACTURER, PRODUCT,
+    PRODUCT_ID, SERIAL, VENDOR_ID,
+};
 use crate::traits::UsbBridge;
 use std::any::Any;
 use std::collections::VecDeque;
@@ -38,24 +41,34 @@ use usbip::{
     UsbInterfaceHandler, UsbIpServer, UsbSpeed,
 };
 
-/// Soft cap on bytes buffered in either direction. Beyond this we log a
-/// warning and drop the over-cap write — protects against a stuck client
-/// holding the emulator's memory.
+/// Soft cap on bytes buffered in either direction. Beyond this the
+/// bridge trips its `fatal_error` flag and drops the host link — silent
+/// dropping mid-stream would corrupt the bulk transfer the host has
+/// already counted as in-flight.
 const MAX_FIFO_BYTES: usize = 4 * 1024 * 1024;
-
-/// Endpoint addresses must match the firmware-defined USB descriptor:
-/// EP1 OUT (host → device, bulk), EP2 IN (device → host, bulk).
-/// See `docs/kb/components/firmware/usb-descriptors.md`.
-const EP1_OUT_ADDR: u8 = 0x01;
-const EP2_IN_ADDR: u8 = 0x82;
-
-/// Bulk endpoint max-packet-size negotiated with the host. 512 is the
-/// USB 2.0 high-speed value the LS-50 firmware advertises.
-const BULK_MAX_PACKET: u16 = 512;
 
 /// USB/IP `bus_id` we expose. The Windows client picks devices by this
 /// string; "1-1" is the conventional first-bus-first-port identifier.
 const USBIP_BUS_ID: &str = "1-1";
+
+/// Flash patches that the orchestrator must restore once the firmware
+/// reaches main loop, when the USB/IP bridge is in use.
+///
+/// The M14 NOP patch set assumed dispatch-level data transfer is always
+/// sufficient. INQUIRY breaks that: its handler builds the 36-byte
+/// device descriptor in a separate buffer and ships it via its own
+/// response-manager + data-transfer calls (not the dispatcher's). Without
+/// these restorations INQUIRY would return sense data instead.
+///
+/// The list lives here (with the bridge that needs it) rather than on
+/// `Emulator` so adding a future bridge that needs different patches
+/// doesn't force a change in the orchestrator. Each entry is
+/// `(flash_address, original_4_bytes)` matching `restore_flash_patch`'s
+/// signature.
+pub const POST_BOOT_FLASH_RESTORES: &[(u32, u32)] = &[
+    (0x026042, 0x5E01374A), // INQUIRY response manager call
+    (0x02604A, 0x5E014090), // INQUIRY data transfer call
+];
 
 /// Shared state between the tokio handler thread and the orchestrator's
 /// polling thread.
@@ -200,13 +213,13 @@ impl UsbipServerBridge {
             UsbEndpoint {
                 address: EP1_OUT_ADDR,
                 attributes: EndpointAttributes::Bulk as u8,
-                max_packet_size: BULK_MAX_PACKET,
+                max_packet_size: BULK_HS_MAX_PACKET,
                 interval: 0,
             },
             UsbEndpoint {
                 address: EP2_IN_ADDR,
                 attributes: EndpointAttributes::Bulk as u8,
-                max_packet_size: BULK_MAX_PACKET,
+                max_packet_size: BULK_HS_MAX_PACKET,
                 interval: 0,
             },
         ];
@@ -392,7 +405,7 @@ mod tests {
         let ep = UsbEndpoint {
             address: EP1_OUT_ADDR,
             attributes: EndpointAttributes::Bulk as u8,
-            max_packet_size: BULK_MAX_PACKET,
+            max_packet_size: BULK_HS_MAX_PACKET,
             interval: 0,
         };
 
@@ -434,7 +447,7 @@ mod tests {
             let ep = UsbEndpoint {
                 address: ep_addr,
                 attributes: EndpointAttributes::Bulk as u8,
-                max_packet_size: BULK_MAX_PACKET,
+                max_packet_size: BULK_HS_MAX_PACKET,
                 interval: 0,
             };
             let r = handler.handle_urb(&interface, ep, 64, SetupPacket::default(), &[]);
@@ -464,7 +477,7 @@ mod tests {
         let ep = UsbEndpoint {
             address: EP1_OUT_ADDR,
             attributes: EndpointAttributes::Bulk as u8,
-            max_packet_size: BULK_MAX_PACKET,
+            max_packet_size: BULK_HS_MAX_PACKET,
             interval: 0,
         };
         let setup = SetupPacket::default();
@@ -500,7 +513,7 @@ mod tests {
         let ep = UsbEndpoint {
             address: EP2_IN_ADDR,
             attributes: EndpointAttributes::Bulk as u8,
-            max_packet_size: BULK_MAX_PACKET,
+            max_packet_size: BULK_HS_MAX_PACKET,
             interval: 0,
         };
         let setup = SetupPacket::default();
@@ -529,7 +542,7 @@ mod tests {
         let ep = UsbEndpoint {
             address: EP2_IN_ADDR,
             attributes: EndpointAttributes::Bulk as u8,
-            max_packet_size: BULK_MAX_PACKET,
+            max_packet_size: BULK_HS_MAX_PACKET,
             interval: 0,
         };
         let out = handler

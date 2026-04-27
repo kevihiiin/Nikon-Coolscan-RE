@@ -4,7 +4,6 @@
 //! file stays small and focused on the assertions; the noisy subprocess
 //! lifecycle / port-picking / timeout management is here.
 
-use std::io::Write;
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -72,48 +71,23 @@ impl Drop for EmuHandle {
         let Some(mut child) = self.child.take() else {
             return;
         };
-        // Best-effort SIGTERM. On Unix this is `kill(pid, SIGTERM)`; on
-        // Windows `Child::kill` sends an unconditional terminate. We
-        // tolerate both because tests just need cleanup, not graceful
-        // protocol shutdown (the bridge's own Drop handles that).
-        unsafe {
-            // SAFETY: we own the child handle exclusively; libc::kill is
-            // safe for any pid we own. Use libc only when available; on
-            // Windows fall through to Child::kill.
-            #[cfg(unix)]
-            libc_kill(child.id() as i32, 15 /* SIGTERM */);
-        }
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => return,
-                Ok(None) => {
-                    if Instant::now() >= deadline {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        let _ = std::io::stderr()
-                            .write_all(b"EmuHandle: child did not exit on SIGTERM, sent SIGKILL\n");
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                Err(_) => {
-                    let _ = child.kill();
-                    return;
-                }
-            }
-        }
+        // The smoke test does not depend on graceful shutdown — the
+        // emulator's own Drop chain (bridge runtime, ctrlc-based shutdown
+        // path) handles the protocol-level wind-down. We only need to
+        // make sure the subprocess is reaped so the parent doesn't leave
+        // a zombie when the test exits.
+        //
+        // `Child::kill` sends SIGKILL on Unix and an unconditional
+        // terminate on Windows; we then wait to reap. Both calls
+        // discard errors because (a) the child may have already exited
+        // (ESRCH from kill, ECHILD from wait — both fine) and (b) test
+        // teardown should never panic just because a subprocess raced
+        // us to exit. If you need the SIGTERM/SIGKILL escalation back
+        // (e.g. to give the emulator a chance to flush logs) it lives
+        // in `git log -p -- test_harness.rs` from before this commit.
+        let _ = child.kill();
+        let _ = child.wait();
     }
-}
-
-/// Tiny libc::kill wrapper so we don't add a libc dep just for SIGTERM.
-/// Reaches the syscall directly via the always-present libc.so.
-#[cfg(unix)]
-unsafe fn libc_kill(pid: i32, sig: i32) {
-    unsafe extern "C" {
-        fn kill(pid: i32, sig: i32) -> i32;
-    }
-    unsafe { let _ = kill(pid, sig); }
 }
 
 #[cfg(test)]

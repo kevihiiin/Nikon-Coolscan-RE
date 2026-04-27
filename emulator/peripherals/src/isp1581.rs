@@ -241,12 +241,32 @@ impl Isp1581 {
             0x74 => self.frame_number,
             0x7C => self.unlock,
             _ => {
-                if self.unmodeled_seen.insert((offset, "r")) {
-                    log::warn!("ISP1581: unmodeled register read at offset 0x{:02X} (returning 0; further reads logged at trace)", offset);
-                } else {
-                    log::trace!("ISP1581: unmodeled register read at offset 0x{:02X}", offset);
-                }
+                self.log_unmodeled(offset, "r", None);
                 0
+            }
+        }
+    }
+
+    /// Warn-once-then-trace logging for unmodeled register access. Tracks
+    /// a `(offset, direction)` set so each new occurrence surfaces at
+    /// warn level (visible at the default log level) but tight loops
+    /// don't spam.
+    fn log_unmodeled(&mut self, offset: u32, dir: &'static str, val: Option<u16>) {
+        let first = self.unmodeled_seen.insert((offset, dir));
+        let action = if dir == "r" { "read" } else { "write" };
+        if first {
+            match val {
+                Some(v) => log::warn!(
+                    "ISP1581: unmodeled register {action} at offset 0x{offset:02X} = 0x{v:04X} (dropped; further logged at trace)"
+                ),
+                None => log::warn!(
+                    "ISP1581: unmodeled register {action} at offset 0x{offset:02X} (returning 0; further logged at trace)"
+                ),
+            }
+        } else {
+            match val {
+                Some(v) => log::trace!("ISP1581: unmodeled register {action} at offset 0x{offset:02X} = 0x{v:04X}"),
+                None => log::trace!("ISP1581: unmodeled register {action} at offset 0x{offset:02X}"),
             }
         }
     }
@@ -321,13 +341,7 @@ impl Isp1581 {
             0x2C => self.ep_control = val,
             0x7C => self.unlock = val,
             0x84 => self.dma_count = val,
-            _ => {
-                if self.unmodeled_seen.insert((offset, "w")) {
-                    log::warn!("ISP1581: unmodeled register write at offset 0x{:02X} = 0x{:04X} (dropped; further writes logged at trace)", offset, val);
-                } else {
-                    log::trace!("ISP1581: unmodeled register write at offset 0x{:02X} = 0x{:04X}", offset, val);
-                }
-            }
+            _ => self.log_unmodeled(offset, "w", Some(val)),
         }
     }
 

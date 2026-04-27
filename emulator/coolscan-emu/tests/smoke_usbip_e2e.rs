@@ -17,8 +17,25 @@
 
 use hil::client::Client;
 use hil::test_harness::{EmuHandle, pick_free_port, wait_for_port};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+/// Walk up from this crate's manifest directory looking for the
+/// firmware binary. Returns the first match. Tolerates the crate being
+/// at any depth under a workspace that has a top-level `binaries/`.
+fn find_firmware() -> Option<PathBuf> {
+    const RELATIVE: &str = "binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin";
+    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    loop {
+        let candidate = dir.join(RELATIVE);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
 
 const NIKON_VID: u16 = 0x04B0;
 const LS50_PID: u16 = 0x4001;
@@ -29,16 +46,13 @@ fn smoke_inquiry_via_usbip() {
     let port = pick_free_port();
     let emu_path = env!("CARGO_BIN_EXE_coolscan-emu");
 
-    // Resolve the firmware path. Cargo doesn't set CARGO_MANIFEST_DIR
-    // for tests of the binary's own crate to a sane relative root, so
-    // we anchor on the binary location and walk up to the workspace.
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let firmware_path = std::path::PathBuf::from(manifest_dir)
-        .join("../../binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin");
-    assert!(
-        firmware_path.exists(),
-        "firmware binary not found at {firmware_path:?}",
-    );
+    // Walk up from CARGO_MANIFEST_DIR looking for a `binaries/` sibling.
+    // Robust to workspace restructure: as long as the binary firmware
+    // lives somewhere under a `binaries/firmware/` directory above the
+    // crate, we'll find it. Hard-coding `../../binaries/...` would
+    // silently break the day someone moves the workspace root.
+    let firmware_path = find_firmware()
+        .expect("could not find binaries/firmware/Nikon LS-50 ... binary above CARGO_MANIFEST_DIR");
     let firmware_path_str = firmware_path
         .to_str()
         .expect("firmware path must be valid UTF-8");
@@ -117,32 +131,32 @@ fn smoke_inquiry_via_usbip() {
         .bulk_in(0x82, 36, Duration::from_secs(10))
         .expect("EP2 IN bulk submit");
 
-    assert!(
-        response.len() >= 36,
-        "short INQUIRY response: got {} bytes, want ≥36; data={:02X?}",
-        response.len(),
-        response,
-    );
+    // Known-good INQUIRY fixture — the exact 36 bytes the firmware's
+    // INQUIRY handler produces from its template at flash offset 0x170CE.
+    // Cross-checked against M14's `gate_trace_inquiry_isp1581_access`
+    // test which compares firmware-dispatch output against Rust-emulation
+    // output byte-for-byte. Asserting the full string here (not a lossy
+    // `starts_with` substring) catches single-byte regressions anywhere
+    // in the response — including past position 5 which `starts_with`
+    // would silently allow.
+    //
+    //   06 80 02 02 1F 00 00 00      header (scanner, removable, ANSI 2)
+    //   "Nikon   "                   vendor (8 bytes, space-padded)
+    //   "LS-50 ED        "           product (16 bytes, space-padded)
+    //   "1.02"                       revision (4 bytes)
+    const EXPECTED_INQUIRY: [u8; 36] = [
+        0x06, 0x80, 0x02, 0x02, 0x1F, 0x00, 0x00, 0x00,
+        b'N', b'i', b'k', b'o', b'n', b' ', b' ', b' ',
+        b'L', b'S', b'-', b'5', b'0', b' ', b'E', b'D',
+        b' ', b' ', b' ', b' ', b' ', b' ', b' ', b' ',
+        b'1', b'.', b'0', b'2',
+    ];
 
-    // INQUIRY response layout: bytes 0..8 are header (peripheral type,
-    // EVPD bit, response data format, etc.); bytes 8..16 vendor;
-    // 16..32 product; 32..36 revision.
-    let vendor = String::from_utf8_lossy(&response[8..16]);
-    let product = String::from_utf8_lossy(&response[16..32]);
-    let revision = String::from_utf8_lossy(&response[32..36]);
+    eprintln!("INQUIRY response ({} bytes): {:02X?}", response.len(), response);
 
-    eprintln!("INQUIRY response (raw {} bytes):", response.len());
-    eprintln!("  hex:      {:02X?}", response);
-    eprintln!("  vendor   = {:?}", vendor.trim());
-    eprintln!("  product  = {:?}", product.trim());
-    eprintln!("  revision = {:?}", revision.trim());
-
-    assert!(
-        vendor.starts_with("Nikon"),
-        "expected vendor to start with \"Nikon\", got {vendor:?}",
-    );
-    assert!(
-        product.starts_with("LS-50"),
-        "expected product to start with \"LS-50\", got {product:?}",
+    assert_eq!(
+        response.as_slice(),
+        EXPECTED_INQUIRY.as_slice(),
+        "INQUIRY response did not match the known-good fixture byte-for-byte",
     );
 }

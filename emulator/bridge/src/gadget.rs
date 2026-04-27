@@ -10,7 +10,10 @@
 //!   EP1 OUT (bulk) — host sends CDB / data-out
 //!   EP2 IN  (bulk) — device sends phase / data-in / sense
 
-use crate::nikon_ids::{BCD_DEVICE, MANUFACTURER, PRODUCT, PRODUCT_ID, SERIAL, VENDOR_ID};
+use crate::nikon_ids::{
+    BCD_DEVICE, BULK_FS_MAX_PACKET, BULK_HS_MAX_PACKET, EP1_OUT_ADDR, EP2_IN_ADDR,
+    MANUFACTURER, PRODUCT, PRODUCT_ID, SERIAL, VENDOR_ID,
+};
 use crate::traits::UsbBridge;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -23,13 +26,10 @@ const FUNCTIONFS_STRINGS_MAGIC: u32 = 2;
 const FUNCTIONFS_HAS_FS_DESC: u32 = 1;
 const FUNCTIONFS_HAS_HS_DESC: u32 = 2;
 
-/// USB 2.0 bulk endpoint max-packet-size (high-speed). FunctionFS will split
-/// any larger write into this many bytes per USB packet; the last packet is
-/// short, which terminates the bulk transfer. If a write is a non-zero
-/// multiple of this size we send a zero-length packet to mark end-of-data,
-/// otherwise the host may wait for more data on transfers that happen to
-/// land on a boundary.
-const HS_BULK_MAX_PACKET: usize = 512;
+/// `bridge::nikon_ids::BULK_HS_MAX_PACKET` is `u16` because the USB
+/// descriptor field is 16-bit. We use it as a `usize` here for slice
+/// arithmetic; the cast is a constant fold.
+const HS_BULK_MAX_PACKET: usize = BULK_HS_MAX_PACKET as usize;
 
 /// USB gadget bridge state.
 pub struct GadgetBridge {
@@ -312,51 +312,33 @@ fn build_ffs_descriptors() -> Vec<u8> {
     // High-speed descriptor count
     buf.extend_from_slice(&3u32.to_le_bytes());
 
-    // --- Full-speed descriptors ---
-    // Interface descriptor
-    buf.extend_from_slice(&[
-        9,    // bLength
-        4,    // bDescriptorType = INTERFACE
-        0,    // bInterfaceNumber
-        0,    // bAlternateSetting
-        2,    // bNumEndpoints
-        0xFF, // bInterfaceClass = vendor-specific
-        0xFF, // bInterfaceSubClass
-        0xFF, // bInterfaceProtocol
-        1,    // iInterface (string index)
-    ]);
-    // EP1 OUT bulk
-    buf.extend_from_slice(&[
-        7,    // bLength
-        5,    // bDescriptorType = ENDPOINT
-        0x01, // bEndpointAddress = EP1 OUT
-        0x02, // bmAttributes = Bulk
-        64, 0, // wMaxPacketSize = 64 (full-speed)
-        0,    // bInterval
-    ]);
-    // EP2 IN bulk
-    buf.extend_from_slice(&[
-        7,    // bLength
-        5,    // bDescriptorType = ENDPOINT
-        0x82, // bEndpointAddress = EP2 IN
-        0x02, // bmAttributes = Bulk
-        64, 0, // wMaxPacketSize = 64 (full-speed)
-        0,    // bInterval
-    ]);
-
-    // --- High-speed descriptors (same layout, larger packet size) ---
-    // Interface descriptor
-    buf.extend_from_slice(&[
-        9, 4, 0, 0, 2, 0xFF, 0xFF, 0xFF, 1,
-    ]);
-    // EP1 OUT bulk (wMaxPacketSize = 512 for high-speed)
-    buf.extend_from_slice(&[
-        7, 5, 0x01, 0x02, 0x00, 0x02, 0, // 0x0200 = 512 LE
-    ]);
-    // EP2 IN bulk (wMaxPacketSize = 512 for high-speed)
-    buf.extend_from_slice(&[
-        7, 5, 0x82, 0x02, 0x00, 0x02, 0, // 0x0200 = 512 LE
-    ]);
+    // FS + HS descriptor blocks have identical layout: 1 interface + 2
+    // bulk endpoints, only the wMaxPacketSize differs.
+    for max_packet in [BULK_FS_MAX_PACKET, BULK_HS_MAX_PACKET] {
+        // Interface descriptor (vendor-specific class)
+        buf.extend_from_slice(&[
+            9,    // bLength
+            4,    // bDescriptorType = INTERFACE
+            0,    // bInterfaceNumber
+            0,    // bAlternateSetting
+            2,    // bNumEndpoints
+            0xFF, // bInterfaceClass = vendor-specific
+            0xFF, // bInterfaceSubClass
+            0xFF, // bInterfaceProtocol
+            1,    // iInterface (string index)
+        ]);
+        let mp = max_packet.to_le_bytes();
+        for ep_addr in [EP1_OUT_ADDR, EP2_IN_ADDR] {
+            buf.extend_from_slice(&[
+                7,        // bLength
+                5,        // bDescriptorType = ENDPOINT
+                ep_addr,
+                0x02,     // bmAttributes = Bulk
+                mp[0], mp[1],
+                0,        // bInterval
+            ]);
+        }
+    }
 
     // Fill in total length
     let total_len = buf.len() as u32;

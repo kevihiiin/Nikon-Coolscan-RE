@@ -132,10 +132,12 @@ pub struct Emulator {
     /// Mutually exclusive with `gadget` at the CLI layer; both targets the
     /// same ISP1581 FIFOs.
     usbip: Option<Box<dyn UsbBridge>>,
-    /// True when the USB/IP bridge is set up and waiting for the firmware
-    /// to reach main loop so we can restore INQUIRY's handler-internal
-    /// data-transfer patches. Cleared after the patches are restored.
-    usbip_inquiry_patches_pending: bool,
+    /// One-shot list of flash patches to restore after the firmware
+    /// reaches main loop. `Option::take` makes the action self-clearing
+    /// — `Some` until the orchestrator runs them, then `None` forever.
+    /// Each bridge that needs post-boot patch restoration sets this in
+    /// its own setup function (see `bridge::usbip_server::POST_BOOT_FLASH_RESTORES`).
+    pending_post_boot_patches: Option<&'static [(u32, u32)]>,
 }
 
 /// Extract complete TCP bridge frames from an accumulator buffer.
@@ -282,7 +284,7 @@ impl Emulator {
             emulated_scsi: config.emulated_scsi,
             gadget: None,
             usbip: None,
-            usbip_inquiry_patches_pending: false,
+            pending_post_boot_patches: None,
         }
     }
 
@@ -2491,11 +2493,11 @@ impl Emulator {
     pub fn setup_usbip_server(&mut self, bind_addr: &str, port: u16) -> Result<(), String> {
         let bridge = bridge::UsbipServerBridge::new(bind_addr, port)?;
         self.usbip = Some(Box::new(bridge));
-        // Mark that we want INQUIRY's handler-internal patches restored
-        // on first poll after main loop. Done in `poll_usbip`, not here,
-        // because the patches are applied at TRAPA #0 time (later than
-        // construction).
-        self.usbip_inquiry_patches_pending = true;
+        // Queue the bridge's required post-boot patch restorations.
+        // Done as a deferred action (not inline here) because the NOP
+        // patches the bridge needs to undo are applied at TRAPA #0 time,
+        // which happens later than this construction call.
+        self.pending_post_boot_patches = Some(bridge::usbip_server::POST_BOOT_FLASH_RESTORES);
         log::info!("USB/IP server bridge attached");
         Ok(())
     }
@@ -2531,29 +2533,20 @@ impl Emulator {
             return;
         }
 
-        // First time after main loop is reached: restore the patches that
-        // disable INQUIRY's handler-internal data transfer. The M14 NOP
-        // patch set assumed dispatch-level data transfer is sufficient,
-        // but for INQUIRY the handler builds its response in a separate
-        // buffer and sends it via its own response-manager + data-transfer
-        // calls. Without these restorations, INQUIRY returns sense data
-        // instead of the device descriptor.
-        // (See e2e_scan.rs:gate_trace_inquiry_isp1581_access for the same
-        // restorations applied in unit tests.)
-        if self.usbip_inquiry_patches_pending {
-            self.restore_flash_patch(0x026042, 0x5E01374A);
-            self.restore_flash_patch(0x02604A, 0x5E014090);
-            self.usbip_inquiry_patches_pending = false;
-            log::info!("USBIP: restored INQUIRY handler-internal data-transfer patches");
+        // Apply any pending post-boot patches (one-shot via `Option::take`).
+        // The list is supplied by the active bridge — see
+        // `bridge::usbip_server::POST_BOOT_FLASH_RESTORES` for the rationale.
+        if let Some(patches) = self.pending_post_boot_patches.take() {
+            for &(addr, original) in patches {
+                self.restore_flash_patch(addr, original);
+            }
+            log::info!("Applied {} post-boot flash patch restoration(s)", patches.len());
         }
-        // Borrow the bridge briefly to drain the incoming CDB. The borrow
-        // must be released before we call scsi_command (which takes &mut
-        // self), so we extract the data and store it locally.
-        let cdb_data = match self.usbip.as_mut() {
-            Some(u) => u.recv_ep1_out(),
-            None => return,
-        };
-        let Some(cdb) = cdb_data else { return };
+        // Drain the incoming CDB. The bridge borrow must be released
+        // before we call scsi_command (which takes &mut self), so we
+        // extract the data and store it locally first.
+        let Some(usbip) = self.usbip.as_mut() else { return };
+        let Some(cdb) = usbip.recv_ep1_out() else { return };
 
         if cdb.is_empty() {
             return;
@@ -2567,7 +2560,15 @@ impl Emulator {
         // context-save and response-manager bookkeeping bytes there.
         let stale = self.bus.isp1581_drain(usize::MAX);
         if !stale.is_empty() {
-            log::debug!("USBIP: discarded {} stale EP2 IN bytes before CDB dispatch", stale.len());
+            // Non-empty stale data is a real protocol concern: it means
+            // a previous handler's response either wasn't drained or we
+            // are about to overwrite an in-flight one. Worth surfacing
+            // at warn so it doesn't get lost in info-level chatter.
+            log::warn!(
+                "USBIP: discarded {} stale EP2 IN bytes before CDB dispatch \
+                 (likely indicates a missed response from a prior command)",
+                stale.len()
+            );
         }
 
         // Run the SCSI command synchronously. This pads the CDB, drives

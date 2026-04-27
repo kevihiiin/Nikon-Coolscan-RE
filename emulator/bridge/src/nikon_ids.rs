@@ -25,3 +25,28 @@ pub const PRODUCT: &str = "LS-50 ED          ";
 
 /// `iSerialNumber` string from the original device.
 pub const SERIAL: &str = "DF17811";
+
+// --- USB endpoint layout (firmware-defined, identical across all bridges) ---
+//
+// The Coolscan firmware defines two bulk endpoints. Any bridge that
+// presents the device to a host (gadget, USB/IP server, future paths)
+// must advertise these exact addresses or the firmware's IRQ1 ISR
+// won't recognize incoming CDBs and the host won't find the IN pipe.
+
+/// EP1 OUT (bulk): host → device. Receives CDB and data-out phases.
+pub const EP1_OUT_ADDR: u8 = 0x01;
+
+/// EP2 IN (bulk): device → host. Sends responses and data-in phases.
+pub const EP2_IN_ADDR: u8 = 0x82;
+
+/// USB 2.0 high-speed bulk max-packet-size advertised by the firmware
+/// in its USB 2.0 device descriptor (flash offset 0x1710C). Drives both
+/// the FunctionFS HS descriptor block and the USB/IP simulated endpoint
+/// layout. Also the size used by `bridge::gadget` to decide when a
+/// boundary-aligned write needs a ZLP terminator.
+pub const BULK_HS_MAX_PACKET: u16 = 512;
+
+/// USB 1.1 full-speed bulk max-packet-size from the firmware's USB 1.1
+/// device descriptor (flash offset 0x170FA). Used only by the FunctionFS
+/// FS descriptor block; USB/IP transport always negotiates high-speed.
+pub const BULK_FS_MAX_PACKET: u16 = 64;

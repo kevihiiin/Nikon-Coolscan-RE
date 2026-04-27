@@ -334,67 +334,60 @@ mod tests {
         assert_eq!(bytes[11], 0); // null-padded
     }
 
-    /// Manually craft a minimal OP_REP_DEVLIST byte stream and verify that
-    /// req_devlist's parser extracts the busid / VID / PID correctly.
-    /// Uses an in-memory MockStream to avoid TCP.
+    /// Drive `Client::req_devlist` against a TCP listener that serves a
+    /// canned OP_REP_DEVLIST response. Exercises the *real* parser
+    /// (busid extraction, VID/PID byte offsets, num_intf trailer skip)
+    /// rather than re-asserting the test's own byte layout.
     #[test]
-    fn parse_op_rep_devlist_extracts_device_info() {
-        // Build the response by hand.
+    fn req_devlist_parses_canned_response() {
+        use std::io::Write as _;
+        use std::net::TcpListener;
+        use std::thread;
+
+        // Build the canned response bytes once. Same layout as
+        // jiegec/usbip's `to_bytes_with_interfaces`.
         let mut response = Vec::new();
         response.extend_from_slice(&USBIP_VERSION.to_be_bytes());
         response.extend_from_slice(&OP_REP_DEVLIST.to_be_bytes());
-        response.extend_from_slice(&0u32.to_be_bytes()); // status
-        response.extend_from_slice(&1u32.to_be_bytes()); // device_count
-
-        // Device block: 312 bytes total per server impl.
+        response.extend_from_slice(&0u32.to_be_bytes()); // status = 0
+        response.extend_from_slice(&1u32.to_be_bytes()); // device_count = 1
         let mut dev = vec![0u8; 312];
-        // path[0..256] left zero
-        // bus_id[256..288]: "1-1\0..."
         dev[256..256 + 3].copy_from_slice(b"1-1");
-        // bus_num at 288..292
-        dev[288..292].copy_from_slice(&1u32.to_be_bytes());
-        // dev_num at 292..296
-        dev[292..296].copy_from_slice(&1u32.to_be_bytes());
-        // speed at 296..300
-        dev[296..300].copy_from_slice(&3u32.to_be_bytes());
-        // vendor_id at 300..302
-        dev[300..302].copy_from_slice(&0x04B0u16.to_be_bytes());
-        // product_id at 302..304
-        dev[302..304].copy_from_slice(&0x4001u16.to_be_bytes());
-        // device_bcd at 304..306 (major, minor)
-        dev[304] = 0x01;
-        dev[305] = 0x02;
-        // class/subclass/protocol/cfg_value/num_cfgs at 306..311
-        dev[306] = 0xFF;
-        dev[307] = 0xFF;
-        dev[308] = 0xFF;
-        dev[309] = 1;
-        dev[310] = 1;
-        // num_interfaces at 311
-        dev[311] = 1;
+        dev[288..292].copy_from_slice(&1u32.to_be_bytes()); // bus_num
+        dev[292..296].copy_from_slice(&1u32.to_be_bytes()); // dev_num
+        dev[296..300].copy_from_slice(&3u32.to_be_bytes()); // speed = high
+        dev[300..302].copy_from_slice(&0x04B0u16.to_be_bytes()); // vendor_id
+        dev[302..304].copy_from_slice(&0x4001u16.to_be_bytes()); // product_id
+        dev[304] = 0x01; // bcd_major
+        dev[305] = 0x02; // bcd_minor
+        dev[306..311].copy_from_slice(&[0xFF, 0xFF, 0xFF, 1, 1]);
+        dev[311] = 1; // num_interfaces
         response.extend_from_slice(&dev);
-        // 1 interface trailer (4 bytes)
-        response.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0]);
+        response.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0]); // 1 interface trailer
 
-        // Run the parser via a Cursor wrapped in an std::io::BufReader-equivalent.
-        // Client wraps a TcpStream so we test by replicating the parser logic
-        // here directly on the bytes (the parser was small and inline).
-        let bytes = &response[..];
-        let version = u16::from_be_bytes(bytes[0..2].try_into().unwrap());
-        let opcode = u16::from_be_bytes(bytes[2..4].try_into().unwrap());
-        let status = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
-        let device_count = u32::from_be_bytes(bytes[8..12].try_into().unwrap());
-        assert_eq!(version, USBIP_VERSION);
-        assert_eq!(opcode, OP_REP_DEVLIST);
-        assert_eq!(status, 0);
-        assert_eq!(device_count, 1);
+        // Spawn a TCP listener thread that accepts one connection,
+        // ignores the OP_REQ_DEVLIST request, and writes the canned reply.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            // Drain the 8-byte OP_REQ_DEVLIST without parsing it.
+            let mut req = [0u8; 8];
+            std::io::Read::read_exact(&mut sock, &mut req).unwrap();
+            sock.write_all(&response).unwrap();
+        });
 
-        let dev_bytes = &bytes[12..12 + 312];
-        let busid_end = dev_bytes[256..256 + 32].iter().position(|&b| b == 0).unwrap_or(32);
-        let busid = String::from_utf8_lossy(&dev_bytes[256..256 + busid_end]);
-        assert_eq!(busid, "1-1");
-        assert_eq!(u16::from_be_bytes(dev_bytes[300..302].try_into().unwrap()), 0x04B0);
-        assert_eq!(u16::from_be_bytes(dev_bytes[302..304].try_into().unwrap()), 0x4001);
+        // Drive the real parser.
+        let mut client = Client::connect(("127.0.0.1", port)).unwrap();
+        let devices = client.req_devlist().expect("req_devlist parses cleanly");
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].busid, "1-1");
+        assert_eq!(devices[0].vendor_id, 0x04B0);
+        assert_eq!(devices[0].product_id, 0x4001);
+        assert_eq!(devices[0].bus_num, 1);
+        assert_eq!(devices[0].dev_num, 1);
+        server.join().unwrap();
     }
 
     /// USBIP_CMD_SUBMIT for an OUT URB: confirm direction + ep encoding.
