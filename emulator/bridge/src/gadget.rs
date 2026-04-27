@@ -14,6 +14,7 @@ use crate::nikon_ids::{BCD_DEVICE, MANUFACTURER, PRODUCT, PRODUCT_ID, SERIAL, VE
 use crate::traits::UsbBridge;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 /// FunctionFS descriptor header magic numbers.
@@ -262,13 +263,23 @@ impl UsbBridge for GadgetBridge {
         }
         // ZLP termination: if the write's length is a non-zero multiple of
         // the bulk max-packet-size, the host has no in-band signal that the
-        // transfer is over. Send an empty write so FunctionFS emits a ZLP.
-        if !data.is_empty()
-            && data.len().is_multiple_of(HS_BULK_MAX_PACKET)
-            && let Err(e) = ep2.write_all(&[])
-        {
-            log::warn!("EP2 IN ZLP write error: {e}");
-            self.connected = false;
+        // transfer is over.
+        //
+        // `std::io::Write::write_all(&[])` short-circuits and never issues
+        // a syscall, so it does NOT cause FunctionFS to emit a ZLP. We
+        // have to call write(2) directly with len=0 to make the kernel
+        // queue the empty packet on the EP2 IN ring.
+        if !data.is_empty() && data.len().is_multiple_of(HS_BULK_MAX_PACKET) {
+            let fd = ep2.as_raw_fd();
+            // SAFETY: `fd` is owned by `self.ep2_in` (a File), valid for
+            // the duration of this call. Pointer can be null when len=0
+            // per POSIX write(2). Single-threaded access — `self` is `&mut`.
+            let n = unsafe { libc::write(fd, std::ptr::null(), 0) };
+            if n < 0 {
+                let err = std::io::Error::last_os_error();
+                log::warn!("EP2 IN ZLP write error: {err}");
+                self.connected = false;
+            }
         }
     }
 

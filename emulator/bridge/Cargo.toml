@@ -11,5 +11,12 @@ log.workspace = true
 usbip.workspace = true
 tokio.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# Needed for the zero-length write(2) syscall used to emit a USB ZLP on
+# bulk-IN transfers whose payload lands on a max-packet boundary.
+# std::io::Write::write_all short-circuits on empty slices and never
+# makes the syscall, so we go through libc directly.
+libc = "0.2"
+
 [dev-dependencies]
 env_logger.workspace = true

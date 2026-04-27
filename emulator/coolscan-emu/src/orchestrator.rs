@@ -2004,7 +2004,33 @@ impl Emulator {
     /// Inject a CDB directly (for testing without TCP).
     /// Restore a previously NOPed flash location to its original instruction.
     /// Used for Phase 7 gate tracing: selectively un-NOP specific patches.
+    ///
+    /// Verifies the address currently holds either the NOP pattern (the
+    /// value `apply_flash_nop_patches` writes) or the target `original_bytes`
+    /// (idempotent re-restore). Anything else means the address layout
+    /// has drifted out from under us — silently writing `original_bytes`
+    /// could corrupt live firmware code, so we log an error and skip
+    /// instead. Callers that genuinely need an unconditional overwrite
+    /// should go through `bus.flash_write_long` directly.
     pub fn restore_flash_patch(&mut self, addr: u32, original_bytes: u32) {
+        const NOP_PATTERN: u32 = 0x00000000;
+        let current = self.bus.read_long(addr);
+        if current == original_bytes {
+            log::debug!(
+                "RESTORE PATCH: 0x{:06X} already holds 0x{:08X} (idempotent no-op)",
+                addr, original_bytes
+            );
+            return;
+        }
+        if current != NOP_PATTERN {
+            log::error!(
+                "RESTORE PATCH: refusing to overwrite 0x{:06X} — current=0x{:08X}, \
+                 expected NOP (0x{:08X}) or already-restored (0x{:08X}). \
+                 Has the patch table changed?",
+                addr, current, NOP_PATTERN, original_bytes
+            );
+            return;
+        }
         self.bus.flash_write_long(addr, original_bytes);
         log::info!("RESTORE PATCH: 0x{:06X} = 0x{:08X}", addr, original_bytes);
     }

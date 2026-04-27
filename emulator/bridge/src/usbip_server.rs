@@ -71,6 +71,13 @@ struct BridgeState {
     /// not just connected but actually IMPORT'd the device. Used by
     /// `is_connected` so the orchestrator can gate session state.
     connected: bool,
+    /// Set when a FIFO over-cap event occurred. Once true, `is_connected`
+    /// returns false and both bridge endpoints stop accepting work — the
+    /// USB stream is irrecoverable at that point because bytes the SCSI
+    /// layer counted as transferred never reached the wire (or vice
+    /// versa). Better to drop the host link cleanly than to feed it
+    /// truncated data with no STALL signal.
+    fatal_error: bool,
 }
 
 #[derive(Debug)]
@@ -93,22 +100,42 @@ impl UsbInterfaceHandler for CoolscanInterfaceHandler {
         req: &[u8],
     ) -> std::io::Result<Vec<u8>> {
         let mut state = self.state.lock().expect("BridgeState mutex poisoned");
+        // Once the bridge has tripped the fatal flag we refuse all work
+        // and surface a fake EBROKENPIPE so the usbip crate tears down
+        // the TCP connection. The host then has to detach + re-attach,
+        // which gives the firmware a chance to restart cleanly.
+        if state.fatal_error {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "bridge in fatal state (FIFO overflow)",
+            ));
+        }
         // First URB after IMPORT marks the connection as live for the
         // emulator's session-state gating.
         state.connected = true;
 
         match ep.address {
             EP1_OUT_ADDR => {
-                // Bulk OUT: append host data to EP1 OUT queue.
+                // Bulk OUT: append host data to EP1 OUT queue. Over-cap
+                // means the orchestrator isn't draining (firmware stuck?)
+                // — silent drop would corrupt the next CDB the firmware
+                // reads. Mark fatal instead.
                 if state.ep1_out.len() + req.len() > MAX_FIFO_BYTES {
-                    log::warn!(
-                        "USB/IP: EP1 OUT backpressure ({} buffered, dropping {} new)",
+                    log::error!(
+                        "USB/IP: EP1 OUT FIFO overflow ({} buffered + {} new > {} cap) — \
+                         dropping host link",
                         state.ep1_out.len(),
-                        req.len()
+                        req.len(),
+                        MAX_FIFO_BYTES,
                     );
-                } else {
-                    state.ep1_out.extend(req);
+                    state.fatal_error = true;
+                    state.connected = false;
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "EP1 OUT FIFO overflow",
+                    ));
                 }
+                state.ep1_out.extend(req);
                 Ok(Vec::new())
             }
             EP2_IN_ADDR => {
@@ -234,7 +261,12 @@ impl Drop for UsbipServerBridge {
 
 impl UsbBridge for UsbipServerBridge {
     fn recv_ep1_out(&mut self) -> Option<Vec<u8>> {
-        let mut s = self.state.lock().ok()?;
+        // A poisoned mutex here means another thread panicked while
+        // holding bridge state — the program is already broken. Per
+        // CLAUDE.md "no over-defensive checks", surface the panic
+        // rather than silently dropping CDB bytes which would leave the
+        // emulator running but deaf to the host.
+        let mut s = self.state.lock().expect("BridgeState mutex poisoned");
         if s.ep1_out.is_empty() {
             None
         } else {
@@ -243,24 +275,31 @@ impl UsbBridge for UsbipServerBridge {
     }
 
     fn send_ep2_in(&mut self, data: &[u8]) {
-        if let Ok(mut s) = self.state.lock() {
-            if s.ep2_in.len() + data.len() > MAX_FIFO_BYTES {
-                log::warn!(
-                    "USB/IP: EP2 IN backpressure ({} buffered, dropping {} new)",
-                    s.ep2_in.len(),
-                    data.len()
-                );
-            } else {
-                s.ep2_in.extend(data);
-            }
+        let mut s = self.state.lock().expect("BridgeState mutex poisoned");
+        if s.ep2_in.len() + data.len() > MAX_FIFO_BYTES {
+            // Over-cap means the host isn't draining (stalled? slow?).
+            // Silently dropping bytes here would feed the host a
+            // truncated bulk-IN payload with no STALL/short-packet
+            // signal — it would hang waiting for the missing tail. Mark
+            // fatal so subsequent URBs get EBROKENPIPE and the host
+            // tears down cleanly.
+            log::error!(
+                "USB/IP: EP2 IN FIFO overflow ({} buffered + {} new > {} cap) — \
+                 dropping host link",
+                s.ep2_in.len(),
+                data.len(),
+                MAX_FIFO_BYTES,
+            );
+            s.fatal_error = true;
+            s.connected = false;
+            return;
         }
+        s.ep2_in.extend(data);
     }
 
     fn is_connected(&self) -> bool {
-        self.state
-            .lock()
-            .map(|s| s.connected)
-            .unwrap_or(false)
+        let s = self.state.lock().expect("BridgeState mutex poisoned");
+        s.connected && !s.fatal_error
     }
 }
 
@@ -301,19 +340,107 @@ mod tests {
     }
 
     #[test]
-    fn over_cap_writes_are_dropped_with_warning() {
+    fn ep2_in_over_cap_trips_fatal_and_disconnects() {
+        // Regression for B3: over-cap writes must NOT silently drop the
+        // payload (which would corrupt the host-visible bulk-IN stream).
+        // They trip the fatal flag, drop the write, and force is_connected
+        // to false so the orchestrator stops issuing commands.
         let mut bridge = UsbipServerBridge::new("127.0.0.1", 0).unwrap();
-        // Pre-fill close to the cap.
+        bridge.state.lock().unwrap().connected = true;
         bridge
             .state
             .lock()
             .unwrap()
             .ep2_in
             .extend(std::iter::repeat_n(0u8, MAX_FIFO_BYTES - 10));
-        // This 100-byte write would push us over; expect drop.
+        assert!(bridge.is_connected(), "pre-overflow: connected");
+
         bridge.send_ep2_in(&[0xAA; 100]);
-        let len = bridge.state.lock().unwrap().ep2_in.len();
-        assert_eq!(len, MAX_FIFO_BYTES - 10, "over-cap write must be dropped");
+
+        let s = bridge.state.lock().unwrap();
+        assert_eq!(s.ep2_in.len(), MAX_FIFO_BYTES - 10, "over-cap write dropped");
+        assert!(s.fatal_error, "fatal_error set");
+        assert!(!s.connected, "connected cleared");
+        drop(s);
+        assert!(!bridge.is_connected(), "is_connected now false");
+    }
+
+    #[test]
+    fn ep1_out_over_cap_in_handler_returns_brokenpipe() {
+        // Regression for B3 on the EP1 OUT side: handler must return an
+        // error so the usbip crate tears down the TCP connection. Silent
+        // drop here would corrupt the next CDB the firmware reads.
+        let state = Arc::new(Mutex::new(BridgeState::default()));
+        state
+            .lock()
+            .unwrap()
+            .ep1_out
+            .extend(std::iter::repeat_n(0u8, MAX_FIFO_BYTES - 10));
+
+        let mut handler = CoolscanInterfaceHandler { state: state.clone() };
+        let interface = UsbInterface {
+            interface_class: 0xFF,
+            interface_subclass: 0xFF,
+            interface_protocol: 0xFF,
+            endpoints: vec![],
+            string_interface: 0,
+            class_specific_descriptor: vec![],
+            handler: Arc::new(Mutex::new(
+                Box::new(CoolscanInterfaceHandler { state: state.clone() }) as Box<_>,
+            )),
+        };
+        let ep = UsbEndpoint {
+            address: EP1_OUT_ADDR,
+            attributes: EndpointAttributes::Bulk as u8,
+            max_packet_size: BULK_MAX_PACKET,
+            interval: 0,
+        };
+
+        let result = handler.handle_urb(&interface, ep, 0, SetupPacket::default(), &[0xAA; 100]);
+        assert!(result.is_err(), "expected error on EP1 OUT overflow");
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe,
+            "expected BrokenPipe so usbip tears down the TCP connection"
+        );
+        let s = state.lock().unwrap();
+        assert!(s.fatal_error);
+        assert!(!s.connected);
+    }
+
+    #[test]
+    fn fatal_state_rejects_subsequent_urbs() {
+        // Once tripped, every URB returns BrokenPipe — no leakage of late
+        // data into the host stream.
+        let state = Arc::new(Mutex::new(BridgeState {
+            fatal_error: true,
+            connected: true, // pre-trip value, should not matter
+            ..Default::default()
+        }));
+        let mut handler = CoolscanInterfaceHandler { state: state.clone() };
+        let interface = UsbInterface {
+            interface_class: 0xFF,
+            interface_subclass: 0xFF,
+            interface_protocol: 0xFF,
+            endpoints: vec![],
+            string_interface: 0,
+            class_specific_descriptor: vec![],
+            handler: Arc::new(Mutex::new(
+                Box::new(CoolscanInterfaceHandler { state: state.clone() }) as Box<_>,
+            )),
+        };
+        // Both EP1 OUT and EP2 IN URBs must be refused.
+        for ep_addr in [EP1_OUT_ADDR, EP2_IN_ADDR] {
+            let ep = UsbEndpoint {
+                address: ep_addr,
+                attributes: EndpointAttributes::Bulk as u8,
+                max_packet_size: BULK_MAX_PACKET,
+                interval: 0,
+            };
+            let r = handler.handle_urb(&interface, ep, 64, SetupPacket::default(), &[]);
+            assert!(r.is_err(), "EP 0x{ep_addr:02X}: should be rejected");
+            assert_eq!(r.unwrap_err().kind(), std::io::ErrorKind::BrokenPipe);
+        }
     }
 
     #[test]

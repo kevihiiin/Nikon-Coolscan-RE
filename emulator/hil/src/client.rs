@@ -31,6 +31,9 @@ pub enum ClientError {
     Status(u32),
     /// `req_import` was called for a busid that doesn't exist on the server.
     DeviceNotFound(String),
+    /// `bulk_in` retry budget exhausted before the device produced any
+    /// data. Distinct from "device returned a zero-length packet".
+    Timeout,
 }
 
 impl From<std::io::Error> for ClientError {
@@ -49,6 +52,7 @@ impl std::fmt::Display for ClientError {
             }
             Self::Status(s) => write!(f, "server returned non-zero status {s}"),
             Self::DeviceNotFound(b) => write!(f, "device {b:?} not found"),
+            Self::Timeout => write!(f, "bulk_in timed out before device produced any data"),
         }
     }
 }
@@ -224,11 +228,10 @@ impl ImportSession {
 
     /// Submit a bulk-IN URB: read up to `max_bytes` from endpoint `ep` (must
     /// have MSB set, e.g. `0x82`). Returns the actual bytes the server sent.
-    /// Sets the per-call read timeout so we can tolerate the bulk-IN-empty
-    /// NAK retries inside a bounded window.
+    /// Retries while the device NAKs (returns empty), giving up after
+    /// `timeout` with [`ClientError::Timeout`] — distinct from a legitimate
+    /// zero-length completion (which returns `Ok(vec![])`).
     pub fn bulk_in(&mut self, ep: u8, max_bytes: u32, timeout: Duration) -> Result<Vec<u8>> {
-        // Retry on empty (server NAK behavior) until either we get bytes
-        // or the deadline expires.
         let deadline = std::time::Instant::now() + timeout;
         loop {
             let seqnum = self.next_seqnum();
@@ -255,7 +258,7 @@ impl ImportSession {
                 return Ok(data);
             }
             if std::time::Instant::now() >= deadline {
-                return Ok(data); // empty
+                return Err(ClientError::Timeout);
             }
             std::thread::sleep(Duration::from_millis(20));
         }
