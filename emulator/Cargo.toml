@@ -4,6 +4,7 @@ members = [
     "h8300h-core",
     "peripherals",
     "bridge",
+    "hil",
 ]
 resolver = "2"
 
@@ -16,6 +17,9 @@ license = "MIT"
 h8300h-core = { path = "h8300h-core" }
 peripherals = { path = "peripherals" }
 bridge = { path = "bridge" }
+hil = { path = "hil" }
 log = "0.4"
 env_logger = "0.11"
 ctrlc = "3"
+usbip = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }

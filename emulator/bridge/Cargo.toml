@@ -8,6 +8,8 @@ description = "USB bridge layer (TCP socket + Linux USB gadget)"
 [dependencies]
 peripherals.workspace = true
 log.workspace = true
+usbip.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 env_logger.workspace = true

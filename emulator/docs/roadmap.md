@@ -1,18 +1,18 @@
 # Emulator Roadmap
 
-**Last Updated**: 2026-04-26
+**Last Updated**: 2026-04-27
 
 ---
 
 ## Status
 
-All 11 build phases plus M12 (firmware-path correctness), M13 (TCP bridge hardening), and M14 (USB Gadget Ready) are **COMPLETE**. The emulator is ~12K LOC Rust, 295 tests, 0 clippy warnings.
+All 11 build phases plus M12 (firmware-path correctness), M13 (TCP bridge hardening), M14 (USB Gadget Ready), and M14.5 (Userspace USB/IP HIL) are **COMPLETE**. The emulator is ~13K LOC Rust, 310 tests, 0 clippy warnings.
 
 Post-completion backlog of correctness, design, and UX issues tracked in [`backlog.md`](backlog.md).
 
 **Goal**: A fully functional Coolscan V replica running on a Raspberry Pi via USB gadget, compatible with NikonScan 4.0.3 on Windows. The emulator should handle the full NikonScan workflow: connect → INQUIRY → calibrate → preview → scan → disconnect.
 
-**Next milestone**: M15 (NikonScan E2E Validation) — needs Raspberry Pi 4 with `dwc2` OTG and a Windows host running NikonScan 4.0.3. No more code-only work blocks this; the remaining gaps (USB control transfer details, motor timing, throughput) can only be characterized against the real driver.
+**Next milestone**: M15 (NikonScan E2E Validation) — now runnable from M14.5's userspace USB/IP server. No Pi or `sudo` required; the user just needs a Windows VM with NikonScan 4.0.3 and `usbip-win2` installed. See `emulator/hil/` for the HIL setup.
 
 ---
 
@@ -87,6 +87,18 @@ Bridged the gap from protocol emulator to firmware-driven hardware replica. The 
 - **I13** — Motor direction comment fix (DDR → DR for 0xFFFF84)
 - **I15** — ASIC DMA double-fire eliminated: orchestrator owns `dma_complete_pending` set
 - Post-review: CCD trigger edge-detection (was level-gated, stalling multi-line scans), IMIB4/OVI4 priority alignment with IMIA4, watchdog auto-rearm to prevent log spam, DMA-complete IRQ no longer gated on empty data
+
+### M14.5: Userspace USB/IP HIL (Complete)
+
+Stands the emulator up as a USB/IP server inside the Rust binary itself, removing the Raspberry Pi requirement from M15. No `sudo`, no kernel modules, no nested VM. NikonScan in a Windows VM attaches via `usbip-win2` over TCP. (commit TBD, 310 tests)
+
+- **Architecture pivot**: original kernel-mode `dummy_hcd` plan ruled out because Ubuntu doesn't ship `dummy_hcd` in `linux-modules-extra`. `usbip-vudc` was the next candidate but has a known disconnect-after-enum bug (Sept 2025 reports). Final: **userspace** USB/IP server using the `usbip` Rust crate (jiegec, v0.8.0), avoiding both the dependency and the bug.
+- **`bridge::usbip_server::UsbipServerBridge`**: third `UsbBridge` impl alongside `TcpBridge` and `GadgetBridge`. Owns a tokio runtime in a dedicated thread; the synchronous emulator loop is unaffected. Implements `UsbInterfaceHandler::handle_urb` for vendor-specific bulk EP1 OUT / EP2 IN. ~280 LOC + 7 unit tests.
+- **`bridge::nikon_ids`**: extracted shared VID/PID/strings (DRY between gadget and usbip bridges).
+- **CLI flags**: `--usbip-server`, `--usbip-port <N>` (default 3240), `--usbip-bind <ADDR>` (default 0.0.0.0). Mutually exclusive with `--gadget` (refuses with exit 2). Transport-summary log line extended to include USB/IP state.
+- **`Emulator::poll_usbip`**: gates on main-loop-reached milestone (avoids garbage from uninitialized firmware), routes incoming CDBs through `scsi_command` (which pads to 384 bytes — the autonomous IRQ1 path doesn't because firmware re-reads EP1 OUT FIFO multiple times per command), pushes responses back to bridge for host bulk-IN. Restores INQUIRY's handler-internal data-transfer flash patches on first use (otherwise INQUIRY returns sense data instead of the device descriptor).
+- **`emulator/hil/`** (new workspace crate): hand-rolled synchronous USB/IP client (~250 LOC, reuses `UsbIpCommand::to_bytes` from the crate for requests; hand-rolls response parsing); test harness (subprocess + port helpers); `README.md` + 4 docs covering architecture, Windows setup with `usbip-win2`, troubleshooting, and the kernel-mode fallback for advanced users; PowerShell installer for `usbip-win2`.
+- **`coolscan-emu/tests/smoke_usbip_e2e.rs`** (the milestone exit criterion): spawns the emulator subprocess, connects the USB/IP client to localhost, sends INQUIRY, asserts the response identifies the device as a Nikon LS-50. Passes in 0.55s after a 3M-instruction firmware boot. **No `sudo`, no kernel modules, no Windows VM, no nested virt — fully agent-runnable.**
 
 ### M14: USB Gadget Ready (Complete)
 
@@ -326,7 +338,8 @@ Both were NOPed out (26 patches total). Handlers ran but couldn't send data.
 | M12 | Firmware-Path Correctness | +200 | 279 | COMPLETE |
 | M13 | TCP Bridge Hardening | +280 | 288 | COMPLETE |
 | M14 | USB Gadget Ready | +200 | 295 | COMPLETE |
-| | **Total** | **~12K** | **295** | **M15 NEXT (needs hardware)** |
+| M14.5 | Userspace USB/IP HIL | +1500 | 310 | COMPLETE |
+| | **Total** | **~13K** | **310** | **M15 NEXT (no hardware needed)** |
 
 ---
 

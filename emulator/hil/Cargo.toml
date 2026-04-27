@@ -1,0 +1,16 @@
+[package]
+name = "hil"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hardware-in-the-loop helpers for the Coolscan emulator: USB/IP client, test harness"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+log.workspace = true
+# Reuse the crate's request encoders (UsbIpCommand::to_bytes). We do
+# response parsing ourselves to keep the client side synchronous —
+# no tokio dep needed in tests.
+usbip.workspace = true

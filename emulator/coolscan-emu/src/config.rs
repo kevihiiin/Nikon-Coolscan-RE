@@ -40,6 +40,13 @@ pub struct Config {
     pub firmware_dispatch: bool,
     /// Force old Rust SCSI emulation path (regression safety net).
     pub emulated_scsi: bool,
+    /// Userspace USB/IP server (M14.5 HIL transport).
+    pub usbip_server: bool,
+    /// USB/IP listen port [default: 3240].
+    pub usbip_port: u16,
+    /// USB/IP bind address [default: 0.0.0.0 — reachable from a remote VM].
+    /// Pass `127.0.0.1` for local-only access.
+    pub usbip_bind: String,
 }
 
 impl Config {
@@ -61,6 +68,9 @@ impl Config {
             full_usb_init: false,
             firmware_dispatch: false,
             emulated_scsi: false,
+            usbip_server: false,
+            usbip_port: 3240,
+            usbip_bind: "127.0.0.1".to_string(),
         }
     }
 
@@ -86,6 +96,9 @@ impl Config {
         let mut full_usb_init = false;
         let mut firmware_dispatch = false;
         let mut emulated_scsi = false;
+        let mut usbip_server = false;
+        let mut usbip_port: u16 = 3240;
+        let mut usbip_bind = "0.0.0.0".to_string();
 
         let mut i = 1;
         while i < args.len() {
@@ -140,6 +153,21 @@ impl Config {
                 }
                 "--watchdog" => { watchdog = true; i += 1; }
                 "--gadget" => { gadget = true; i += 1; }
+                "--usbip-server" => { usbip_server = true; i += 1; }
+                "--usbip-port" if i + 1 < args.len() => {
+                    usbip_port = match args[i + 1].parse() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            eprintln!("Error: invalid --usbip-port value '{}'", args[i + 1]);
+                            std::process::exit(2);
+                        }
+                    };
+                    i += 2;
+                }
+                "--usbip-bind" if i + 1 < args.len() => {
+                    usbip_bind = args[i + 1].clone();
+                    i += 2;
+                }
                 "--benchmark" => { benchmark = true; i += 1; }
                 "--cold-boot" => { cold_boot = true; i += 1; }
                 "--full-usb-init" => { full_usb_init = true; i += 1; }
@@ -188,11 +216,21 @@ impl Config {
             PathBuf::from("../binaries/firmware/Nikon LS-50 MBM29F400B TSOP48.bin")
         });
 
+        // Mutual exclusion: --gadget and --usbip-server both target the
+        // device-side fixture. Running both would race for the ISP1581
+        // FIFOs and confuse any host. Refuse explicitly.
+        if gadget && usbip_server {
+            eprintln!("Error: --gadget and --usbip-server are mutually exclusive");
+            eprintln!("  Both expose the virtual scanner — pick one transport per run.");
+            std::process::exit(2);
+        }
+
         Self {
             firmware_path, adapter, trace, max_instructions, tcp_port,
             watchdog, gadget, pattern, model, benchmark,
             scan_data_path, cold_boot, full_usb_init, firmware_dispatch,
             emulated_scsi,
+            usbip_server, usbip_port, usbip_bind,
         }
     }
 }
@@ -216,7 +254,12 @@ fn print_usage() {
     eprintln!("                       Pass 0 for explicit unlimited; positive N caps the run.");
     eprintln!("  --trace              Enable instruction-level tracing");
     eprintln!("  --watchdog           Enable watchdog timer");
-    eprintln!("  --gadget             Enable Linux USB gadget bridge (requires root)");
+    eprintln!("  --gadget             Enable Linux USB gadget bridge (requires root + UDC)");
+    eprintln!("  --usbip-server       Enable userspace USB/IP server (no root, agent-friendly)");
+    eprintln!("  --usbip-port <PORT>  USB/IP listen port [default: 3240]");
+    eprintln!("  --usbip-bind <ADDR>  USB/IP bind address [default: 0.0.0.0]");
+    eprintln!("                       Pass 127.0.0.1 to restrict to local connections.");
+    eprintln!("                       NOTE: --gadget and --usbip-server are mutually exclusive.");
     eprintln!("  --pattern <TYPE>     Scan test pattern [default: gradient]");
     eprintln!("                       Values: gradient, flat, checkerboard, bars");
     eprintln!("  --model <MODEL>      Scanner model identity [default: ls50]");

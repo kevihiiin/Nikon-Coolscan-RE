@@ -1,0 +1,413 @@
+//! Userspace USB/IP server bridge.
+//!
+//! Presents a virtual Nikon LS-50 over TCP using the jiegec/usbip crate
+//! ([crates.io](https://crates.io/crates/usbip)). Pairs with `usbip-win2`
+//! on the Windows side. No root, no kernel modules — pure userspace.
+//!
+//! ## How it fits with the rest of the bridge layer
+//!
+//! `coolscan-emu` already has two `UsbBridge` implementations:
+//! - [`crate::tcp::TcpBridge`] for the in-tree dev test client
+//! - [`crate::gadget::GadgetBridge`] (Linux only) for FunctionFS-on-real-UDC
+//!
+//! `UsbipServerBridge` is the third: it accepts USB/IP TCP connections and
+//! translates URBs to/from the same `recv_ep1_out` / `send_ep2_in` interface
+//! the orchestrator already polls. The emulator's CPU loop stays synchronous;
+//! we own a dedicated `tokio::runtime::Runtime` to drive the TCP accept loop
+//! off the main thread.
+//!
+//! ## Threading
+//!
+//! - Tokio runtime runs the USB/IP server on a worker thread.
+//! - The `UsbInterfaceHandler::handle_urb` callback runs on that thread but
+//!   is *synchronous* (per `usbip` crate API), so we just acquire a brief
+//!   `std::sync::Mutex` on the shared `BridgeState`.
+//! - The orchestrator's polling thread acquires the same mutex via the
+//!   `UsbBridge` trait methods.
+//! - Mutex critical sections are tiny (deque push/drain), so contention
+//!   stays negligible at the protocol's traffic profile.
+
+use crate::nikon_ids::{BCD_DEVICE, MANUFACTURER, PRODUCT, PRODUCT_ID, SERIAL, VENDOR_ID};
+use crate::traits::UsbBridge;
+use std::any::Any;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use tokio::runtime::Runtime;
+use usbip::{
+    ClassCode, EndpointAttributes, SetupPacket, UsbDevice, UsbEndpoint, UsbInterface,
+    UsbInterfaceHandler, UsbIpServer, UsbSpeed,
+};
+
+/// Soft cap on bytes buffered in either direction. Beyond this we log a
+/// warning and drop the over-cap write — protects against a stuck client
+/// holding the emulator's memory.
+const MAX_FIFO_BYTES: usize = 4 * 1024 * 1024;
+
+/// Endpoint addresses must match the firmware-defined USB descriptor:
+/// EP1 OUT (host → device, bulk), EP2 IN (device → host, bulk).
+/// See `docs/kb/components/firmware/usb-descriptors.md`.
+const EP1_OUT_ADDR: u8 = 0x01;
+const EP2_IN_ADDR: u8 = 0x82;
+
+/// Bulk endpoint max-packet-size negotiated with the host. 512 is the
+/// USB 2.0 high-speed value the LS-50 firmware advertises.
+const BULK_MAX_PACKET: u16 = 512;
+
+/// USB/IP `bus_id` we expose. The Windows client picks devices by this
+/// string; "1-1" is the conventional first-bus-first-port identifier.
+const USBIP_BUS_ID: &str = "1-1";
+
+/// Shared state between the tokio handler thread and the orchestrator's
+/// polling thread.
+#[derive(Default, Debug)]
+struct BridgeState {
+    /// Bytes received from the USB host on EP1 OUT (CDB / data-out).
+    /// Drained by `recv_ep1_out` into the ISP1581 EP1 OUT FIFO.
+    ep1_out: VecDeque<u8>,
+    /// Bytes pending for the host on EP2 IN (responses / data-in).
+    /// Filled by `send_ep2_in` from the ISP1581 EP2 IN FIFO.
+    ep2_in: VecDeque<u8>,
+    /// Set by the handler when the first URB arrives — i.e. the host has
+    /// not just connected but actually IMPORT'd the device. Used by
+    /// `is_connected` so the orchestrator can gate session state.
+    connected: bool,
+}
+
+#[derive(Debug)]
+struct CoolscanInterfaceHandler {
+    state: Arc<Mutex<BridgeState>>,
+}
+
+impl UsbInterfaceHandler for CoolscanInterfaceHandler {
+    fn get_class_specific_descriptor(&self) -> Vec<u8> {
+        // Vendor-specific interface — no class descriptor.
+        Vec::new()
+    }
+
+    fn handle_urb(
+        &mut self,
+        _interface: &UsbInterface,
+        ep: UsbEndpoint,
+        transfer_buffer_length: u32,
+        _setup: SetupPacket,
+        req: &[u8],
+    ) -> std::io::Result<Vec<u8>> {
+        let mut state = self.state.lock().expect("BridgeState mutex poisoned");
+        // First URB after IMPORT marks the connection as live for the
+        // emulator's session-state gating.
+        state.connected = true;
+
+        match ep.address {
+            EP1_OUT_ADDR => {
+                // Bulk OUT: append host data to EP1 OUT queue.
+                if state.ep1_out.len() + req.len() > MAX_FIFO_BYTES {
+                    log::warn!(
+                        "USB/IP: EP1 OUT backpressure ({} buffered, dropping {} new)",
+                        state.ep1_out.len(),
+                        req.len()
+                    );
+                } else {
+                    state.ep1_out.extend(req);
+                }
+                Ok(Vec::new())
+            }
+            EP2_IN_ADDR => {
+                // Bulk IN: drain up to `transfer_buffer_length` from the
+                // EP2 IN queue. Returning empty Vec is the correct USB
+                // semantic for "no data yet" — the host treats it as a
+                // NAK and retries.
+                let want = transfer_buffer_length as usize;
+                let take = state.ep2_in.len().min(want);
+                Ok(state.ep2_in.drain(..take).collect())
+            }
+            other => {
+                log::warn!("USB/IP: URB on unexpected endpoint 0x{other:02X}");
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// USB/IP server bridge. Construct via [`UsbipServerBridge::new`]; the
+/// returned bridge owns its tokio runtime and shuts it down on `Drop`.
+pub struct UsbipServerBridge {
+    state: Arc<Mutex<BridgeState>>,
+    /// Owned tokio runtime. Held in `Option` so `Drop` can move it out.
+    runtime: Option<Runtime>,
+}
+
+impl UsbipServerBridge {
+    /// Bind to `bind_addr:port` and start serving USB/IP requests for the
+    /// virtual Nikon LS-50.
+    pub fn new(bind_addr: &str, port: u16) -> Result<Self, String> {
+        let state = Arc::new(Mutex::new(BridgeState::default()));
+
+        let handler_box: Box<dyn UsbInterfaceHandler + Send> =
+            Box::new(CoolscanInterfaceHandler { state: state.clone() });
+        let handler = Arc::new(Mutex::new(handler_box));
+
+        // Build the simulated UsbDevice. Most fields are public — set
+        // them directly; strings go through the `set_*_name` helpers
+        // because the crate's string-pool indexing is internal.
+        let mut device = UsbDevice::new(0);
+        device.path = format!("/sys/bus/usbip/{USBIP_BUS_ID}");
+        device.bus_id = USBIP_BUS_ID.to_string();
+        device.bus_num = 1;
+        device.dev_num = 1;
+        device.speed = UsbSpeed::High as u32;
+        device.vendor_id = VENDOR_ID;
+        device.product_id = PRODUCT_ID;
+        device.device_bcd = BCD_DEVICE.into();
+        device.device_class = ClassCode::VendorSpecific as u8;
+        device.device_subclass = 0xFF;
+        device.device_protocol = 0xFF;
+        device.set_manufacturer_name(MANUFACTURER);
+        device.set_product_name(PRODUCT);
+        device.set_serial_number(SERIAL);
+
+        let endpoints = vec![
+            UsbEndpoint {
+                address: EP1_OUT_ADDR,
+                attributes: EndpointAttributes::Bulk as u8,
+                max_packet_size: BULK_MAX_PACKET,
+                interval: 0,
+            },
+            UsbEndpoint {
+                address: EP2_IN_ADDR,
+                attributes: EndpointAttributes::Bulk as u8,
+                max_packet_size: BULK_MAX_PACKET,
+                interval: 0,
+            },
+        ];
+
+        let device = device.with_interface(
+            ClassCode::VendorSpecific as u8,
+            0xFF,
+            0xFF,
+            Some("Coolscan"),
+            endpoints,
+            handler,
+        );
+
+        let server = Arc::new(UsbIpServer::new_simulated(vec![device]));
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_io()
+            .enable_time()
+            .thread_name("usbip-server")
+            .build()
+            .map_err(|e| format!("tokio runtime: {e}"))?;
+
+        let addr = format!("{bind_addr}:{port}")
+            .parse()
+            .map_err(|e| format!("invalid bind address {bind_addr}:{port}: {e}"))?;
+
+        let server_clone = server.clone();
+        runtime.spawn(async move {
+            usbip::server(addr, server_clone).await;
+        });
+
+        log::info!("USB/IP server listening on {bind_addr}:{port} (bus_id={USBIP_BUS_ID})");
+        Ok(Self {
+            state,
+            runtime: Some(runtime),
+        })
+    }
+}
+
+impl Drop for UsbipServerBridge {
+    fn drop(&mut self) {
+        if let Some(rt) = self.runtime.take() {
+            // Give in-flight URBs 1s to complete, then cancel everything.
+            // Necessary so SIGINT-driven shutdown does not block on a
+            // hung TCP read.
+            rt.shutdown_timeout(std::time::Duration::from_secs(1));
+        }
+        log::info!("USB/IP server shut down");
+    }
+}
+
+impl UsbBridge for UsbipServerBridge {
+    fn recv_ep1_out(&mut self) -> Option<Vec<u8>> {
+        let mut s = self.state.lock().ok()?;
+        if s.ep1_out.is_empty() {
+            None
+        } else {
+            Some(s.ep1_out.drain(..).collect())
+        }
+    }
+
+    fn send_ep2_in(&mut self, data: &[u8]) {
+        if let Ok(mut s) = self.state.lock() {
+            if s.ep2_in.len() + data.len() > MAX_FIFO_BYTES {
+                log::warn!(
+                    "USB/IP: EP2 IN backpressure ({} buffered, dropping {} new)",
+                    s.ep2_in.len(),
+                    data.len()
+                );
+            } else {
+                s.ep2_in.extend(data);
+            }
+        }
+    }
+
+    fn is_connected(&self) -> bool {
+        self.state
+            .lock()
+            .map(|s| s.connected)
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bridge_starts_and_binds_random_port() {
+        // Bind to port 0 → kernel assigns ephemeral; verifies the whole
+        // construct path (tokio runtime + UsbDevice build + listener
+        // bind) without depending on any specific port being free.
+        let bridge = UsbipServerBridge::new("127.0.0.1", 0)
+            .expect("bridge should construct");
+        // Drop immediately — exercises the Drop impl too.
+        drop(bridge);
+    }
+
+    #[test]
+    fn recv_ep1_out_drains_state() {
+        let bridge = UsbipServerBridge::new("127.0.0.1", 0).unwrap();
+        // Inject directly into shared state (simulating what a real URB
+        // would do via handle_urb).
+        bridge.state.lock().unwrap().ep1_out.extend([0x12, 0x00, 0x00, 0x00, 0x24, 0x00]);
+        let mut bridge = bridge;
+        let drained = bridge.recv_ep1_out().expect("FIFO had data");
+        assert_eq!(drained, vec![0x12, 0x00, 0x00, 0x00, 0x24, 0x00]);
+        assert!(bridge.recv_ep1_out().is_none(), "FIFO drained");
+    }
+
+    #[test]
+    fn send_ep2_in_appends_to_state() {
+        let mut bridge = UsbipServerBridge::new("127.0.0.1", 0).unwrap();
+        bridge.send_ep2_in(&[0x70, 0x00, 0x05]);
+        bridge.send_ep2_in(&[0x00, 0x00]);
+        let queued: Vec<u8> = bridge.state.lock().unwrap().ep2_in.iter().copied().collect();
+        assert_eq!(queued, vec![0x70, 0x00, 0x05, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn over_cap_writes_are_dropped_with_warning() {
+        let mut bridge = UsbipServerBridge::new("127.0.0.1", 0).unwrap();
+        // Pre-fill close to the cap.
+        bridge
+            .state
+            .lock()
+            .unwrap()
+            .ep2_in
+            .extend(std::iter::repeat_n(0u8, MAX_FIFO_BYTES - 10));
+        // This 100-byte write would push us over; expect drop.
+        bridge.send_ep2_in(&[0xAA; 100]);
+        let len = bridge.state.lock().unwrap().ep2_in.len();
+        assert_eq!(len, MAX_FIFO_BYTES - 10, "over-cap write must be dropped");
+    }
+
+    #[test]
+    fn handler_marks_connected_on_first_urb() {
+        let state = Arc::new(Mutex::new(BridgeState::default()));
+        let mut handler = CoolscanInterfaceHandler { state: state.clone() };
+        assert!(!state.lock().unwrap().connected);
+
+        // Synthesize a minimal URB on EP1 OUT.
+        let interface = UsbInterface {
+            interface_class: 0xFF,
+            interface_subclass: 0xFF,
+            interface_protocol: 0xFF,
+            endpoints: vec![],
+            string_interface: 0,
+            class_specific_descriptor: vec![],
+            handler: Arc::new(Mutex::new(
+                Box::new(CoolscanInterfaceHandler { state: state.clone() }) as Box<_>,
+            )),
+        };
+        let ep = UsbEndpoint {
+            address: EP1_OUT_ADDR,
+            attributes: EndpointAttributes::Bulk as u8,
+            max_packet_size: BULK_MAX_PACKET,
+            interval: 0,
+        };
+        let setup = SetupPacket::default();
+
+        let result = handler
+            .handle_urb(&interface, ep, 0, setup, &[0xAB, 0xCD])
+            .expect("URB succeeds");
+        assert_eq!(result, Vec::<u8>::new(), "OUT URB returns empty");
+        assert!(state.lock().unwrap().connected, "first URB sets connected");
+        assert_eq!(
+            state.lock().unwrap().ep1_out.iter().copied().collect::<Vec<_>>(),
+            vec![0xAB, 0xCD],
+        );
+    }
+
+    #[test]
+    fn handler_bulk_in_drains_up_to_transfer_buffer_length() {
+        let state = Arc::new(Mutex::new(BridgeState::default()));
+        state.lock().unwrap().ep2_in.extend([1, 2, 3, 4, 5, 6, 7, 8]);
+
+        let mut handler = CoolscanInterfaceHandler { state: state.clone() };
+        let interface = UsbInterface {
+            interface_class: 0xFF,
+            interface_subclass: 0xFF,
+            interface_protocol: 0xFF,
+            endpoints: vec![],
+            string_interface: 0,
+            class_specific_descriptor: vec![],
+            handler: Arc::new(Mutex::new(
+                Box::new(CoolscanInterfaceHandler { state: state.clone() }) as Box<_>,
+            )),
+        };
+        let ep = UsbEndpoint {
+            address: EP2_IN_ADDR,
+            attributes: EndpointAttributes::Bulk as u8,
+            max_packet_size: BULK_MAX_PACKET,
+            interval: 0,
+        };
+        let setup = SetupPacket::default();
+
+        let out = handler.handle_urb(&interface, ep, 5, setup, &[]).unwrap();
+        assert_eq!(out, vec![1, 2, 3, 4, 5], "drains only requested count");
+        let remaining: Vec<u8> = state.lock().unwrap().ep2_in.iter().copied().collect();
+        assert_eq!(remaining, vec![6, 7, 8]);
+    }
+
+    #[test]
+    fn handler_bulk_in_empty_returns_empty_vec() {
+        let state = Arc::new(Mutex::new(BridgeState::default()));
+        let mut handler = CoolscanInterfaceHandler { state: state.clone() };
+        let interface = UsbInterface {
+            interface_class: 0xFF,
+            interface_subclass: 0xFF,
+            interface_protocol: 0xFF,
+            endpoints: vec![],
+            string_interface: 0,
+            class_specific_descriptor: vec![],
+            handler: Arc::new(Mutex::new(
+                Box::new(CoolscanInterfaceHandler { state: state.clone() }) as Box<_>,
+            )),
+        };
+        let ep = UsbEndpoint {
+            address: EP2_IN_ADDR,
+            attributes: EndpointAttributes::Bulk as u8,
+            max_packet_size: BULK_MAX_PACKET,
+            interval: 0,
+        };
+        let out = handler
+            .handle_urb(&interface, ep, 64, SetupPacket::default(), &[])
+            .unwrap();
+        assert_eq!(out, Vec::<u8>::new(), "empty FIFO → NAK-style empty Vec");
+    }
+}

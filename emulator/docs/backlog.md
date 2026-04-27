@@ -10,6 +10,7 @@ Items are ordered by priority within each severity tier. Each item includes the 
 **Resolved in M12** (commits `ffc7dc2`, `ad55b8e`): C1, I4, I5, I6, I7, I10, I13, I15.
 **Resolved in M13** (commits `d222a87`, `9d472b0`): I11, I12, M4.
 **Resolved in M14**: C2, I2, I3, I17, N3 (STALL), N2 (ZLP). I8 deferred (needs EP-selection modeling first).
+**Unblocked by M14.5**: NikonScan E2E (M15) is now runnable without hardware via the userspace USB/IP HIL setup at `emulator/hil/`. N4 (throughput benchmarking) becomes testable on the same setup.
 
 The descriptions of resolved items are kept below for historical reference but are tagged with `[RESOLVED]`.
 

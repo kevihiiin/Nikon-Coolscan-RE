@@ -33,17 +33,18 @@ fn main() {
     };
 
     let gadget_requested = config.gadget;
+    let usbip_requested = config.usbip_server;
     let tcp_requested = config.tcp_port > 0;
     let mut emu = coolscan_emu::orchestrator::Emulator::new(&firmware, &config);
 
     // If TCP was requested but bind failed (e.g., port already in use), fail
     // fast so the user notices. Without this, the error scrolls past in boot
     // logs and the emulator appears to start with a silently-dead bridge.
-    // Gadget-only runs don't care about TCP, so only enforce when TCP is the
-    // primary transport.
-    if tcp_requested && !emu.tcp_bridge_active && !gadget_requested {
+    // Other USB-side transports (gadget, usbip) make TCP a secondary fallback
+    // — only enforce when TCP is the only requested transport.
+    if tcp_requested && !emu.tcp_bridge_active && !gadget_requested && !usbip_requested {
         log::error!("TCP bridge failed to bind port {} — no transport available", config.tcp_port);
-        log::error!("  Either free the port, pass --port <N> with a different port, or use --gadget");
+        log::error!("  Either free the port, pass --port <N> with a different port, or use --gadget / --usbip-server");
         std::process::exit(1);
     }
 
@@ -66,13 +67,37 @@ fn main() {
         }
     }
 
+    // Set up userspace USB/IP server if requested (M14.5).
+    // Mutually exclusive with --gadget at the CLI layer; we just need to
+    // honor the flag here.
+    let mut usbip_active = false;
+    if usbip_requested {
+        log::info!("Setting up userspace USB/IP server on {}:{}...",
+                   config.usbip_bind, config.usbip_port);
+        match emu.setup_usbip_server(&config.usbip_bind, config.usbip_port) {
+            Ok(()) => {
+                log::info!("USB/IP server ready — connect a usbip-win2 client to attach the device");
+                usbip_active = true;
+            }
+            Err(e) => {
+                log::error!("USB/IP server setup failed: {e}");
+                if emu.tcp_bridge_active {
+                    log::warn!("  Continuing with TCP-only bridge on port {}", config.tcp_port);
+                }
+            }
+        }
+    }
+
     // Final transport check: if the user asked for any transport at all, make
     // sure at least one is actually working. Otherwise the emulator runs
     // firmware indefinitely while accepting no commands — exactly the silent
     // failure the M13 fail-fast was meant to prevent.
-    if (gadget_requested || tcp_requested) && !gadget_active && !emu.tcp_bridge_active {
-        log::error!("No transport available — TCP bind and gadget setup both failed");
-        log::error!("  Free port {} or check kernel USB gadget support", config.tcp_port);
+    if (gadget_requested || usbip_requested || tcp_requested)
+        && !gadget_active && !usbip_active && !emu.tcp_bridge_active
+    {
+        log::error!("No transport available — every requested bridge failed to come up");
+        log::error!("  Free port {} (TCP) or {} (USB/IP), or check kernel USB gadget support",
+                    config.tcp_port, config.usbip_port);
         std::process::exit(1);
     }
 
@@ -83,19 +108,23 @@ fn main() {
     // last log line a user sees before instruction-level chatter takes over,
     // so it must convey: which transports asked for, which actually came up,
     // and (loudly) which ones the user requested but didn't get.
-    let want_gadget = gadget_requested;
-    let have_gadget = gadget_active;
     let want_tcp = tcp_requested;
     let have_tcp = emu.tcp_bridge_active;
     log::info!(
-        "Transports: gadget={} tcp={}",
-        if have_gadget { "active" } else if want_gadget { "REQUESTED-BUT-FAILED" } else { "off" },
+        "Transports: gadget={} usbip={} tcp={}",
+        if gadget_active { "active" } else if gadget_requested { "REQUESTED-BUT-FAILED" } else { "off" },
+        if usbip_active { format!("active ({}:{})", config.usbip_bind, config.usbip_port) }
+            else if usbip_requested { "REQUESTED-BUT-FAILED".to_string() }
+            else { "off".to_string() },
         if have_tcp { format!("active (port {})", config.tcp_port) }
             else if want_tcp { "REQUESTED-BUT-FAILED".to_string() }
             else { "off".to_string() },
     );
-    if want_gadget && !have_gadget {
-        log::error!("--gadget was requested but did not come up; continuing with TCP only. See earlier error.");
+    if gadget_requested && !gadget_active {
+        log::error!("--gadget was requested but did not come up; continuing without it. See earlier error.");
+    }
+    if usbip_requested && !usbip_active {
+        log::error!("--usbip-server was requested but did not come up; continuing without it. See earlier error.");
     }
 
     log::info!("Starting emulation...");

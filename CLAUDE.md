@@ -194,10 +194,12 @@ emulator/
 | M12 | Firmware-Path Correctness | ASIC sync, SCI routing, ITU timers | COMPLETE (279 tests) |
 | M13 | TCP Bridge Hardening | Partial reads, fail-fast bind, DoS cap | COMPLETE (288 tests) |
 | M14 | USB Gadget Ready | byte-write fix, underrun flag, STALL, SIGINT | COMPLETE (295 tests) |
+| M14.5 | Userspace USB/IP HIL | jiegec/usbip + tokio, no root, smoke test | COMPLETE (310 tests) |
 
 **Roadmap**: See `emulator/docs/roadmap.md` for phase history + forward milestones (M15-M16).
 **Backlog**: See `emulator/docs/backlog.md` for open issues with fix directions and file:line pointers.
-**Next milestone**: M15 (NikonScan E2E Validation) — needs Raspberry Pi 4 + Windows host with NikonScan 4.0.3. Code-only milestones complete.
+**HIL setup**: See `emulator/hil/README.md` — `cargo run -- --usbip-server` brings up a USB/IP server, `usbip-win2` on Windows attaches it, NikonScan sees a Nikon LS-50.
+**Next milestone**: M15 (NikonScan E2E Validation) — runnable from M14.5's userspace USB/IP server. No Pi or `sudo` needed; Windows VM with NikonScan 4.0.3 is the only external dependency.
 
 ### Emulator Key Constants
 

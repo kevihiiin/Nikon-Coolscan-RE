@@ -10,18 +10,11 @@
 //!   EP1 OUT (bulk) — host sends CDB / data-out
 //!   EP2 IN  (bulk) — device sends phase / data-in / sense
 
+use crate::nikon_ids::{BCD_DEVICE, MANUFACTURER, PRODUCT, PRODUCT_ID, SERIAL, VENDOR_ID};
 use crate::traits::UsbBridge;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-
-/// Nikon Coolscan V USB identifiers.
-const VENDOR_ID: u16 = 0x04B0;   // Nikon
-const PRODUCT_ID: u16 = 0x4001;  // LS-50
-const BCD_DEVICE: u16 = 0x0102;
-const MANUFACTURER: &str = "NIKON";
-const PRODUCT: &str = "LS-50 ED          ";
-const SERIAL: &str = "DF17811";
 
 /// FunctionFS descriptor header magic numbers.
 const FUNCTIONFS_DESCRIPTORS_MAGIC_V2: u32 = 3;

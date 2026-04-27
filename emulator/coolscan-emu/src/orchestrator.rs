@@ -128,6 +128,14 @@ pub struct Emulator {
     emulated_scsi: bool,
     /// USB gadget bridge (connects ISP1581 to real USB host).
     gadget: Option<Box<dyn UsbBridge>>,
+    /// Userspace USB/IP server bridge (M14.5 — no root, no kernel modules).
+    /// Mutually exclusive with `gadget` at the CLI layer; both targets the
+    /// same ISP1581 FIFOs.
+    usbip: Option<Box<dyn UsbBridge>>,
+    /// True when the USB/IP bridge is set up and waiting for the firmware
+    /// to reach main loop so we can restore INQUIRY's handler-internal
+    /// data-transfer patches. Cleared after the patches are restored.
+    usbip_inquiry_patches_pending: bool,
 }
 
 /// Extract complete TCP bridge frames from an accumulator buffer.
@@ -273,6 +281,8 @@ impl Emulator {
             firmware_dispatch: config.firmware_dispatch,
             emulated_scsi: config.emulated_scsi,
             gadget: None,
+            usbip: None,
+            usbip_inquiry_patches_pending: false,
         }
     }
 
@@ -393,6 +403,7 @@ impl Emulator {
             if i % 1000 == 0 {
                 self.poll_tcp();
                 self.poll_gadget();
+                self.poll_usbip();
                 self.force_usb_session_state();
             }
 
@@ -2443,6 +2454,110 @@ impl Emulator {
                 log::info!("GADGET: sending {} bytes to host", response.len());
                 gadget.send_ep2_in(&response);
             }
+        }
+    }
+
+    /// Set up the userspace USB/IP server bridge (M14.5).
+    /// Call this after construction if `--usbip-server` is enabled.
+    /// Mutually exclusive with [`Self::setup_gadget`] — the CLI rejects
+    /// the combination, but if both ever ran the second to bind the
+    /// ISP1581 FIFOs would race the first.
+    pub fn setup_usbip_server(&mut self, bind_addr: &str, port: u16) -> Result<(), String> {
+        let bridge = bridge::UsbipServerBridge::new(bind_addr, port)?;
+        self.usbip = Some(Box::new(bridge));
+        // Mark that we want INQUIRY's handler-internal patches restored
+        // on first poll after main loop. Done in `poll_usbip`, not here,
+        // because the patches are applied at TRAPA #0 time (later than
+        // construction).
+        self.usbip_inquiry_patches_pending = true;
+        log::info!("USB/IP server bridge attached");
+        Ok(())
+    }
+
+    /// Returns true if the userspace USB/IP bridge is set up.
+    /// Used by `main.rs` for the transport-summary log line.
+    pub fn usbip_active(&self) -> bool {
+        self.usbip.is_some()
+    }
+
+    /// Poll the USB/IP server bridge for incoming data and send responses.
+    ///
+    /// The autonomous-IRQ1 path used by [`Self::poll_gadget`] doesn't work
+    /// here for a subtle reason: the firmware's SCSI dispatcher reads from
+    /// the EP1 OUT FIFO multiple times during a single command (CDB read,
+    /// dispatch init copy, data transfer setup, etc.). A single 6-byte
+    /// CDB injection depletes after the first read and subsequent reads
+    /// see zeros — visible as `ep1_underrun` (M14-C) and breaks INQUIRY.
+    ///
+    /// `scsi_command` handles this by (a) padding the CDB to 384 bytes
+    /// and (b) actively driving the firmware dispatcher via
+    /// `firmware_dispatch_scsi`. We do the same here: when the USB/IP
+    /// client delivers a bulk-OUT URB we treat it as the CDB, run
+    /// `scsi_command` synchronously, and push the response back to the
+    /// bridge for the host to read on the next bulk-IN URB.
+    fn poll_usbip(&mut self) {
+        // Gate on firmware readiness. scsi_command needs the firmware in
+        // its main loop with USB state populated; calling it before boot
+        // completes returns garbage data drawn from uninitialized RAM
+        // (verified during M14.5 development — INQUIRY would return the
+        // context-save area pattern instead of the device strings).
+        if !self.milestones_seen.contains(&0xDEAD0001) {
+            return;
+        }
+
+        // First time after main loop is reached: restore the patches that
+        // disable INQUIRY's handler-internal data transfer. The M14 NOP
+        // patch set assumed dispatch-level data transfer is sufficient,
+        // but for INQUIRY the handler builds its response in a separate
+        // buffer and sends it via its own response-manager + data-transfer
+        // calls. Without these restorations, INQUIRY returns sense data
+        // instead of the device descriptor.
+        // (See e2e_scan.rs:gate_trace_inquiry_isp1581_access for the same
+        // restorations applied in unit tests.)
+        if self.usbip_inquiry_patches_pending {
+            self.restore_flash_patch(0x026042, 0x5E01374A);
+            self.restore_flash_patch(0x02604A, 0x5E014090);
+            self.usbip_inquiry_patches_pending = false;
+            log::info!("USBIP: restored INQUIRY handler-internal data-transfer patches");
+        }
+        // Borrow the bridge briefly to drain the incoming CDB. The borrow
+        // must be released before we call scsi_command (which takes &mut
+        // self), so we extract the data and store it locally.
+        let cdb_data = match self.usbip.as_mut() {
+            Some(u) => u.recv_ep1_out(),
+            None => return,
+        };
+        let Some(cdb) = cdb_data else { return };
+
+        if cdb.is_empty() {
+            return;
+        }
+        log::debug!("USBIP: received {} bytes from host (CDB[0]=0x{:02X})", cdb.len(), cdb[0]);
+
+        // Discard any data the firmware may have written to EP2 IN during
+        // boot or prior commands — `scsi_command` drains EP2 IN after the
+        // handler runs, and any leftover bytes would be prepended to the
+        // response we send to the host. Boot writes a fair amount of
+        // context-save and response-manager bookkeeping bytes there.
+        let stale = self.bus.isp1581_drain(usize::MAX);
+        if !stale.is_empty() {
+            log::debug!("USBIP: discarded {} stale EP2 IN bytes before CDB dispatch", stale.len());
+        }
+
+        // Run the SCSI command synchronously. This pads the CDB, drives
+        // the firmware dispatcher (or Rust emulation as configured), and
+        // returns the response data drained from EP2 IN.
+        let result = self.scsi_command(&cdb);
+
+        if !result.data.is_empty() {
+            log::debug!("USBIP: sending {} bytes to host (sense_key={:#x}, asc={:#x})",
+                        result.data.len(), result.sense_key, result.asc);
+            if let Some(usbip) = self.usbip.as_mut() {
+                usbip.send_ep2_in(&result.data);
+            }
+        } else if result.sense_key != 0 {
+            log::warn!("USBIP: CDB returned sense_key=0x{:02X} asc=0x{:02X} with no data",
+                       result.sense_key, result.asc);
         }
     }
 
