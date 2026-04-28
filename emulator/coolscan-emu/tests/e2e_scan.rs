@@ -1523,6 +1523,40 @@ fn post_phase_query() {
     assert_eq!(r.data[0], 0x00, "Phase should be idle (0x00)");
 }
 
+/// Phase query after a prior INQUIRY must still return 1 byte. Live
+/// NikonScan-driven runs send INQUIRY (6-byte CDB) followed by a 1-byte
+/// 0xD0 phase query. Without truncating the dispatch path's 24-byte
+/// metadata response to the expected 1-byte phase, excess bytes
+/// accumulate in the USB bulk-in bridge queue and corrupt the next
+/// command's response. Backlog N7 follow-up.
+#[test]
+fn post_phase_query_after_inquiry_returns_1_byte_firmware_dispatch() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let mut config = Config::test_default();
+    config.firmware_dispatch = true;
+    let mut emu = boot_with_config(&config);
+
+    // First a real INQUIRY — primes 0x4007DE / 0x40008A with non-zero args.
+    // (Without POST_BOOT_FLASH_RESTORES, INQUIRY runs the dispatch-level
+    // path; only the relative pre/post-call delta matters for the 0xD0
+    // assertion below.)
+    let inquiry = vec![0x12, 0x00, 0x00, 0x00, 0x24, 0x00];
+    let _ = emu.scsi_command(&inquiry);
+
+    // Then a 1-byte phase query — same shape NkDUSCAN.dll sends over USB.
+    let phase = vec![0xD0];
+    let r = emu.scsi_command(&phase);
+    assert_eq!(r.sense_key, 0, "PHASE QUERY should return GOOD");
+    assert_eq!(
+        r.data.len(),
+        1,
+        "Should return 1 phase byte even after INQUIRY (got {} bytes: {:02X?})",
+        r.data.len(),
+        r.data
+    );
+    assert_eq!(r.data[0], 0x00, "Phase should be idle (0x00)");
+}
+
 /// Flash log area writes are accepted (not rejected as read-only).
 #[test]
 fn post_flash_log_write() {

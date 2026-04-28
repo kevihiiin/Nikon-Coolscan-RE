@@ -10,6 +10,7 @@ Items are ordered by priority within each severity tier. Each item includes the 
 **Resolved in M12** (commits `ffc7dc2`, `ad55b8e`): C1, I4, I5, I6, I7, I10, I13, I15.
 **Resolved in M13** (commits `d222a87`, `9d472b0`): I11, I12, M4.
 **Resolved in M14**: C2, I2, I3, I17, N3 (STALL), N2 (ZLP). I8 deferred (needs EP-selection modeling first).
+**Resolved in M15-N7-fix** (commit TBD): N7 (FIFO underrun phantom TURs under usbscan.sys driving). 318 tests, smoke test still byte-for-byte green. 1 new e2e test, 4 new ISP1581 unit tests.
 **Unblocked by M14.5**: NikonScan E2E (M15) is now runnable without hardware via the userspace USB/IP HIL setup at `emulator/hil/`. N4 (throughput benchmarking) becomes testable on the same setup.
 
 The descriptions of resolved items are kept below for historical reference but are tagged with `[RESOLVED]`.
@@ -541,7 +542,19 @@ Motors teleport instantly (`instant_mode`). NikonScan may poll SEND DIAGNOSTIC s
 
 **Action**: Add configurable motor speed (steps/sec) with optional `--instant-motors` override for testing. Default to realistic timing for USB gadget mode.
 
-### N7. usbip server → ISP1581 EP1 OUT FIFO race produces phantom TURs under usbscan.sys driving [M16-prereq]
+### N7. usbip server → ISP1581 EP1 OUT FIFO race produces phantom TURs under usbscan.sys driving [RESOLVED commit TBD]
+
+**Resolution (2026-04-28, 318 tests)**: Three-part fix in `peripherals/src/isp1581.rs` + `coolscan-emu/src/orchestrator.rs`:
+
+1. **CDB pattern fallback in ISP1581**: new `Isp1581::set_ep1_pattern(cdb)` API with `ep1_pattern: Option<Vec<u8>>` + cycling cursor. When EP1 OUT FIFO underruns, reads now cycle a 16-byte zero-padded CDB instead of fabricating zeros. `host_send_ep1` clears the pattern when real host data arrives. Wired through `MmioDevice::set_ep1_pattern` trait method + `MemoryBus::isp1581_set_ep1_pattern`. New unit tests: `test_ep1_pattern_serves_underrun_reads_without_warning`, `test_ep1_pattern_cleared_by_real_host_send`, `test_ep1_pattern_falls_back_after_fifo_drained`, `test_ep1_set_pattern_with_empty_clears_pattern`.
+
+2. **scsi_command zero-pads firmware CDB buffers**: `0x4007DE` and `0x40008A` now get `[cdb..., 0, 0, ..., 0]` to a full 16 bytes per call, instead of just the first `cdb.len()` bytes leaving prior-command stale args in positions 1..15. Without this, a 1-byte 0xD0 inheriting `[0x12 0x00 0x00 0x00 0x24 0x00]` from a prior INQUIRY made the firmware decode 0xD0 as "phase query with alloc_len=36" and emit a metadata-laden response.
+
+3. **Transport opcodes (0xD0, 0x06) bypass firmware dispatch**: even with `--firmware-dispatch`, `scsi_command` now routes 0xD0 (phase query) and 0x06 (sense fetch) through the Rust emulation path, which returns the wire-format expected by `NKDUSCAN.dll` (1-byte phase / proper sense buffer). The firmware's dispatcher handlers for these opcodes write 24+ bytes of internal state where the host expects single bytes; surplus bytes accumulated in the `bridge::usbip_server` `state.ep2_in` queue and corrupted the next bulk-IN read. New regression test `post_phase_query_after_inquiry_returns_1_byte_firmware_dispatch`.
+
+Live emulator log post-fix shows clean traffic: `received 6 bytes (0x12) → sending 36`, `received 1 byte (0xD0) → SCSI EMU: PHASE QUERY → phase=0x00 → sending 1 byte`. Smoke test (`smoke_inquiry_via_usbip`) still byte-for-byte matches the 36-byte INQUIRY fixture. **Phantom TURs no longer fire under usbscan.sys driving.**
+
+**Live preview_scan still blocks on a separate, post-N7 NikonScan-side rejection** — see N9 for the new issue.
 
 **Discovered**: 2026-04-28 during the first live `preview_scan` recipe run against `usbip-win2 + usbscan.sys` in Win11 LTSC.
 **Files**: `coolscan-emu/src/orchestrator.rs::poll_usbip`, `peripherals/src/isp1581.rs:174-177`
@@ -575,6 +588,46 @@ The single `usbip] Got connection from 192.168.122.115:49685` event confirms one
 **Why this blocks M15**: `preview_scan` and `full_scan` both need NikonScan to enumerate the device. Until N7 is fixed, recipes can't get past the "scanner-ready" expect.
 
 **Backlog item I8** (DcBufferLength accuracy, M14-deferred) is adjacent — fixing N7 may also unstick I8 since "did the host fully fill EP1 OUT" becomes meaningful.
+
+### N9. NikonScan TWAIN data source rejects emulator device after clean INQUIRY+0xD0 exchange [M15-blocking]
+
+**Discovered**: 2026-04-28 during the post-N7-fix `preview_scan` re-run. Filed separately because the N7 fix DOES land — phantom TURs are gone — but NikonScan still shows "Nikon Scan was unable to find any active devices" on launch.
+
+**Files**: bridge / Windows-side investigation needed; emulator `coolscan-emu/src/orchestrator.rs::poll_usbip` and `bridge/src/usbip_server.rs` may need response-format tweaks.
+
+**Live emulator log shows mechanically-correct exchange**:
+```
+USBIP: received 6 bytes from host (CDB[0]=0x12)
+FW DISPATCH: opcode 0x12 → handler returned after 5188 instructions
+USBIP: sending 36 bytes to host (sense_key=0x0, asc=0x0)        # INQUIRY OK, vendor "Nikon", product "LS-50 ED"
+USBIP: received 1 bytes from host (CDB[0]=0xD0)
+SCSI EMU: PHASE QUERY → phase=0x00
+USBIP: sending 1 bytes to host (sense_key=0x0, asc=0x0)         # phase=0x00 idle, single byte (post-N7-fix)
+USBIP: received 6 bytes from host (CDB[0]=0x12)                  # NikonScan retries INQUIRY
+USBIP: sending 36 bytes to host                                  # same response
+USBIP: received 1 bytes from host (CDB[0]=0xD0)
+USBIP: sending 1 bytes to host                                   # same response
+[no further commands; NikonScan gives up and shows "no active devices" dialog]
+```
+
+Confirmed via qemu-ga on the Windows side at the failure point: device PnP is `Status=OK / CM_PROB_NONE / Service=usbscan`, `usbip port` shows attached at 480 Mbps, `usbscan` service is `Running`. Nothing wrong on the Windows kernel side.
+
+So: NikonScan retries INQUIRY twice, gets correct responses both times, then gives up. INQUIRY response is byte-for-byte identical to the smoke-test fixture (which the M14.5 `smoke_usbip_e2e` test asserts byte-equal). NkDUSCAN.dll's STI device enumeration (per `docs/kb/components/nkduscan/classes.md`) uses `IOCTL_GET_DEVICE_DESCRIPTOR` not SCSI INQUIRY for device discovery — that's a kernel-level USB descriptor query that the `bridge::usbip_server` already advertises correctly (VID 04B0, PID 4001, max_packet_size 0x200 = USB 2.0 HS).
+
+**Hypotheses ranked by likelihood**:
+
+1. **NikonScan's TWAIN data source needs a TUR / MODE SENSE / RESERVE handshake before declaring the device acceptable**, and we never see those because NikonScan gives up first. Diagnostic: walk through NikonScan4.ds DS_Entry initialization in Ghidra and find where it short-circuits on a missing prerequisite. (Requires RE on NikonScan4.ds; phase log suggests it's already documented.)
+2. **NkDUSCAN's `CUSBDeviceTable::virtual_20`** at 0x10003a90 enumerates STI devices but we appear in the list correctly per qemu-ga. Maybe `CUSBDevInfo::virtual_8` (probe) is failing because of some descriptor field mismatch beyond the `IOCTL_GET_DEVICE_DESCRIPTOR` we already provide.
+3. **Timing race**: NikonScan launches via `Lifecycle.usbip_reattach`'s 5s settle hook, but the kernel-side WIA enumeration may not have re-published the device handle to NkDUSCAN's STI interface yet. Increasing the post-attach settle to 10-15s might unstick this.
+4. **Bridge response not closing properly**: NikonScan may expect a zero-length packet (ZLP) on EP2 IN after the 36-byte response to signal end-of-transfer. The gadget bridge's `send_ep2_in` already does this for HS-aligned writes (see N2 RESOLVED in M14); the USB/IP server may not.
+
+**Action (in priority order)**:
+- a) Try a 15-30 s post-attach settle in `Lifecycle.usbip_reattach` — cheapest and rules out hypothesis 3.
+- b) Enable `usbmon` or USB/IP packet capture on the host side to compare against a real-LS-50 trace if anyone has one, to identify what URBs NikonScan actually sends and how it short-circuits.
+- c) RE NikonScan4.ds DS_Entry to find the device-acceptance check.
+- d) Walk through `bridge::usbip_server::handle_urb` against the smoke-test path to see what differs between "smoke test sends 1 INQUIRY → gets 36 bytes back" and "live host sends 2 INQUIRYs in rapid succession" — possibly a state-cleanup gap between commands.
+
+**Why this is M15-blocking**: `preview_scan` and `full_scan` both need NikonScan to enumerate the device. Until N9 is resolved, recipes can't get past `expect_screen("nikonscan-scanner-ready")`.
 
 ### N8. usbip server only accepts ONE attach per emulator instance [M16-prereq]
 

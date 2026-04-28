@@ -2144,41 +2144,71 @@ impl Emulator {
     /// Send a SCSI command (no data-out phase) and return response data.
     pub fn scsi_command(&mut self, cdb: &[u8]) -> ScsiResult {
         assert!(!cdb.is_empty(), "scsi_command: CDB must not be empty");
-        // Write CDB to all firmware-expected locations.
+        // Write CDB to all firmware-expected locations, zero-padded to a
+        // full 16 bytes. Without zero-padding, a short CDB like the 1-byte
+        // 0xD0 phase-query leaves stale bytes from the prior command in
+        // FW_CDB_BUFFER+1..15, and the firmware decodes those as control
+        // arguments — producing wrong response sizes (e.g. 0xD0 returning
+        // 24 bytes instead of the expected 1).
         self.bus.write_byte(FW_SCSI_OPCODE, cdb[0]);
         self.bus.write_word(FW_SENSE_CODE, 0x0000);
-        for (j, &b) in cdb.iter().enumerate().take(16) {
+        for j in 0..16 {
+            let b = cdb.get(j).copied().unwrap_or(0);
             self.bus.write_byte(FW_CDB_BUFFER + j as u32, b); // 0x4007DE
             self.bus.write_byte(0x4007B6 + j as u32, b);       // Parsed CDB area
         }
-        // Determine dispatch mode: firmware_dispatch unless overridden by emulated_scsi
-        let use_firmware = self.firmware_dispatch && !self.emulated_scsi;
+        // Determine dispatch mode: firmware_dispatch unless overridden by emulated_scsi.
+        //
+        // Transport opcodes (0xD0 phase query, 0x06 sense fetch) are forced
+        // through the Rust emulation path even in firmware-dispatch mode.
+        // The firmware's dispatcher handlers for these write metadata-laden
+        // sense buffers (24 bytes for 0xD0, similar for 0x06) where
+        // NKDUSCAN.dll expects a single phase byte. The Rust-emulation
+        // handlers (`0xD0 => phase byte at 0x40049C`, `0x06 => sense from
+        // FW_SENSE_CODE`) match the wire format described in
+        // docs/kb/architecture/usb-protocol.md and what NKDUSCAN expects.
+        let is_transport_opcode = matches!(cdb[0], 0xD0 | 0x06);
+        let use_firmware = self.firmware_dispatch && !self.emulated_scsi && !is_transport_opcode;
 
         if use_firmware {
             // Also write CDB to 0x40008A — the buffer where the response manager's
             // buffer setup (0x013DA0→0x012258) stores EP1 OUT FIFO data. The
             // dispatcher's init at 0x013E0A copies from this buffer to 0x4007DE.
             // Without this, the init overwrites 0x4007DE with zeros from a depleted FIFO.
-            for (j, &b) in cdb.iter().enumerate().take(16) {
+            // Zero-padded for the same reason as above.
+            for j in 0..16 {
+                let b = cdb.get(j).copied().unwrap_or(0);
                 self.bus.write_byte(0x40008A + j as u32, b);
             }
         }
 
         if use_firmware {
-            // Inject CDB into EP1 OUT FIFO. The firmware reads from it many times:
+            // The firmware reads the CDB from EP1 OUT FIFO via several
+            // dispatcher paths and a 384-byte padded inject was previously
+            // used to satisfy them:
             //   - Dispatcher CDB read via buffer setup (0x013D72→0x012258)
             //   - Dispatcher init copies CDB to 0x4007DE (0x013E0A loop)
             //   - Data transfer CDB read via 0x016458
             //   - Various other reads during USB state management
-            // Inject CDB-padded data to satisfy firmware reads from EP1 OUT FIFO.
-            // The dispatcher, response manager, and data transfer all read from it.
-            let mut padded_cdb = vec![0u8; 384];
-            for chunk_start in (0..384).step_by(128) {
-                let copy_len = cdb.len().min(128);
-                padded_cdb[chunk_start..chunk_start + copy_len]
-                    .copy_from_slice(&cdb[..copy_len]);
-            }
-            self.bus.isp1581_inject(&padded_cdb);
+            // Live NikonScan-driven runs blow past 192 word-reads in
+            // long-running handlers (INQUIRY: 5188 instructions of dispatch
+            // ≈ N reads), draining the FIFO and triggering the underrun
+            // path which fabricated zeros = phantom TUR opcode (backlog
+            // N7). Switch to the pattern-fallback API: the FIFO read path
+            // cycles a stable repeated CDB on underrun.
+            //
+            // Pad the pattern to 16 bytes (max SCSI CDB length) with zeros
+            // so a 1-byte transport opcode like 0xD0 phase-query — which
+            // NKDUSCAN.dll sends as a single byte over EP1 OUT — cycles
+            // as `[0xD0, 0, 0, ..., 0]` rather than `[0xD0, 0xD0, ...]`.
+            // Without the zero pad, the firmware's CDB-fetch interprets
+            // bytes 1-15 of the pattern as command arguments (allocation
+            // length, control byte, etc.), causing the 0xD0 handler to
+            // write 32 status bytes instead of the expected 1-byte phase.
+            let mut pattern = [0u8; 16];
+            let copy_len = cdb.len().min(16);
+            pattern[..copy_len].copy_from_slice(&cdb[..copy_len]);
+            self.bus.isp1581_set_ep1_pattern(&pattern);
             self.firmware_dispatch_scsi(cdb[0]);
         } else {
             self.handle_scsi_command(cdb[0]);
@@ -2224,12 +2254,19 @@ impl Emulator {
 
         let use_firmware = self.firmware_dispatch && !self.emulated_scsi;
         if use_firmware {
-            // Inject CDB + data-out into EP1 OUT FIFO.
+            // Inject CDB + data-out into EP1 OUT FIFO. The injection ensures
+            // the data-out phase has real host bytes; the pattern fallback
+            // (set below) only kicks in once the FIFO has drained, which
+            // by then means the dispatcher is re-fetching CDB metadata
+            // and serving repeated CDB bytes is the right answer.
             let mut padded_cdb = vec![0u8; 128];
             let copy_len = cdb.len().min(128);
             padded_cdb[..copy_len].copy_from_slice(&cdb[..copy_len]);
             padded_cdb.extend_from_slice(data_out);
             self.bus.isp1581_inject(&padded_cdb);
+            // host_send_ep1 (called via inject) clears any prior pattern,
+            // so set it AFTER inject to take effect on FIFO underrun.
+            self.bus.isp1581_set_ep1_pattern(cdb);
             self.firmware_dispatch_scsi(cdb[0]);
         } else {
             self.bus.isp1581_inject(data_out);

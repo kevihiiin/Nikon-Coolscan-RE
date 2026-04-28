@@ -35,6 +35,11 @@ pub trait MmioDevice {
     /// Drain host-to-device data (from USB EP1 OUT). Used by SCSI data-out command handlers.
     fn drain_host_data(&mut self, _max: usize) -> Vec<u8> { Vec::new() }
 
+    /// Set a CDB pattern that EP1 OUT reads cycle through when the FIFO
+    /// underruns. Default no-op for devices that don't model EP1 OUT.
+    /// See `Isp1581::set_ep1_pattern` for the protocol motivation.
+    fn set_ep1_pattern(&mut self, _cdb: &[u8]) {}
+
     /// Check if device has pending interrupt.
     fn has_irq(&self) -> bool { false }
 
@@ -354,6 +359,12 @@ impl MemoryBus {
         let fire_irq = self.with_isp1581_mut(false, |dev| dev.inject_host_data(data));
         if fire_irq { self.isp1581_irq_pending = true; }
         fire_irq
+    }
+
+    /// Set the CDB pattern that the EP1 OUT read path falls back to when
+    /// the FIFO is empty. See `Isp1581::set_ep1_pattern` for the rationale.
+    pub fn isp1581_set_ep1_pattern(&mut self, cdb: &[u8]) {
+        self.with_isp1581_mut((), |dev| dev.set_ep1_pattern(cdb));
     }
 
     /// Drain ISP1581 EP2 IN FIFO (host reads device responses).

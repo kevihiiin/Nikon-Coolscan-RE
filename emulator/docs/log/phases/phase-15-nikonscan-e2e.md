@@ -432,3 +432,53 @@ The firmware's IRQ1 SCSI handler reads 2 bytes from EP1 OUT, finds the FIFO empt
 5. Once preview_scan is green, attempt `full_scan`.
 
 **Snapshots untouched this session**: `pristine-install`, `nikonscan-installed`, `driver-bound` (still the M15 baseline). Test-cert state, BCD test-signing flags, OVMF Secure-Boot-off all preserved.
+
+---
+
+## 2026-04-28 — N7 fix lands: phantom TURs eliminated, NikonScan-side rejection (N9) is the new blocker
+
+**Goal**: fix backlog item N7 (ISP1581 EP1 OUT FIFO underrun → phantom TUR opcode) so live `preview_scan` can drive the device past the "no active devices" wall.
+
+**Approach** (three-part, lands together as one commit):
+
+1. **CDB pattern fallback in ISP1581** (`peripherals/src/isp1581.rs`):
+   - New `Isp1581::set_ep1_pattern(cdb)` API + `ep1_pattern: Option<Vec<u8>>` field with cycling cursor.
+   - When EP1 OUT FIFO underruns, reads now cycle the pattern bytes instead of fabricating zeros.
+   - `host_send_ep1` clears the pattern (real host data takes precedence).
+   - Added `next_ep1_byte()` helper consolidating FIFO-then-pattern-then-zero precedence; the warn-once underrun fires only when no pattern is set (silent-corruption case).
+   - 4 new unit tests covering the pattern cycle, host-data-clears-pattern transition, FIFO-then-pattern flow, and the empty-pattern edge case.
+   - Wired through `MmioDevice::set_ep1_pattern` trait method (default no-op) + `MemoryBus::isp1581_set_ep1_pattern`.
+
+2. **Zero-pad the firmware CDB buffers** (`coolscan-emu/src/orchestrator.rs:scsi_command`):
+   - `0x4007DE` (FW_CDB_BUFFER), `0x4007B6` (parsed CDB area), and `0x40008A` (response manager buffer) now get a full 16-byte zero-padded CDB on every `scsi_command` call instead of just the first `cdb.len()` bytes.
+   - Without this, a 1-byte 0xD0 phase-query inheriting `[0x12 0x00 0x00 0x00 0x24 0x00]` from a prior INQUIRY at positions 1..5 caused the firmware's 0xD0 dispatcher to interpret position 4 as `alloc_len=0x24=36` and emit a metadata-laden response instead of a single phase byte.
+
+3. **Transport opcodes (0xD0 phase, 0x06 sense) bypass firmware dispatch** (`coolscan-emu/src/orchestrator.rs:scsi_command`):
+   - Even with `--firmware-dispatch`, these now route through the Rust emulation path which returns the wire-format expected by NKDUSCAN.dll: 1-byte phase / proper sense buffer.
+   - The firmware's dispatcher handlers for these opcodes write 24+ bytes of internal state where the host only requests 1 byte; surplus bytes accumulated in `bridge::usbip_server::state.ep2_in` and corrupted the next bulk-IN read.
+   - New regression test `post_phase_query_after_inquiry_returns_1_byte_firmware_dispatch` proves the fix end-to-end through the firmware-dispatch path with INQUIRY-then-0xD0 sequence.
+
+**Verification**:
+- `cargo test --release --workspace`: **318 passing** (was 313; +5 = 4 new ISP1581 + 1 new e2e). Smoke test `smoke_inquiry_via_usbip` still byte-for-byte green.
+- `cargo clippy --release --all-targets`: clean.
+- Live `preview_scan` re-run: emulator log confirms phantom TURs are gone. Traffic is now mechanically correct:
+  ```
+  USBIP: received 6 bytes (CDB[0]=0x12)  → FW DISPATCH → sending 36 bytes
+  USBIP: received 1 byte  (CDB[0]=0xD0)  → SCSI EMU: PHASE QUERY → phase=0x00 → sending 1 byte
+  ```
+  Compare to pre-fix: `sending 32 bytes` for 0xD0 (post-fix: 1 byte; the 31 garbage bytes that were corrupting the next read are gone).
+
+**Live recipe still blocks at step 3** ("nikonscan-scanner-ready") with NikonScan's "no active devices" dialog — but the failure mode has *moved*. Filed as new backlog item **N9**: "NikonScan TWAIN data source rejects emulator device after clean INQUIRY+0xD0 exchange." NikonScan retries INQUIRY twice, gets correct 36-byte responses both times, then gives up. PnP-side is fully clean (`Status=OK / CM_PROB_NONE / Service=usbscan / usbip port shows attached at 480 Mbps`). The new blocker is upstream of the protocol layer — likely TWAIN data source's device-acceptance check (NikonScan4.ds), or a timing/state issue where NikonScan launches before usbscan.sys has fully published the device handle for STI enumeration.
+
+**N9 hypotheses** (in `backlog.md` priority order):
+1. NikonScan needs additional handshake commands (TUR / MODE SENSE / RESERVE) before declaring the device acceptable, and gives up before issuing them.
+2. `NkDUSCAN.dll::CUSBDevInfo::virtual_8` probe-fail on a descriptor field beyond `IOCTL_GET_DEVICE_DESCRIPTOR`.
+3. Timing race: NikonScan launches before WIA re-publishes the device handle. Try 15-30 s post-attach settle.
+4. Bridge missing ZLP on EP2 IN after the 36-byte INQUIRY response (the gadget bridge has this for HS-aligned writes but the USB/IP server may not).
+
+**Recommended next session**:
+- Try the cheap fix first: bump `Lifecycle.usbip_reattach` settle from 5 s → 15-30 s.
+- If that doesn't unstick: instrument `bridge::usbip_server` to log the EP2 IN URB the host issues (sometimes the host requests N≠36 bytes for INQUIRY, which would point at hypothesis 4).
+- If those don't help: RE NikonScan4.ds DS_Entry in Ghidra to find the device-acceptance check. The NkDUSCAN STI enumeration is documented; the TWAIN-side check is the gap.
+
+**M15 status**: harness + recipe skeletons green. Live transport now mechanically correct (N7 fixed). The remaining wall is NikonScan's TWAIN-side enumeration, which is one more protocol layer up from where N7 sat.

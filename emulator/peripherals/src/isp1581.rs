@@ -109,10 +109,22 @@ pub struct Isp1581 {
     pub bus_reset_pending: bool,
 
     /// Sticky flag set when firmware reads the EP Data Port with fewer than
-    /// 2 bytes in the EP1 OUT FIFO. The hardware would NAK in that case;
-    /// we still return zeros (no choice from a memory read) but expose the
-    /// state so callers can detect the bug. Cleared by `clear_ep1_underrun()`.
+    /// 2 bytes in the EP1 OUT FIFO and no `ep1_pattern` fallback is set.
+    /// Distinguishes silent-corruption (phantom-TUR) cases from intentional
+    /// pattern-served reads.
     pub ep1_underrun: bool,
+
+    /// Optional CDB pattern that the read path falls back to when the
+    /// EP1 OUT FIFO is empty. The cursor advances per byte read and wraps
+    /// modulo `pattern.len()`, so reads return an infinitely-repeated CDB
+    /// rather than fabricated zeros. Used by `scsi_command` so handlers
+    /// that read the CDB more times than the injected padding covers
+    /// (e.g. INQUIRY's 5188-instruction dispatch loop) see a stable
+    /// repeated CDB instead of opcode 0x00 = phantom TUR. Cleared on
+    /// real host data injection via `host_send_ep1`.
+    pub ep1_pattern: Option<Vec<u8>>,
+    /// Read cursor into `ep1_pattern`. Wraps modulo `pattern.len()`.
+    ep1_pattern_cursor: usize,
 
     /// Set of (offset, "r"|"w") tuples we have already warned about for
     /// unmodeled register access. First touch warns; subsequent touches log
@@ -154,6 +166,8 @@ impl Isp1581 {
             frame_number: 0,
             bus_reset_pending: false,
             ep1_underrun: false,
+            ep1_pattern: None,
+            ep1_pattern_cursor: 0,
             unmodeled_seen: HashSet::new(),
             ep_stalled: HashSet::new(),
         };
@@ -214,18 +228,12 @@ impl Isp1581 {
                 0
             }
             0x20 => {
-                // EP Data Port: read 16-bit word from EP1 OUT FIFO (LE: low byte first)
-                let fifo_len = self.ep1_out_fifo.len();
-                if fifo_len < 2 {
-                    if !self.ep1_underrun {
-                        log::warn!("ISP1581: EP1 OUT FIFO underrun ({} bytes available, 2 needed) — fabricated zeros may be misread as TUR opcode", fifo_len);
-                    } else {
-                        log::trace!("ISP1581: EP1 OUT FIFO continued underrun ({} bytes)", fifo_len);
-                    }
-                    self.ep1_underrun = true;
-                }
-                let lo = self.ep1_out_fifo.pop_front().unwrap_or(0);
-                let hi = self.ep1_out_fifo.pop_front().unwrap_or(0);
+                // EP Data Port: read 16-bit word from EP1 OUT FIFO (LE: low byte first).
+                // When the FIFO is short of bytes, fall back in this order:
+                //   1. ep1_pattern (cyclic CDB pattern) — intentional, no warn
+                //   2. fabricated zeros (phantom TUR risk) — sets `ep1_underrun`
+                let lo = self.next_ep1_byte();
+                let hi = self.next_ep1_byte();
                 let val = (hi as u16) << 8 | lo as u16;
                 log::trace!("ISP1581: EP1 OUT read: lo=0x{:02X} hi=0x{:02X} val=0x{:04X} fifo_remaining={}",
                     lo, hi, val, self.ep1_out_fifo.len());
@@ -363,6 +371,10 @@ impl Isp1581 {
     }
 
     /// Inject data from host into EP1 OUT FIFO and assert IRQ.
+    ///
+    /// Real host data invalidates any previously-set CDB pattern fallback —
+    /// the host is now driving the FIFO and we should not paper over its
+    /// data with synthetic CDB bytes.
     pub fn host_send_ep1(&mut self, data: &[u8]) {
         self.ep1_last_inject_size = data.len() as u16;
         for &b in data {
@@ -373,6 +385,61 @@ impl Isp1581 {
         self.irq_pending = true;
         // Fresh data clears any prior underrun condition.
         self.ep1_underrun = false;
+        // Real host data takes over from any synthetic CDB pattern.
+        self.ep1_pattern = None;
+        self.ep1_pattern_cursor = 0;
+    }
+
+    /// Set a CDB pattern that subsequent EP1 OUT reads fall back to when
+    /// the FIFO is empty. Cycles bytes modulo the pattern's length so a
+    /// single 16-byte CDB supplies an unlimited stream of stable bytes.
+    ///
+    /// Used by `Emulator::scsi_command` to satisfy firmware dispatch loops
+    /// that re-read the CDB more times than any reasonable padded
+    /// injection covers (INQUIRY's response manager + dispatcher init +
+    /// data-transfer paths each issue their own CDB-fetch). Without this,
+    /// the firmware reads `(0, 0)` after the FIFO drains and decodes it
+    /// as opcode `0x00` = TEST UNIT READY (phantom TUR) — the immediate
+    /// blocker for live NikonScan-driven runs over USB/IP. See backlog
+    /// item N7 for the live-run trace.
+    pub fn set_ep1_pattern(&mut self, cdb: &[u8]) {
+        if cdb.is_empty() {
+            self.ep1_pattern = None;
+            self.ep1_pattern_cursor = 0;
+            return;
+        }
+        self.ep1_pattern = Some(cdb.to_vec());
+        self.ep1_pattern_cursor = 0;
+        // The pattern guarantees reads will not fabricate zeros; clear
+        // any stale underrun flag from a prior dispatch.
+        self.ep1_underrun = false;
+    }
+
+    /// Pop one byte from EP1 OUT FIFO, falling back to (in order) the
+    /// CDB pattern then a fabricated zero. Sets `ep1_underrun` only when
+    /// fabricating zeros — i.e. the silent-corruption case the warn
+    /// surfaces.
+    fn next_ep1_byte(&mut self) -> u8 {
+        if let Some(b) = self.ep1_out_fifo.pop_front() {
+            return b;
+        }
+        if let Some(pattern) = &self.ep1_pattern {
+            // pattern is non-empty by construction (set_ep1_pattern returns early)
+            let b = pattern[self.ep1_pattern_cursor % pattern.len()];
+            self.ep1_pattern_cursor = self.ep1_pattern_cursor.wrapping_add(1);
+            return b;
+        }
+        // No FIFO data, no pattern — surface the silent-corruption hazard.
+        if !self.ep1_underrun {
+            log::warn!(
+                "ISP1581: EP1 OUT FIFO underrun (0 bytes available, no CDB pattern set) \
+                 — fabricated zero may be misread as TUR opcode"
+            );
+        } else {
+            log::trace!("ISP1581: EP1 OUT FIFO continued underrun");
+        }
+        self.ep1_underrun = true;
+        0
     }
 
     /// Read data from EP2 IN FIFO (host receives this).
@@ -480,6 +547,10 @@ impl h8300h_core::memory::MmioDevice for Isp1581 {
     fn drain_host_data(&mut self, max: usize) -> Vec<u8> {
         let count = max.min(self.ep1_out_fifo.len());
         self.ep1_out_fifo.drain(..count).collect()
+    }
+
+    fn set_ep1_pattern(&mut self, cdb: &[u8]) {
+        Isp1581::set_ep1_pattern(self, cdb);
     }
 
     fn has_irq(&self) -> bool {
@@ -600,6 +671,82 @@ mod tests {
         assert_eq!(val & 0x00FF, 0xAA, "available byte is returned");
         assert_eq!(val & 0xFF00, 0x0000, "missing byte fabricated as 0");
         assert!(isp.ep1_underrun, "partial-word read sets underrun");
+    }
+
+    #[test]
+    fn test_ep1_pattern_serves_underrun_reads_without_warning() {
+        // N7 fix: when scsi_command sets a CDB pattern, EP1 OUT reads past
+        // the injected FIFO bytes return cyclic CDB data instead of
+        // fabricating zeros. The underrun flag stays clear because the
+        // pattern is intentional, not silent corruption.
+        let mut isp = Isp1581::new();
+        let cdb = vec![0x12, 0x00, 0x00, 0x00, 0x24, 0x00]; // INQUIRY, 36 bytes
+        isp.set_ep1_pattern(&cdb);
+
+        // First word: lo=0x12 (cursor 0→1), hi=0x00 (cursor 1→2)
+        let w0 = isp.read_word(0x20);
+        assert_eq!(w0, 0x0012, "first word from pattern (lo=opcode, hi=lun)");
+        assert!(!isp.ep1_underrun, "pattern reads do not set underrun");
+
+        // Read past pattern length to verify wraparound. After 6 byte reads
+        // the cursor wraps; the 4th word (cursor 6 % 6 = 0) is the same
+        // (0x12, 0x00) as the first.
+        let _ = isp.read_word(0x20); // cursor 2→3, 3→4
+        let _ = isp.read_word(0x20); // cursor 4→5, 5→6 (wraps to 0)
+        let w3 = isp.read_word(0x20); // cursor 0→1, 1→2 — same as w0
+        assert_eq!(w3, w0, "pattern wraps cyclically");
+        assert!(!isp.ep1_underrun, "still no underrun after wrap");
+    }
+
+    #[test]
+    fn test_ep1_pattern_cleared_by_real_host_send() {
+        // A real host URB takes precedence over any synthetic pattern —
+        // host_send_ep1 must clear the pattern so the new data drives the
+        // FIFO, not a stale CDB cycle.
+        let mut isp = Isp1581::new();
+        isp.set_ep1_pattern(&[0x12, 0x34]);
+        assert!(isp.ep1_pattern.is_some());
+
+        isp.host_send_ep1(&[0xAA, 0xBB]);
+        assert!(isp.ep1_pattern.is_none(), "pattern cleared by real host data");
+
+        // The fresh data is consumed; subsequent reads should fall back to
+        // fabricated zeros + underrun (no pattern to draw from).
+        let _ = isp.read_word(0x20); // 0xAA, 0xBB
+        let _ = isp.read_word(0x20); // empty + no pattern → zeros + underrun
+        assert!(isp.ep1_underrun, "no pattern → underrun after FIFO empty");
+    }
+
+    #[test]
+    fn test_ep1_pattern_falls_back_after_fifo_drained() {
+        // Mixed scenario: FIFO has some bytes, pattern is set. Reads consume
+        // FIFO first (in pop_front order), then transition to pattern bytes
+        // without any underrun warn between the two sources.
+        let mut isp = Isp1581::new();
+        // Inject 3 real bytes (uses host_send_ep1 which clears pattern; so
+        // we set the pattern AFTER injection — this is the same ordering
+        // scsi_command_out uses).
+        isp.host_send_ep1(&[0x2A, 0xFF, 0xEE]);
+        isp.set_ep1_pattern(&[0x12, 0x34]);
+
+        // FIFO: [0x2A, 0xFF, 0xEE]; pattern: [0x12, 0x34]
+        let w0 = isp.read_word(0x20); // lo=0x2A (FIFO), hi=0xFF (FIFO)
+        assert_eq!(w0, 0xFF2A);
+        let w1 = isp.read_word(0x20); // lo=0xEE (FIFO), hi=0x12 (pattern[0])
+        assert_eq!(w1, 0x12EE);
+        let w2 = isp.read_word(0x20); // lo=0x34 (pattern[1]), hi=0x12 (pattern[0] again — wrap)
+        assert_eq!(w2, 0x1234);
+        assert!(!isp.ep1_underrun, "no underrun while pattern serves");
+    }
+
+    #[test]
+    fn test_ep1_set_pattern_with_empty_clears_pattern() {
+        // Edge case: set_ep1_pattern(&[]) should remove any prior pattern,
+        // not store an empty Vec which would crash on the modulo.
+        let mut isp = Isp1581::new();
+        isp.set_ep1_pattern(&[0x12, 0x34]);
+        isp.set_ep1_pattern(&[]);
+        assert!(isp.ep1_pattern.is_none(), "empty pattern → cleared");
     }
 
     #[test]
