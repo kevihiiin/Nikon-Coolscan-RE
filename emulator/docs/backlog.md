@@ -589,7 +589,9 @@ The single `usbip] Got connection from 192.168.122.115:49685` event confirms one
 
 **Backlog item I8** (DcBufferLength accuracy, M14-deferred) is adjacent — fixing N7 may also unstick I8 since "did the host fully fill EP1 OUT" becomes meaningful.
 
-### N9. NikonScan TWAIN data source rejects emulator device after clean INQUIRY+0xD0 exchange [M15-blocking]
+### N9. NikonScan TWAIN data source rejects emulator device after clean INQUIRY+0xD0 exchange [M15-blocking, partial-fix landed]
+
+**Update 2026-04-29**: Four protocol corrections landed (URB-boundary preservation, opcode-derived phase byte, phase-then-data ordering via `pending_data` buffer, 20s post-attach settle). Wire format is now mechanically correct end-to-end. Live trace post-fix shows `phase=0x03` for INQUIRY/data-in and `phase=0x01` for TUR — correct protocol values. **NikonScan still rejects** with "no active devices" — failure has moved one layer up (TWAIN data source enumeration). Next-step hypotheses: (a) bulk-IN scheduling race when orchestrator hasn't filled queue yet, (b) bulk-IN URB-count mismatch (NkDUSCAN expects 1-byte phase URB then separate data URB; we serve both in one URB), (c) IOCTL_GET_DEVICE_DESCRIPTOR field-layout mismatch in CUSBDevInfo. Recommended diagnostic: USB capture on Windows side + Ghidra re-RE of `NKDUSCAN.dll:0x10003a90` enumeration. See phase-15 log entry 2026-04-29 for full detail.
 
 **Discovered**: 2026-04-28 during the post-N7-fix `preview_scan` re-run. Filed separately because the N7 fix DOES land — phantom TURs are gone — but NikonScan still shows "Nikon Scan was unable to find any active devices" on launch.
 

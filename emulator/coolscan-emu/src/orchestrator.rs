@@ -138,6 +138,75 @@ pub struct Emulator {
     /// Each bridge that needs post-boot patch restoration sets this in
     /// its own setup function (see `bridge::usbip_server::POST_BOOT_FLASH_RESTORES`).
     pending_post_boot_patches: Option<&'static [(u32, u32)]>,
+
+    /// Phase byte the next 0xD0 phase query should return. Tracks the
+    /// data direction of the most recently processed CDB so NKDUSCAN.dll's
+    /// CDB → 0xD0 → bulk-IN protocol sequence sees a valid wire-format
+    /// phase value. Per `docs/kb/architecture/usb-protocol.md`:
+    ///   * 0x01 = status only / busy (no data transfer follows)
+    ///   * 0x02 = data-out (host → scanner)
+    ///   * 0x03 = data-in (scanner → host)
+    /// Updated by `scsi_command` based on the CDB's expected direction;
+    /// read by the 0xD0 Rust emulation handler. Default 0x01 = status-only,
+    /// the safe value for "no command pending or last command had no data."
+    pending_phase: u8,
+
+    /// Buffered data-in response from the most recent SCSI CDB. The Nikon
+    /// USB protocol queues responses across the CDB → 0xD0 → bulk-IN
+    /// sequence: the host expects the phase byte FIRST in EP2 IN, then
+    /// the data. If we push CDB results to the bridge directly, the queue
+    /// order is wrong (data first, phase second). Buffer here on CDB
+    /// completion, drained by `poll_usbip` when the matching 0xD0 phase
+    /// query arrives — at that point we send phase + data in the right
+    /// order. Empty when no command's data is pending.
+    pending_data: Vec<u8>,
+}
+
+/// Return the 0xD0-phase-query reply for a SCSI CDB opcode. Encodes the
+/// data direction that NKDUSCAN.dll expects to see in the phase byte
+/// after sending this CDB:
+///   * 0x01 = status only / busy (no data transfer follows; host skips bulk-IN, reads sense)
+///   * 0x02 = data-out (host writes data via bulk-OUT)
+///   * 0x03 = data-in  (host reads data via bulk-IN)
+/// Default 0x01 is the safe answer for unknown opcodes — host skips data
+/// and goes straight to sense, which surfaces the actual error rather
+/// than blocking forever waiting for data that won't arrive.
+///
+/// Source: SCSI command catalog at docs/kb/scsi-commands/ — opcodes that
+/// build CDBs with direction=1 (data-in) or 2 (data-out) per LS5000.md3
+/// command factory analysis.
+fn phase_for_opcode(opcode: u8) -> u8 {
+    match opcode {
+        // Status-only / no data transfer
+        0x00  // TEST UNIT READY
+        | 0x16  // RESERVE
+        | 0x17  // RELEASE
+        | 0x1B  // START STOP UNIT
+        | 0x1D  // SEND DIAGNOSTIC (mode-dependent; default no-data, data-out cases override below)
+        | 0xC0  // VENDOR C0 (abort/trigger)
+        | 0xC1  // VENDOR C1 (trigger)
+            => 0x01,
+
+        // Data-in (scanner → host)
+        0x03  // REQUEST SENSE (handled separately as 0x06 transport, but the SCSI 0x03 form is data-in)
+        | 0x12  // INQUIRY
+        | 0x1A  // MODE SENSE(6)
+        | 0x1C  // RECEIVE DIAGNOSTIC
+        | 0x28  // READ(10) — image / DTC payloads
+        | 0x37  // READ DEFECT DATA
+        | 0xE1  // VENDOR E1 (sensor results)
+            => 0x03,
+
+        // Data-out (host → scanner)
+        0x15  // MODE SELECT(6)
+        | 0x24  // SET WINDOW
+        | 0x2A  // WRITE(10) — gamma/cal/extconfig payloads
+        | 0xE0  // VENDOR E0 (control parameters)
+            => 0x02,
+
+        // Unknown opcode: assume no data so the host falls through to sense.
+        _ => 0x01,
+    }
 }
 
 /// Extract complete TCP bridge frames from an accumulator buffer.
@@ -285,6 +354,8 @@ impl Emulator {
             gadget: None,
             usbip: None,
             pending_post_boot_patches: None,
+            pending_phase: 0x01,
+            pending_data: Vec::new(),
         }
     }
 
@@ -971,11 +1042,19 @@ impl Emulator {
                 log::info!("SCSI EMU: READ BUFFER mode {} → {} bytes", mode, xfer_len);
             }
             0xD0 => {
-                // PHASE QUERY: return current SCSI command phase byte.
-                // NKDUSCAN.dll sends this to check if the scanner is ready
-                // for data transfer. Phase byte at 0x40049C:
-                //   0x00 = idle/ready, 0x01 = data-in, 0x02 = data-out
-                let phase = self.bus.read_byte(0x40049C);
+                // PHASE QUERY: return the phase byte for the most recently
+                // processed CDB. NKDUSCAN.dll uses this to decide whether
+                // to issue a bulk-IN/bulk-OUT data transfer next. Per the
+                // wire protocol (docs/kb/architecture/usb-protocol.md):
+                //   0x01 = status only (skip data, go straight to sense)
+                //   0x02 = data-out (host writes data)
+                //   0x03 = data-in  (host reads data)
+                // 0x00 / values outside {0x01,0x02,0x03} produce error
+                // 0x00011003 (protocol error / unexpected phase) — which
+                // is exactly what made NikonScan reject the device on the
+                // earlier post-N7-fix run. `pending_phase` is set by
+                // `scsi_command` based on the prior CDB's direction.
+                let phase = self.pending_phase;
                 self.bus.isp1581_push_to_host(&[phase]);
                 self.scsi_good();
                 log::info!("SCSI EMU: PHASE QUERY → phase=0x{:02X}", phase);
@@ -2236,6 +2315,19 @@ impl Emulator {
             }
         }
 
+        // Update pending_phase based on the CDB's known data direction so
+        // the next 0xD0 phase query returns the protocol-correct value.
+        // NKDUSCAN expects the phase to indicate the direction of the LAST
+        // SCSI CDB, not the 0xD0 itself. We can't derive this from
+        // `data.len()` alone — firmware-dispatch returns 24+ bytes of
+        // dispatch metadata even for TUR, which has semantically no
+        // data — so we use an opcode-direction lookup matching the SCSI
+        // catalog (docs/kb/scsi-commands/). Skip the update for transport
+        // opcodes (0xD0/0x06) since they READ pending_phase, not set it.
+        if !is_transport_opcode {
+            self.pending_phase = phase_for_opcode(cdb[0]);
+        }
+
         ScsiResult {
             sense_key: ((sense >> 8) & 0x0F) as u8,
             asc: (sense & 0xFF) as u8,
@@ -2275,6 +2367,14 @@ impl Emulator {
 
         let sense = self.bus.read_word(FW_SENSE_CODE);
         let data = self.bus.isp1581_drain(256 * 1024);
+
+        // Data-out command — the next 0xD0 phase query should report 0x02
+        // so NKDUSCAN knows the host wrote (or is about to write) data.
+        // Reaching here means the data-out phase already happened (we
+        // pushed data_out into EP1 OUT FIFO before dispatch), so the
+        // phase 0xD0 actually polls AFTER the write — but NKDUSCAN's
+        // protocol expects 0x02 in that exact slot.
+        self.pending_phase = 0x02;
 
         ScsiResult {
             sense_key: ((sense >> 8) & 0x0F) as u8,
@@ -2611,17 +2711,65 @@ impl Emulator {
         // Run the SCSI command synchronously. This pads the CDB, drives
         // the firmware dispatcher (or Rust emulation as configured), and
         // returns the response data drained from EP2 IN.
+        let opcode = cdb[0];
         let result = self.scsi_command(&cdb);
 
-        if !result.data.is_empty() {
-            log::debug!("USBIP: sending {} bytes to host (sense_key={:#x}, asc={:#x})",
-                        result.data.len(), result.sense_key, result.asc);
-            if let Some(usbip) = self.usbip.as_mut() {
-                usbip.send_ep2_in(&result.data);
+        // Response ordering follows the Nikon USB-wrapped-SCSI protocol:
+        //   1. Host sends data CDB (e.g. INQUIRY) on EP1 OUT.
+        //   2. Host sends 0xD0 phase query on EP1 OUT.
+        //   3. Host reads phase byte from EP2 IN (1 byte).
+        //   4. (If phase = 0x03) Host reads response data from EP2 IN.
+        // So the queue order in EP2 IN must be: [phase, data] — phase
+        // FIRST, data after. Pushing INQUIRY data immediately on CDB
+        // completion gets the order wrong: NKDUSCAN reads byte 0 (the
+        // INQUIRY peripheral_qualifier 0x06) as the phase, decodes it
+        // as an unexpected-phase protocol error, and reports
+        // "no active devices."
+        //
+        // Buffer data-in CDB responses in `pending_data` and flush them
+        // AFTER the phase byte when the matching 0xD0 is processed.
+        match opcode {
+            0xD0 => {
+                // Phase byte first, then any prior CDB's buffered data.
+                if let Some(usbip) = self.usbip.as_mut() {
+                    log::debug!(
+                        "USBIP: sending phase {} bytes + {} buffered data bytes",
+                        result.data.len(),
+                        self.pending_data.len()
+                    );
+                    usbip.send_ep2_in(&result.data);
+                    if !self.pending_data.is_empty() {
+                        usbip.send_ep2_in(&self.pending_data);
+                    }
+                }
+                self.pending_data.clear();
             }
-        } else if result.sense_key != 0 {
-            log::warn!("USBIP: CDB returned sense_key=0x{:02X} asc=0x{:02X} with no data",
-                       result.sense_key, result.asc);
+            0x06 => {
+                // Sense fetch — not buffered; push directly.
+                if let Some(usbip) = self.usbip.as_mut() {
+                    log::debug!("USBIP: sending sense {} bytes", result.data.len());
+                    usbip.send_ep2_in(&result.data);
+                }
+            }
+            _ => {
+                // Regular CDB: buffer the response. The host won't issue a
+                // bulk-IN until after 0xD0, by which time pending_phase is
+                // set + the buffered data flushes in correct order.
+                if !result.data.is_empty() {
+                    log::debug!(
+                        "USBIP: buffered {} bytes for CDB 0x{:02X} (await 0xD0)",
+                        result.data.len(),
+                        opcode
+                    );
+                    self.pending_data = result.data;
+                } else if result.sense_key != 0 {
+                    log::warn!(
+                        "USBIP: CDB returned sense_key=0x{:02X} asc=0x{:02X} with no data",
+                        result.sense_key,
+                        result.asc
+                    );
+                }
+            }
         }
     }
 

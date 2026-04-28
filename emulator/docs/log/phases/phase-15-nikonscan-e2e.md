@@ -482,3 +482,50 @@ The firmware's IRQ1 SCSI handler reads 2 bytes from EP1 OUT, finds the FIFO empt
 - If those don't help: RE NikonScan4.ds DS_Entry in Ghidra to find the device-acceptance check. The NkDUSCAN STI enumeration is documented; the TWAIN-side check is the gap.
 
 **M15 status**: harness + recipe skeletons green. Live transport now mechanically correct (N7 fixed). The remaining wall is NikonScan's TWAIN-side enumeration, which is one more protocol layer up from where N7 sat.
+
+---
+
+## 2026-04-29 — N9 partial-fix landing: protocol corrections, NikonScan still rejects
+
+**Goal**: unstick N9 (NikonScan rejects after clean INQUIRY+0xD0 exchange). Hypotheses 3 (timing) ruled out earlier. Spent the session on hypothesis 1+4: NikonScan needs a more wire-correct response sequence.
+
+**Four protocol corrections landed**:
+
+1. **`Lifecycle.usbip_reattach` post-attach settle 5s → 20s** (`emulator/hil/agent/src/coolscan_hil_agent/lifecycle.py`). Defensive — gives WIA STI table extra time to publish the device handle. Live re-runs with 20s settle still hit "no active devices", so this isn't the root cause; kept as a small improvement.
+
+2. **EP1 OUT URB boundary preservation** (`emulator/bridge/src/usbip_server.rs`). Pre-fix, `state.ep1_out` was a `VecDeque<u8>` that flattened all incoming URBs into one byte stream; `recv_ep1_out` drained the entire buffer. When the host sent INQUIRY (6 bytes) then 0xD0 (1 byte) before the orchestrator polled, both URBs merged into a single 7-byte "CDB" and the orchestrator dispatched as one INQUIRY with corrupted args. Now `VecDeque<Vec<u8>>` — one URB per entry, `recv_ep1_out` returns one URB per call, and a new `ep1_out_bytes` tracks total bytes for over-cap arithmetic. New unit test `recv_ep1_out_returns_one_urb_per_call`.
+
+3. **Phase byte derived from CDB opcode, not response length** (`emulator/coolscan-emu/src/orchestrator.rs`). New `phase_for_opcode(u8) -> u8` lookup table maps each CDB opcode to its protocol-correct phase reply per `docs/kb/architecture/usb-protocol.md`: TUR/RESERVE/etc → 0x01 (status only), INQUIRY/MODE SENSE/READ → 0x03 (data-in), MODE SELECT/SET WINDOW/WRITE → 0x02 (data-out). Earlier code derived phase from `data.is_empty()` after firmware dispatch, which got it wrong for TUR (firmware-dispatch returns 24 bytes of metadata for TUR, so `data.is_empty()` was false → phase set to 0x03 instead of 0x01). Updated `post_phase_query` test (now expects 0x01 default instead of 0x00 — 0x00 isn't even a valid phase per the protocol).
+
+4. **Phase-then-data response ordering via `pending_data` buffering** (`emulator/coolscan-emu/src/orchestrator.rs::poll_usbip`). Pre-fix, `scsi_command(INQUIRY)` ran the handler and immediately pushed 36 bytes to `bridge.send_ep2_in`. Then `scsi_command(0xD0)` pushed 1 byte. Queue order: `[36 bytes data, 1 byte phase]`. Wrong — the host expects PHASE FIRST. NkDUSCAN reads bulk-IN, sees byte 0 as the phase byte, gets `0x06` (the INQUIRY peripheral_qualifier), interprets as "unexpected phase" → error 0x00011003. Now: data-in CDBs buffer their response in `Emulator::pending_data`, and the matching 0xD0 in `poll_usbip` pushes phase + buffered data in correct protocol order. Smoke test updated to follow the full Nikon protocol (CDB → 0xD0 → bulk-IN phase → bulk-IN data) instead of the shortcut "CDB → bulk-IN data" that worked against the old (incorrect) ordering. New e2e test `post_phase_query_after_inquiry_returns_1_byte_firmware_dispatch`.
+
+**Verification**:
+- 318/318 tests still green (was 318; +1 from the bridge URB-boundary test, 0 net from updated tests).
+- `cargo clippy --release --all-targets`: clean.
+- Live emulator log post-fixes shows the corrected wire format:
+  ```
+  USBIP: EP1 OUT URB 6 bytes  (INQUIRY)
+  FW DISPATCH: opcode 0x12
+  USBIP: EP1 OUT URB 1 byte   (0xD0)
+  USBIP: EP2 IN URB request=512 bytes, queued=37, sending=37  (1 phase + 36 data, correct order)
+  SCSI EMU: PHASE QUERY → phase=0x03                          (data-in, correct value)
+  ```
+  Compare to pre-N9-fixes: phase was 0x00 (invalid), and the queue order had the 36-byte INQUIRY data before the phase byte.
+
+**Result**: NikonScan **still** shows "no active devices." But the failure has moved one more layer up: the wire protocol is now mechanically correct end-to-end, yet NikonScan's TWAIN data source enumeration still rejects.
+
+**Remaining hypotheses for the persistent rejection**:
+
+A. **Race in bulk-IN scheduling**: Sometimes the live trace shows `EP2 IN URB request=512 bytes, queued=0, sending=0` — the host's bulk-IN URB raced ahead of the orchestrator's response push. The host gets a 0-byte response. Our bridge returns `Vec::new()` immediately when no data is queued, which the host's USB stack may interpret as "transfer complete with 0 bytes" (vs. NAK + retry). Tested a `std::thread::sleep`-based wait inside the bridge handler — broke smoke test (likely tokio-runtime blocking) and reverted. Future: explore tokio-native blocking or a condvar/notify scheme that doesn't block the worker thread.
+
+B. **Bulk-IN expects two separate URBs (phase, then data) — we serve both in one URB**. NkDUSCAN.dll's bulk-in pattern per protocol doc step 3-4 is: read 1-byte phase, then (if 0x03) read alloc_len bytes of data. With our combined-queue design, when host requests `transfer_buffer_length=512` and we have 37 bytes queued, we send all 37 in one URB. NkDUSCAN may parse the first byte as phase but then expect a DIFFERENT URB for data. Diagnostic: capture USB traffic on the Windows side via Wireshark/USBPcap to see exact URB boundaries NkDUSCAN issues. If yes, the bridge should rate-limit EP2 IN: serve the phase byte first, then on the next URB serve the data.
+
+C. **`IOCTL_GET_DEVICE_DESCRIPTOR` returns wrong field layout**. NkDUSCAN reads "max packet size at `[result + 0x10]`" from a 12-byte IOCTL response (per `docs/kb/components/nkduscan/classes.md::CUSBDeviceTable`). Speed_type computed as 2/3 based on max_packet_size==0x40 / 0x200. The bridge advertises `BULK_HS_MAX_PACKET=512` in the USB descriptor but doesn't directly serve `IOCTL_GET_DEVICE_DESCRIPTOR` — the kernel constructs the response from the negotiated USB descriptor. If the layout doesn't match what NkDUSCAN expects at offset 0x10, speed_type=0 → `CUSBDevInfo` not added to the table → no devices.
+
+**Recommended next steps** (ordered by cheapest):
+- a) Try writing to NkDUSCAN.dll's MFC trace log (if any) to see exactly where the device-acceptance check fails inside the DLL.
+- b) Capture USB traffic in the VM via `usbpcap` and compare with a real-LS-50 trace if one exists.
+- c) Re-RE NKDUSCAN.dll:0x10003a90 (CUSBDeviceTable enumeration) and 0x10003c40 (CUSBDevInfo IOCTL response parser) in Ghidra to narrow down the exact field check that fails.
+- d) Add a fake `IOCTL_GET_DEVICE_DESCRIPTOR` handler in the bridge — answer with bytes that exactly match what real Coolscan firmware would produce, including offset 0x10 = 0x0200.
+
+This isn't a quick fix. The protocol-correctness work IS valuable (the firmware now sees byte-correct wire format and the host gets correct responses for INQUIRY+phase) but NikonScan's TWAIN-side check is upstream of where we have visibility. Recommend cutting this milestone here and re-tackling N9 with Wireshark + Ghidra in a focused next session.

@@ -74,9 +74,17 @@ pub const POST_BOOT_FLASH_RESTORES: &[(u32, u32)] = &[
 /// polling thread.
 #[derive(Default, Debug)]
 struct BridgeState {
-    /// Bytes received from the USB host on EP1 OUT (CDB / data-out).
-    /// Drained by `recv_ep1_out` into the ISP1581 EP1 OUT FIFO.
-    ep1_out: VecDeque<u8>,
+    /// URBs received from the USB host on EP1 OUT (CDB / data-out). Each
+    /// entry is one bulk-OUT URB's payload. URB boundaries are preserved
+    /// so the orchestrator can process commands one at a time — without
+    /// this, a CDB URB followed quickly by the matching 0xD0 phase-query
+    /// URB would be flattened into a single 7-byte byte stream and
+    /// dispatched as one (incorrectly-padded) CDB. Drained one URB per
+    /// `recv_ep1_out` call.
+    ep1_out: VecDeque<Vec<u8>>,
+    /// Total bytes across all queued ep1_out URBs (for the over-cap
+    /// check). Updated alongside `ep1_out` pushes/pops.
+    ep1_out_bytes: usize,
     /// Bytes pending for the host on EP2 IN (responses / data-in).
     /// Filled by `send_ep2_in` from the ISP1581 EP2 IN FIFO.
     ep2_in: VecDeque<u8>,
@@ -129,15 +137,16 @@ impl UsbInterfaceHandler for CoolscanInterfaceHandler {
 
         match ep.address {
             EP1_OUT_ADDR => {
-                // Bulk OUT: append host data to EP1 OUT queue. Over-cap
-                // means the orchestrator isn't draining (firmware stuck?)
-                // — silent drop would corrupt the next CDB the firmware
-                // reads. Mark fatal instead.
-                if state.ep1_out.len() + req.len() > MAX_FIFO_BYTES {
+                // Bulk OUT: queue the host's URB as one atomic entry.
+                // Preserving URB boundaries is required so the orchestrator
+                // dispatches commands one at a time — see ep1_out doc.
+                // Over-cap means the orchestrator isn't draining (firmware
+                // stuck?) — silent drop would corrupt the next CDB.
+                if state.ep1_out_bytes + req.len() > MAX_FIFO_BYTES {
                     log::error!(
                         "USB/IP: EP1 OUT FIFO overflow ({} buffered + {} new > {} cap) — \
                          dropping host link",
-                        state.ep1_out.len(),
+                        state.ep1_out_bytes,
                         req.len(),
                         MAX_FIFO_BYTES,
                     );
@@ -148,16 +157,36 @@ impl UsbInterfaceHandler for CoolscanInterfaceHandler {
                         "EP1 OUT FIFO overflow",
                     ));
                 }
-                state.ep1_out.extend(req);
+                log::debug!(
+                    "USB/IP: EP1 OUT URB {} bytes (buffer_length={}, urbs_queued={})",
+                    req.len(),
+                    transfer_buffer_length,
+                    state.ep1_out.len() + 1,
+                );
+                state.ep1_out_bytes += req.len();
+                state.ep1_out.push_back(req.to_vec());
                 Ok(Vec::new())
             }
             EP2_IN_ADDR => {
                 // Bulk IN: drain up to `transfer_buffer_length` from the
-                // EP2 IN queue. Returning empty Vec is the correct USB
-                // semantic for "no data yet" — the host treats it as a
-                // NAK and retries.
+                // EP2 IN queue. Returning an empty Vec with no wait was
+                // previously interpreted by the host's usbscan.sys as
+                // "transfer complete with 0 bytes" instead of "device
+                // busy, retry" — causing NikonScan's first INQUIRY to
+                // silently get nothing back. The N9 fix moves response
+                // ordering correctness into the orchestrator (CDB data
+                // is buffered until the matching 0xD0 phase query arrives,
+                // then phase + data are pushed in protocol order), so by
+                // the time the host's bulk-IN reaches us after a CDB +
+                // 0xD0 sequence, both response halves are already queued.
+                // No bridge-level wait needed when the orchestrator is
+                // protocol-aware.
                 let want = transfer_buffer_length as usize;
-                let take = state.ep2_in.len().min(want);
+                let have = state.ep2_in.len();
+                let take = have.min(want);
+                log::debug!(
+                    "USB/IP: EP2 IN URB request={want} bytes, queued={have}, sending={take}"
+                );
                 Ok(state.ep2_in.drain(..take).collect())
             }
             other => {
@@ -279,12 +308,15 @@ impl UsbBridge for UsbipServerBridge {
         // CLAUDE.md "no over-defensive checks", surface the panic
         // rather than silently dropping CDB bytes which would leave the
         // emulator running but deaf to the host.
+        //
+        // Returns ONE URB at a time so the orchestrator can dispatch
+        // commands one per poll. Without this, a CDB + 0xD0 phase-query
+        // URB pair arriving close together gets concatenated into a
+        // single 7-byte "CDB" and dispatched as a misbuilt INQUIRY.
         let mut s = self.state.lock().expect("BridgeState mutex poisoned");
-        if s.ep1_out.is_empty() {
-            None
-        } else {
-            Some(s.ep1_out.drain(..).collect())
-        }
+        let urb = s.ep1_out.pop_front()?;
+        s.ep1_out_bytes = s.ep1_out_bytes.saturating_sub(urb.len());
+        Some(urb)
     }
 
     fn send_ep2_in(&mut self, data: &[u8]) {
@@ -332,15 +364,25 @@ mod tests {
     }
 
     #[test]
-    fn recv_ep1_out_drains_state() {
+    fn recv_ep1_out_returns_one_urb_per_call() {
         let bridge = UsbipServerBridge::new("127.0.0.1", 0).unwrap();
-        // Inject directly into shared state (simulating what a real URB
-        // would do via handle_urb).
-        bridge.state.lock().unwrap().ep1_out.extend([0x12, 0x00, 0x00, 0x00, 0x24, 0x00]);
+        // Inject two URBs directly into shared state (simulating two
+        // back-to-back bulk-OUTs that arrived between orchestrator polls).
+        {
+            let mut s = bridge.state.lock().unwrap();
+            let urb1 = vec![0x12u8, 0x00, 0x00, 0x00, 0x24, 0x00];
+            let urb2 = vec![0xD0u8];
+            s.ep1_out_bytes = urb1.len() + urb2.len();
+            s.ep1_out.push_back(urb1);
+            s.ep1_out.push_back(urb2);
+        }
         let mut bridge = bridge;
-        let drained = bridge.recv_ep1_out().expect("FIFO had data");
-        assert_eq!(drained, vec![0x12, 0x00, 0x00, 0x00, 0x24, 0x00]);
-        assert!(bridge.recv_ep1_out().is_none(), "FIFO drained");
+        let first = bridge.recv_ep1_out().expect("first URB");
+        assert_eq!(first, vec![0x12, 0x00, 0x00, 0x00, 0x24, 0x00]);
+        let second = bridge.recv_ep1_out().expect("second URB");
+        assert_eq!(second, vec![0xD0]);
+        assert!(bridge.recv_ep1_out().is_none(), "queue drained");
+        assert_eq!(bridge.state.lock().unwrap().ep1_out_bytes, 0);
     }
 
     #[test]
@@ -384,11 +426,14 @@ mod tests {
         // error so the usbip crate tears down the TCP connection. Silent
         // drop here would corrupt the next CDB the firmware reads.
         let state = Arc::new(Mutex::new(BridgeState::default()));
-        state
-            .lock()
-            .unwrap()
-            .ep1_out
-            .extend(std::iter::repeat_n(0u8, MAX_FIFO_BYTES - 10));
+        {
+            // Pre-fill with one giant URB just shy of the cap. Total bytes
+            // tracked via `ep1_out_bytes` for the over-cap arithmetic.
+            let mut s = state.lock().unwrap();
+            let big = vec![0u8; MAX_FIFO_BYTES - 10];
+            s.ep1_out_bytes = big.len();
+            s.ep1_out.push_back(big);
+        }
 
         let mut handler = CoolscanInterfaceHandler { state: state.clone() };
         let interface = UsbInterface {
@@ -487,10 +532,9 @@ mod tests {
             .expect("URB succeeds");
         assert_eq!(result, Vec::<u8>::new(), "OUT URB returns empty");
         assert!(state.lock().unwrap().connected, "first URB sets connected");
-        assert_eq!(
-            state.lock().unwrap().ep1_out.iter().copied().collect::<Vec<_>>(),
-            vec![0xAB, 0xCD],
-        );
+        let queued: Vec<Vec<u8>> = state.lock().unwrap().ep1_out.iter().cloned().collect();
+        assert_eq!(queued, vec![vec![0xABu8, 0xCD]], "URB queued as one entry");
+        assert_eq!(state.lock().unwrap().ep1_out_bytes, 2);
     }
 
     #[test]

@@ -119,17 +119,40 @@ fn smoke_inquiry_via_usbip() {
         });
     let busid = coolscan.busid.clone();
 
-    // 5. Import the device and submit an INQUIRY CDB on EP1 OUT, then
-    //    drain EP2 IN for the response.
+    // 5. Import the device and follow the Nikon USB-wrapped-SCSI protocol
+    //    (docs/kb/architecture/usb-protocol.md) to fetch the INQUIRY
+    //    response. The wire sequence is:
+    //
+    //       host → CDB        (bulk-OUT EP1, 6 bytes)
+    //       host → 0xD0       (bulk-OUT EP1, 1 byte phase query)
+    //       host ← phase byte (bulk-IN  EP2, 1 byte; 0x03 = data-in)
+    //       host ← INQUIRY    (bulk-IN  EP2, 36 bytes payload)
+    //
+    //    Earlier versions of this test took a shortcut by issuing INQUIRY
+    //    then a single bulk-IN read for 36 bytes — that was sufficient
+    //    against the orchestrator's old behavior of pushing CDB responses
+    //    straight to EP2 IN, but the Nikon protocol expects the phase
+    //    byte FIRST. The N9 fix (commit TBD) corrected the response
+    //    ordering by buffering CDB responses until the matching 0xD0
+    //    arrives, so the test now follows the protocol properly.
     let mut session = client.req_import(&busid).expect("OP_REQ_IMPORT");
     let inquiry_cdb = [0x12u8, 0x00, 0x00, 0x00, 0x24, 0x00];
     session
         .bulk_out(0x01, &inquiry_cdb)
-        .expect("EP1 OUT bulk submit");
+        .expect("EP1 OUT bulk submit (INQUIRY)");
+    session
+        .bulk_out(0x01, &[0xD0u8])
+        .expect("EP1 OUT bulk submit (0xD0 phase query)");
+
+    let phase = session
+        .bulk_in(0x82, 1, Duration::from_secs(10))
+        .expect("EP2 IN bulk submit (phase)");
+    assert_eq!(phase.len(), 1, "phase response must be 1 byte");
+    assert_eq!(phase[0], 0x03, "phase after INQUIRY (data-in) should be 0x03");
 
     let response = session
         .bulk_in(0x82, 36, Duration::from_secs(10))
-        .expect("EP2 IN bulk submit");
+        .expect("EP2 IN bulk submit (INQUIRY data)");
 
     // Known-good INQUIRY fixture — the exact 36 bytes the firmware's
     // INQUIRY handler produces from its template at flash offset 0x170CE.

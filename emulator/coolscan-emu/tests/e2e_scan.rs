@@ -1508,19 +1508,23 @@ fn post_receive_diagnostic() {
     assert_eq!(r.data.len(), 16, "Should return 16 bytes");
 }
 
-/// Phase query (0xD0) returns phase byte.
+/// Phase query (0xD0) returns phase byte. Default phase before any prior
+/// CDB has been processed is 0x01 (status only / no data) — the
+/// protocol-correct value for "no command pending". Earlier code returned
+/// 0x00, but per docs/kb/architecture/usb-protocol.md valid phases are
+/// {0x01, 0x02, 0x03}; 0x00 produces error 0x00011003 in NKDUSCAN.dll.
 #[test]
 fn post_phase_query() {
     let _ = env_logger::builder().is_test(true).try_init();
     let mut emu = boot_emulator();
 
-    // CDB: vendor 0xD0 (phase query)
+    // CDB: vendor 0xD0 (phase query) — first command, no prior CDB,
+    // so pending_phase is the default 0x01 (status only).
     let cdb = vec![0xD0, 0x00, 0x00, 0x00, 0x00, 0x00];
     let r = emu.scsi_command(&cdb);
     assert_eq!(r.sense_key, 0, "PHASE QUERY should return GOOD");
     assert_eq!(r.data.len(), 1, "Should return 1 phase byte");
-    // Phase 0x00 = idle (no scan in progress)
-    assert_eq!(r.data[0], 0x00, "Phase should be idle (0x00)");
+    assert_eq!(r.data[0], 0x01, "Default phase before any CDB is status-only (0x01)");
 }
 
 /// Phase query after a prior INQUIRY must still return 1 byte. Live
@@ -1544,6 +1548,8 @@ fn post_phase_query_after_inquiry_returns_1_byte_firmware_dispatch() {
     let _ = emu.scsi_command(&inquiry);
 
     // Then a 1-byte phase query — same shape NkDUSCAN.dll sends over USB.
+    // After a data-in command (INQUIRY), phase should be 0x03 so NKDUSCAN
+    // knows to issue a bulk-IN to read the response data.
     let phase = vec![0xD0];
     let r = emu.scsi_command(&phase);
     assert_eq!(r.sense_key, 0, "PHASE QUERY should return GOOD");
@@ -1554,7 +1560,7 @@ fn post_phase_query_after_inquiry_returns_1_byte_firmware_dispatch() {
         r.data.len(),
         r.data
     );
-    assert_eq!(r.data[0], 0x00, "Phase should be idle (0x00)");
+    assert_eq!(r.data[0], 0x03, "Phase after INQUIRY (data-in) should be 0x03");
 }
 
 /// Flash log area writes are accepted (not rejected as read-only).

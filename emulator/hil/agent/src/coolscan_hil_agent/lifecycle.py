@@ -142,7 +142,7 @@ class Lifecycle:
         )
         return result == 0
 
-    def usbip_reattach(self, host_ip: str, busid: str = "1-1", timeout_s: int = 45) -> None:
+    def usbip_reattach(self, host_ip: str, busid: str = "1-1", timeout_s: int = 60) -> None:
         """Re-attach the emulator's USB/IP device inside the Windows VM.
 
         The `driver-bound` snapshot remembers an active usbip-win2 session,
@@ -153,9 +153,13 @@ class Lifecycle:
         """
         # Poll up to ~20 s for PnP Status=OK after attach (usbip-win2's
         # driver bind is observed at 5-10 s per M15 phase log), then sleep
-        # an additional 5 s for usbscan kernel-mode service to publish the
-        # device handle. Without the post-OK settle, NikonScan launches
-        # before the handle is available and reports "no active devices."
+        # an additional 20 s for usbscan kernel-mode service + WIA STI
+        # device-table to publish the device handle. The 5-s settle was
+        # insufficient for backlog N9 — NikonScan launches and runs its
+        # TWAIN data source enumeration before the handle is fully
+        # registered with the STI manager, then caches "no active
+        # devices" forever. 20 s gives the kernel + STI table + WIA
+        # service stack time to settle.
         ps_script = (
             "$ErrorActionPreference = 'Continue'\n"
             "$usbip = 'C:\\Program Files\\USBip\\usbip.exe'\n"
@@ -166,8 +170,8 @@ class Lifecycle:
             "    $dev = Get-PnpDevice -InstanceId 'USB\\VID_04B0&PID_4001\\*' "
             "-ErrorAction SilentlyContinue\n"
             "    if ($dev -and $dev.Status -eq 'OK') {\n"
-            "        Write-Output \"PnP OK after $i s; settling 5 s for usbscan\"\n"
-            "        Start-Sleep -Seconds 5\n"
+            "        Write-Output \"PnP OK after $i s; settling 20 s for usbscan + WIA STI\"\n"
+            "        Start-Sleep -Seconds 20\n"
             "        exit 0\n"
             "    }\n"
             "}\n"
