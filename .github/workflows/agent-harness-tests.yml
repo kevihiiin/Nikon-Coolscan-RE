@@ -1,0 +1,60 @@
+# Tier 0 of the M15 CI ladder: lint + types + unit tests for the agent harness.
+# Runs on hosted GitHub runners — no VM, no Holo3 endpoint, no libvirt.
+# Tier 1 (`smoke_usbip_e2e` Rust test) and Tier 2 (full E2E with VM + Holo3)
+# live in separate workflows.
+
+name: agent-harness tests
+
+on:
+  push:
+    paths:
+      - 'emulator/hil/agent/**'
+      - '.github/workflows/agent-harness-tests.yml'
+  pull_request:
+    paths:
+      - 'emulator/hil/agent/**'
+      - '.github/workflows/agent-harness-tests.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: emulator/hil/agent
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libvirt-dev
+        # libvirt-python is in the `vm` extra; we don't install it here, but
+        # `uv sync --extra dev` only needs system Python. Listed for parity
+        # with the dev box; remove if it slows CI without value.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: 'emulator/hil/agent/uv.lock'
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync dev deps
+        run: uv sync --extra dev
+
+      - name: ruff check
+        run: uv run ruff check
+
+      - name: ruff format check
+        run: uv run ruff format --check
+
+      - name: mypy --strict
+        run: uv run mypy
+
+      - name: pytest with coverage
+        run: uv run pytest --no-header -v

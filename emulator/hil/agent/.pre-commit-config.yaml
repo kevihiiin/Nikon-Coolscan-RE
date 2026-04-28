@@ -1,0 +1,30 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --directory emulator/hil/agent ruff check
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --directory emulator/hil/agent ruff format --check
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy --strict
+        entry: uv run --directory emulator/hil/agent mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest-collect
+        name: pytest --collect-only
+        entry: uv run --directory emulator/hil/agent pytest --collect-only -q
+        language: system
+        types: [python]
+        pass_filenames: false

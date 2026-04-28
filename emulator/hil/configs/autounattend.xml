@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Autounattend.xml for Windows 11 IoT Enterprise LTSC 2024 (build 26100.x).
+  Drives the entire installer:
+    - English-US locale, UTC timezone
+    - Wipe disk 0, UEFI partition layout (ESP + MSR + Windows)
+    - Install image index 1 (the only edition in the IoT LTSC ISO)
+    - Skip product key / EULA / OOBE network / MS account screens
+    - Create local user `coolscan` (no password)
+    - AutoLogon once, then run C:\postinstall.cmd
+  The post-install ISO must be attached at boot — postinstall.cmd is copied
+  from there to C:\ and invoked from FirstLogonCommands.
+
+  windowsPE driver injection: virtio storage drivers are bundled into the
+  same ISO that holds this Autounattend.xml under \$WinPEDriver$\viostor\
+  so Windows Setup auto-loads them and sees the virtio-blk system disk.
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+
+  <!-- =================================================================
+       PASS 1: windowsPE — early install, partition disk, install image
+       ================================================================= -->
+  <settings pass="windowsPE">
+
+    <component name="Microsoft-Windows-International-Core-WinPE"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS">
+      <SetupUILanguage>
+        <UILanguage>en-US</UILanguage>
+      </SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS">
+      <DiskConfiguration>
+        <Disk wcm:action="add">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add">
+              <Order>1</Order>
+              <Type>EFI</Type>
+              <Size>260</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>2</Order>
+              <Type>MSR</Type>
+              <Size>16</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>3</Order>
+              <Type>Primary</Type>
+              <Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order>
+              <PartitionID>1</PartitionID>
+              <Format>FAT32</Format>
+              <Label>System</Label>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>2</Order>
+              <PartitionID>2</PartitionID>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>3</Order>
+              <PartitionID>3</PartitionID>
+              <Format>NTFS</Format>
+              <Label>Windows</Label>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/INDEX</Key>
+              <Value>1</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>3</PartitionID>
+          </InstallTo>
+        </OSImage>
+      </ImageInstall>
+
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+        <FullName>coolscan</FullName>
+        <Organization>Nikon-Coolscan-RE</Organization>
+        <ProductKey>
+          <WillShowUI>OnError</WillShowUI>
+        </ProductKey>
+      </UserData>
+    </component>
+  </settings>
+
+  <!-- =================================================================
+       PASS 2: specialize — set hostname
+       ================================================================= -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS">
+      <ComputerName>coolscan-hil</ComputerName>
+      <RegisteredOwner>coolscan</RegisteredOwner>
+      <RegisteredOrganization>Nikon-Coolscan-RE</RegisteredOrganization>
+      <TimeZone>UTC</TimeZone>
+    </component>
+  </settings>
+
+  <!-- =================================================================
+       PASS 3: oobeSystem — create user, skip OOBE, FirstLogonCommands
+       ================================================================= -->
+  <settings pass="oobeSystem">
+
+    <component name="Microsoft-Windows-International-Core"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS">
+
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Password>
+              <Value></Value>
+              <PlainText>true</PlainText>
+            </Password>
+            <Description>HIL operator account</Description>
+            <DisplayName>coolscan</DisplayName>
+            <Group>Administrators</Group>
+            <Name>coolscan</Name>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+
+      <!-- AutoLogon ensures the FirstLogonCommands actually fire on first
+           boot to desktop. The post-install script disables AutoLogon at
+           the end. -->
+      <AutoLogon>
+        <Username>coolscan</Username>
+        <Password>
+          <Value></Value>
+          <PlainText>true</PlainText>
+        </Password>
+        <Enabled>true</Enabled>
+        <LogonCount>2</LogonCount>
+      </AutoLogon>
+
+      <!-- Two-step bootstrap:
+             1. Find the post-install ISO (marker file) and copy postinstall.cmd to C:\
+             2. Run C:\postinstall.cmd
+           This avoids long inline commands and brittle escaping in XML. -->
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Locate post-install ISO and stage script to C:\</Description>
+          <CommandLine>cmd.exe /c for %d in (D E F G H I J K L M) do @if exist %d:\COOLSCAN_POSTINSTALL.MARKER copy /Y %d:\postinstall.cmd C:\postinstall.cmd</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Description>Run staged post-install script</Description>
+          <CommandLine>cmd.exe /c C:\postinstall.cmd</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+    </component>
+  </settings>
+</unattend>

@@ -1,0 +1,10 @@
+# Domains whose VNC graphics should be rebound to the host's Tailscale IPv4
+# every time they start. One name per line. Lines starting with `#` are
+# comments. Substituted in by the libvirt qemu hook
+# (emulator/hil/scripts/libvirt-hook-vnc-tailscale).
+#
+# Each VM must additionally have its baseline graphics in the domain XML
+# bound to a sentinel like `127.0.0.1` — the hook only mutates listen
+# values, doesn't add the <graphics> element.
+
+win10-ltsc-nikonscan

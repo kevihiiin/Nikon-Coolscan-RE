@@ -1,0 +1,62 @@
+# Tier 2 of the M15 CI ladder: full E2E regression.
+# Runs on a self-hosted runner (the dev box) which has libvirt + the Win10 VM.
+# Triggered manually or nightly. Requires the externally-operated Holo3
+# endpoint to be reachable; fails fast with a clear error otherwise.
+
+name: M15 regression (full E2E)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'  # 06:00 UTC nightly
+
+jobs:
+  regression:
+    # Self-hosted runner labels: `self-hosted, hil` (dev box with libvirt + emulator).
+    runs-on: [self-hosted, hil]
+    timeout-minutes: 90
+    env:
+      LIBVIRT_URI: qemu:///system
+      LIBVIRT_DOMAIN: win10-ltsc-nikonscan
+      LIBVIRT_SNAPSHOT: nikonscan-installed
+      VNC_HOST: 127.0.0.1
+      VNC_PORT: '5900'
+      ARTIFACTS_DIR: /mnt/vmstore/ci-artifacts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: 'emulator/hil/agent/uv.lock'
+
+      - name: Sync deps (vm + dev extras)
+        working-directory: emulator/hil/agent
+        run: uv sync --extra dev --extra vm
+
+      - name: Holo3 endpoint smoke (fail fast on infrastructure issues)
+        working-directory: emulator/hil/agent
+        run: uv run coolscan-hil holo3-smoke
+        env:
+          HOLO3_BASE_URL: ${{ secrets.HOLO3_BASE_URL }}
+          HOLO3_MODEL: ${{ secrets.HOLO3_MODEL }}
+          HOLO3_API_KEY: ${{ secrets.HOLO3_API_KEY }}
+
+      - name: Run regression suite
+        run: bash emulator/hil/scripts/ci_run_recipe.sh
+        env:
+          HOLO3_BASE_URL: ${{ secrets.HOLO3_BASE_URL }}
+          HOLO3_MODEL: ${{ secrets.HOLO3_MODEL }}
+          HOLO3_API_KEY: ${{ secrets.HOLO3_API_KEY }}
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m15-regression-${{ github.run_id }}
+          path: |
+            /mnt/vmstore/ci-artifacts/**
+            emulator/hil/agent/artifacts/**
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,107 @@
+[project]
+name = "coolscan-hil-agent"
+version = "0.1.0"
+description = "NikonScan E2E regression harness: VNC + Holo3 oracle + grounding-fallback agent for the Coolscan emulator"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+readme = "README.md"
+authors = [{ name = "Kevin Yuan" }]
+
+dependencies = [
+    "vncdotool>=1.2.0",      # VNC client (screenshot capture, mouse/keyboard injection)
+    "openai>=1.50.0",        # Holo3 endpoint speaks OpenAI-compatible chat completions
+    "httpx>=0.27.0",         # underlying HTTP client; needed for explicit timeout/retry control
+    "pillow>=10.4.0",        # PIL.Image for VNC frame capture, downscaling, sanity checks
+    "imagehash>=4.3.1",      # pHash baselines for visual regression
+    "pydantic>=2.9.0",       # Action schema (discriminated union) + RecipeResult models
+    "pydantic-settings>=2.5.0",  # env-driven config (HOLO3_BASE_URL etc.)
+    "fastmcp>=2.0.0",        # MCP stdio server exposing tools to Claude Code
+    "structlog>=24.4.0",     # JSON logging with run_id propagation via contextvars
+    "typer>=0.12.0",         # CLI: `coolscan-hil run|record|vm|holo3-smoke`
+]
+
+[project.scripts]
+coolscan-hil = "coolscan_hil_agent.cli:app"
+
+[project.optional-dependencies]
+# `uv sync --extra vm` after `apt install libvirt-dev` (Phase 1)
+vm = [
+    "libvirt-python>=10.5.0",
+]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+    "respx>=0.21.0",          # mocks the Holo3 endpoint in unit tests
+    "mypy>=1.11.0",
+    "ruff>=0.6.0",
+    "pre-commit>=3.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coolscan_hil_agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",       # pycodestyle
+    "F",            # pyflakes
+    "I",            # isort
+    "B",            # bugbear
+    "UP",           # pyupgrade
+    "N",            # pep8-naming
+    "SIM",          # simplify
+    "RUF",          # ruff-specific
+    "ASYNC",        # async best practices
+    "S",            # bandit (security)
+    "T20",          # no print statements (use structlog)
+]
+ignore = [
+    "S101",         # assert is fine in tests
+    "S603",         # subprocess: trusted args only
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]   # assertions, hardcoded test secrets
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["vncdotool.*", "imagehash.*", "libvirt.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Single-flight by default (no pytest-xdist). The recipe runner enforces this
+# at runtime with an asyncio.Lock + file-lock at /mnt/vmstore/recipe.lock.
+#
+addopts = "--cov=coolscan_hil_agent --cov-report=term-missing --cov-fail-under=80"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error"]
+
+[tool.coverage.report]
+exclude_also = [
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+omit = ["src/coolscan_hil_agent/recipes/*"]   # recipes are integration code

@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "coolscan-hil-agent": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "emulator/hil/agent",
+        "python",
+        "-m",
+        "coolscan_hil_agent.mcp_server"
+      ],
+      "env": {
+        "HOLO3_BASE_URL": "",
+        "HOLO3_MODEL": "Hcompany/Holo3-35B-A3B",
+        "HOLO3_API_KEY": "",
+        "VNC_HOST": "127.0.0.1",
+        "VNC_PORT": "5900",
+        "LIBVIRT_URI": "qemu:///system",
+        "LIBVIRT_DOMAIN": "win10-ltsc-nikonscan",
+        "LIBVIRT_SNAPSHOT": "nikonscan-installed"
+      }
+    }
+  }
+}

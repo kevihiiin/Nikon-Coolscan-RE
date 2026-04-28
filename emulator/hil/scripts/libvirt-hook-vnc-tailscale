@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""libvirt qemu hook: rebind <graphics type='vnc'> to the Tailscale IPv4 at VM start.
+
+Installed at /etc/libvirt/hooks/qemu. Runs as root for every domain state
+transition. Opt-in per VM via a one-line-per-name list at
+/etc/libvirt/hooks/coolscan-hil/tailscale-vnc-domains.txt.
+
+Why a hook instead of pinning the IP in the domain XML?
+- Tailscale IPs are stable in practice but can change (node rekey, ACL
+  shifts, fresh tailnet enroll). Interface name `tailscale0` is stable.
+- libvirt's `<graphics listen=...>` requires an IP, not an interface
+  name. Resolving at `prepare` time bridges the gap.
+- The persistent XML stays declarative (`listen='127.0.0.1'`). The hook
+  rewrites the XML libvirt is about to use to start the VM.
+
+Hook protocol:
+    qemu <vm-name> <event> <subevent> [<extra>...]
+    Domain XML on stdin for prepare/release.
+    For 'prepare', modified XML on stdout is what libvirt uses to start
+    the VM. Empty stdout = libvirt uses original XML.
+
+Implementation note: regex substitution rather than XML parse+reemit.
+ElementTree's reemitted XML differs from libvirt's input in ways that
+libvirt has historically rejected silently (quote style, xmlns prefixes,
+missing XML declaration). Regex changes only the bytes that need to
+change, preserves everything else byte-for-byte.
+
+Fail-safe: any error → passthrough (echo stdin verbatim) so VMs start
+even if Tailscale is down or the hook is buggy.
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+import sys
+import syslog
+from pathlib import Path
+
+DOMAIN_LIST = Path("/etc/libvirt/hooks/coolscan-hil/tailscale-vnc-domains.txt")
+TAILSCALE_BIN = shutil.which("tailscale") or "/usr/bin/tailscale"
+SYSLOG_TAG = "libvirt-hook-vnc-tailscale"
+
+
+def log(level: int, msg: str) -> None:
+    syslog.openlog(SYSLOG_TAG)
+    syslog.syslog(level, msg)
+
+
+def domain_in_list(name: str) -> bool:
+    if not DOMAIN_LIST.is_file():
+        return False
+    for line in DOMAIN_LIST.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and line == name:
+            return True
+    return False
+
+
+def tailscale_ipv4() -> str | None:
+    try:
+        out = subprocess.check_output(
+            [TAILSCALE_BIN, "ip", "-4"], text=True, timeout=5
+        ).strip()
+    except (FileNotFoundError, subprocess.SubprocessError, OSError) as e:
+        log(syslog.LOG_WARNING, f"tailscale ip -4 failed: {e}")
+        return None
+    for line in out.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return None
+
+
+# Match `<graphics type='vnc' ... listen='10.0.0.1'>` — single OR double quotes.
+# Capture groups: 1=quote, 2=old IP. Replace IP, keep everything else.
+_GRAPHICS_LISTEN_RE = re.compile(
+    r"(<graphics\s+[^>]*?type=['\"]vnc['\"][^>]*?listen=)"
+    r"(['\"])"  # opening quote
+    r"[0-9.]+"  # old IP
+    r"\2",  # matching closing quote
+)
+
+# Match `<listen type='address' address='10.0.0.1'`
+_LISTEN_ADDRESS_RE = re.compile(
+    r"(<listen\s+[^/>]*?type=['\"]address['\"][^/>]*?address=)"
+    r"(['\"])"
+    r"[0-9.]+"
+    r"\2",
+)
+
+
+def rebind_xml(xml: str, ip: str) -> tuple[str, int]:
+    """Return (modified_xml, n_substitutions)."""
+    new_xml, n1 = _GRAPHICS_LISTEN_RE.subn(rf"\g<1>\g<2>{ip}\g<2>", xml)
+    new_xml, n2 = _LISTEN_ADDRESS_RE.subn(rf"\g<1>\g<2>{ip}\g<2>", new_xml)
+    return new_xml, n1 + n2
+
+
+def main() -> int:
+    if len(sys.argv) < 3:
+        return 0
+    vm_name, event = sys.argv[1], sys.argv[2]
+
+    if event != "prepare":
+        return 0
+
+    try:
+        raw = sys.stdin.read()
+    except OSError:
+        return 0
+    if not raw.strip():
+        return 0
+
+    if not domain_in_list(vm_name):
+        sys.stdout.write(raw)
+        return 0
+
+    ip = tailscale_ipv4()
+    if not ip:
+        log(syslog.LOG_WARNING, f"{vm_name}: no Tailscale IPv4; passthrough")
+        sys.stdout.write(raw)
+        return 0
+
+    rewritten, n = rebind_xml(raw, ip)
+    if n == 0:
+        log(
+            syslog.LOG_WARNING,
+            f"{vm_name}: no <graphics type='vnc'> listen attrs matched; passthrough",
+        )
+    else:
+        log(syslog.LOG_INFO, f"{vm_name}: VNC rebound to {ip} ({n} attr substitutions)")
+    sys.stdout.write(rewritten)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

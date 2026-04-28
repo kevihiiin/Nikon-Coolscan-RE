@@ -91,3 +91,19 @@ decode correctly.
 
 **Confidence**: Verified — firmware boots to main loop (instruction 2,783,761) and all
 63 tests pass.
+
+---
+
+## 2026-04-28 — `MOV.B @(d:24, ERn), Rd` (78-prefix) displacement byte ordering
+
+**Bug**: The 78-prefix MOV.B with 24-bit displacement decoder (`h8300h-core/src/decode.rs:1581-1621`) read the 3 displacement bytes from offsets [pc+4..pc+6] and treated [pc+7] as padding. The H8/300H Programming Manual encoding actually places the padding byte at [pc+4] and the 24-bit displacement at [pc+5..pc+7].
+
+**Symptom**: `mov.b @(0x4006B4, ER0), R1L` at FW:0x020BBC, encoded `78 00 6A 29 00 40 06 B4`, decoded as `mov.b @(0x004006, ER0), R1L` — the low byte (0xB4) was dropped and the displacement was shifted by 8 bits. The buggy load pulled a non-zero byte from the wrong RAM region, telling the SCSI dispatcher's queue-replay path that slot 0 had pending state when it didn't. The dispatcher then ran a memmove loop at FW:0x020C1C-0x020C5E that walked 255 entries past the queue array into the context save area at 0x400764-0x40076D, corrupting `FW_CTX_INDEX` / `FW_CTX_A_SP` / `FW_CTX_B_SP`. The next RTE at FW:0x0108F4 popped a zero PC and the emulator halted.
+
+**Why it stayed hidden through M14.5**: the existing `smoke_usbip_e2e` test attaches a USB/IP client within ~100 ms and exits at insn ~2.3 M, well before the firmware reaches the buggy dispatcher idle path at insn ~2.79 M. The bug only fired in idle (no SCSI traffic), so all unit tests and the M14.5 e2e smoke happily ignored it. The M15 NikonScan setup tripped over it because usbip-win2 inside a Windows VM takes 5–10 s to attach — far past the 0.6 s halt threshold.
+
+**Fix**: `decode.rs:1597-1610` now reads `pad = byte[pc+4]; d_hi = byte[pc+5]; d_mid = byte[pc+6]; d_lo = byte[pc+7]`, matching the H8/300H Programming Manual encoding.
+
+**New regression test**: `coolscan-emu/tests/smoke_idle_stability.rs::idle_emulator_survives_past_dispatcher_drift_window` runs the emulator with no client traffic for 6 seconds and probes the USB/IP listener every 100 ms. Pre-fix this fails within 600 ms; post-fix it sustains. Test count: 312 → 313, all green, 0 clippy warnings.
+
+**Confidence**: Verified — the corruption pattern at 0x400764+ disappears with the decoder fix, the smoke test still passes (no regression there), and the new idle-stability test exercises ~10× the danger-zone insn count (--max 80 M ~ 10 s). The single test-side change in `e2e_scan.rs::gate_firmware_mode_sense` is *because* MODE SENSE now executes correctly: with the decoder fix, the firmware handler reads its mode pages from the right RAM addresses and produces actual mode-page bytes (different from the simplified Rust emulation's hardcoded fallback). The test was previously bypassing the equality assertion only because the decoder bug made the firmware bail to a sense fallback.

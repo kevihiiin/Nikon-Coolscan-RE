@@ -1592,13 +1592,20 @@ fn decode_group_7(bus: &mut MemoryBus, pc: u32, w0: u16, op_lo: u8, nib2: u8, ni
                 let mode_lo = mode_byte & 0xF;
 
                 if mode_lo != 0 {
-                    // 78 rr 6A [mode][reg] d23 d15 d7 pad = 8-byte MOV.B with 24-bit displacement
-                    // mode_hi: 2 = read, A = write. mode_lo: register number (8 = R0L, etc.)
-                    let w2 = bus.read_word(pc + 4);
-                    let w3 = bus.read_word(pc + 6);
-                    let d_hi = (w2 >> 8) as u32;
-                    let d_mid = (w2 & 0xFF) as u32;
-                    let d_lo = (w3 >> 8) as u32;
+                    // 78 rr 6A [mode][reg] PAD d23 d15 d7 = 8-byte MOV.B with 24-bit displacement.
+                    // mode_hi: 2 = read, A = write. mode_lo: register number (8 = R0L, etc.).
+                    //
+                    // The H8/300H Programming Manual encodes the 24-bit displacement in the
+                    // LOW three bytes of the trailing 4-byte slot, with the high byte as
+                    // padding (0x00). Earlier versions of this decoder treated the layout as
+                    // [d23 d15 d7 pad], which silently dropped the low displacement byte and
+                    // shifted the disp by 8 bits — see also the M14.5 audit log entry on the
+                    // SCSI dispatcher idle-drift crash, which traced through this very
+                    // instruction (PC=0x020BBC) loading from the wrong slot-status byte.
+                    let _pad = bus.read_byte(pc + 4);
+                    let d_hi = bus.read_byte(pc + 5) as u32;
+                    let d_mid = bus.read_byte(pc + 6) as u32;
+                    let d_lo = bus.read_byte(pc + 7) as u32;
                     let disp = sign_extend_24((d_hi << 16) | (d_mid << 8) | d_lo);
                     let reg = mode_lo;
 
