@@ -11,7 +11,8 @@ it as plain blocking I/O.
 
 from __future__ import annotations
 
-import io
+import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -52,12 +53,22 @@ class VncClient:
     def capture(self) -> Image.Image:
         """Snapshot the framebuffer as a PIL RGB image."""
         client = self._require()
-        # vncdotool captureScreen writes a PNG to a path; we round-trip through
-        # an in-memory file to avoid a tempfile.
-        buf = io.BytesIO()
-        client.captureScreen(buf)
-        buf.seek(0)
-        return Image.open(buf).convert("RGB")
+        # vncdotool's `captureScreen` infers the encoder from the path's
+        # suffix and rejects file-like targets without an extension (PIL
+        # raises `ValueError: unknown file extension:` on BytesIO). Round-
+        # trip via a NamedTemporaryFile so the .png suffix drives PIL into
+        # PNG-encoder land, then immediately load + remove.
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            client.captureScreen(tmp_path)
+            with Image.open(tmp_path) as img:
+                return img.convert("RGB")
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     def execute(self, action: Action) -> None:
         """Translate a validated `Action` into VNC events."""

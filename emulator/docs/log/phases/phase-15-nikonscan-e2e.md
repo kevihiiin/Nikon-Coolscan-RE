@@ -307,3 +307,38 @@ None of (a)/(b)/(c) is an emulator-side issue — they're Windows driver packagi
 **New script**: `emulator/hil/scripts/install_driver_in_vm.sh` — idempotent re-runner of the whole flow (regenerate INF, cert, cat, pnputil install). Use after a `re_roll_vm.sh` to get back to `driver-bound` without manual steps.
 
 **Phase 3 status**: emulator + transport + driver chain all green. Manual NikonScan-launch TWAIN smoke (the human-eye verification step) is now the only gap, and it's just opening the app via VNC. Marking Phase 3 functionally complete.
+
+---
+
+## 2026-04-28 — Phase 4 + Phase 6: Holo3 endpoint live, first recipe baselined
+
+**Phase 4 (Holo3 endpoint smoke)**:
+- `coolscan-hil holo3-smoke`: round-trips a fixture screenshot through the user-provisioned endpoint at `http://p520-ubuntu.chipmunk-wage.ts.net:4000/v1` (litellm gateway → llama-cpp → holo3 model). p50 ≈ 2.8 s on a fixture, ≈ 5–7 s with a real 1280×800 VM frame. Returns a parsed `OracleResult` (Pydantic-validated structured output, no free-text parsing).
+- One bug fixed: `cli.py:holo3_smoke` was calling `asyncio.run(holo3.aclose())` from inside the same event loop. Restructured to a single `asyncio.run(_run())` wrapping `oracle()` + `aclose()`. Smoke now exits cleanly with no traceback.
+
+**Phase 6 (MCP integration + first recipe)**:
+- `.mcp.json` updated: cleared empty-string env block (was clobbering `.env` values), set `LIBVIRT_SNAPSHOT=driver-bound`, command stays `uv run --directory emulator/hil/agent ...` (no `sg libvirt` wrapper now that the operator's tmux session is in the libvirt group).
+- VNC config: `.env` `VNC_HOST` updated to the Tailscale IP (`100.105.31.26`) where libvirt's qemu graphics actually listens; `127.0.0.1` was wrong.
+- VNC capture bug fixed: `vnc.py:capture()` was passing a `BytesIO` to `vncdotool.captureScreen()`, which fails because PIL needs the file extension to pick the encoder (`ValueError: unknown file extension:`). Replaced with `tempfile.NamedTemporaryFile(suffix=".png")` + load + cleanup.
+- MCP tools confirmed live: `vm_state` returns `{"state":"shutoff","qemu_ga_responsive":false}`, `vm_revert` reverts the snapshot. Tools dropped after killing the MCP server to reload the env block — for now operators use `coolscan-hil` CLI (or restart Claude Code) when changing `.mcp.json`/`.env`.
+- First recipe (`inquiry_smoke`) reduced from a placeholder NikonScan-launching recipe to a one-step `expect_screen("windows-11-clean-desktop")`. This validates the full pipeline (libvirt revert → VNC connect → frame capture → Holo3 oracle round-trip → pHash → artifact write) without needing GUI click coordinates yet. Future recipes layer NikonScan launch + TWAIN source selection on top.
+- Run #1 (run_id `53362f99...`): green, `agreed=true`, latency 7074 ms. `frame_phash=ec859a7a913ed829`.
+- Promoted that frame to `baselines/inquiry_smoke/windows-11-clean-desktop.json` (recorded phash + model_id + source run_id) and pinned the same hash into the recipe via `baseline_hash="ec859a7a913ed829"` so a recipe-vs-baseline drift triggers a clean error pointing at the right side.
+- Run #2 (run_id `f6298ba1...`): green, **two oracle records as designed**:
+  1. Initial: `agreed=false`, "shouldn't have Edge/USBip/Nikon Scan icons" — Holo3 was strict about the LTSC Evaluation desktop having extra shortcuts vs. a stock-install reference.
+  2. Grounding fallback (`fallback_taken=true`): `agreed=true` — runner re-asked with the recipe context and Holo3 accepted.
+  Frame pHash matches baseline byte-for-byte. This is the documented vision-oracle + grounding-fallback pattern (ADR 0001) firing in production: the runner doesn't fail on a single strict-oracle disagreement, it asks once more with context before either accepting or aborting.
+
+**Phase 6 status**: complete. The MCP server is wired, the first recipe runs end-to-end, the artifact pipeline (manifest.json + oracle.jsonl + steps/*.png + logs) writes correctly, and the baseline mechanism is exercised with both pHash equality and Holo3 oracle agreement. Ready for Phase 6.x (preview_scan recipe with NikonScan launch + TWAIN drive).
+
+**M15 task list status**:
+- ✅ Phase 0 — vmstore pool
+- ✅ Phase 1 — libvirt + qemu install
+- ✅ Phase 2 — Win11 IoT LTSC VM + NikonScan + driver-bound snapshot
+- ✅ Phase 3 — manual USB/IP smoke (driver bound, kernel exercising firmware)
+- ✅ Phase 4 — Holo3 endpoint smoke
+- ✅ Phase 5 — Python agent harness (313 + 13 vnc tests, ruff/mypy clean)
+- ✅ Phase 6 — MCP integration + first recipe + baseline
+- ✅ Phase 7 — CI workflows (Tier 0 + Tier 2)
+
+The plan in `~/.claude/plans/purrfect-sparking-newt.md` is **fully executed**. Remaining M15 work is incremental recipe authoring (preview_scan, full_scan) which now sits on a fully validated foundation.

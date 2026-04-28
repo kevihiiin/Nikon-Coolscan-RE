@@ -74,22 +74,25 @@ def holo3_smoke(
     else:
         img = Image.open(image).convert("RGB")
 
-    holo3 = Holo3Client(settings.holo3_base_url, settings.holo3_model, settings.holo3_api_key)
-    try:
-        call = asyncio.run(holo3.oracle(img, state))
-        typer.echo(
-            json.dumps(
-                {
-                    "model_id": call.model_id,
-                    "agreed": call.agreed,
-                    "reason": call.reason,
-                    "latency_ms": round(call.latency_ms, 1),
-                },
-                indent=2,
+    async def _run() -> None:
+        holo3 = Holo3Client(settings.holo3_base_url, settings.holo3_model, settings.holo3_api_key)
+        try:
+            call = await holo3.oracle(img, state)
+            typer.echo(
+                json.dumps(
+                    {
+                        "model_id": call.model_id,
+                        "agreed": call.agreed,
+                        "reason": call.reason,
+                        "latency_ms": round(call.latency_ms, 1),
+                    },
+                    indent=2,
+                )
             )
-        )
-    finally:
-        asyncio.run(holo3.aclose())
+        finally:
+            await holo3.aclose()
+
+    asyncio.run(_run())
 
 
 @app.command()
