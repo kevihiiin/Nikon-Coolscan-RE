@@ -540,3 +540,49 @@ If NikonScan closes and reopens the scanner (or the user unplugs/replugs), the e
 Motors teleport instantly (`instant_mode`). NikonScan may poll SEND DIAGNOSTIC status or wait for motor completion flags at specific timing. If NikonScan assumes motor movement takes N milliseconds and checks too early, it could see stale state.
 
 **Action**: Add configurable motor speed (steps/sec) with optional `--instant-motors` override for testing. Default to realistic timing for USB gadget mode.
+
+### N7. usbip server → ISP1581 EP1 OUT FIFO race produces phantom TURs under usbscan.sys driving [M16-prereq]
+
+**Discovered**: 2026-04-28 during the first live `preview_scan` recipe run against `usbip-win2 + usbscan.sys` in Win11 LTSC.
+**Files**: `coolscan-emu/src/orchestrator.rs::poll_usbip`, `peripherals/src/isp1581.rs:174-177`
+
+The smoke test `smoke_usbip_e2e` works because the test harness pushes one INQUIRY CDB and reads one response in lockstep. Under Windows `usbscan.sys` driving the same VID/PID, the timing is different:
+
+1. usbip-win2 attaches → PnP transitions to OK, usbscan service Running.
+2. NikonScan launches, opens a usbscan handle, and issues an INQUIRY (or a sequence of CDBs) via the bulk-out endpoint.
+3. The kernel-mode driver's URB submission and the firmware's IRQ1 handler reading 2 bytes from EP1 OUT race. The firmware reads first, finds the FIFO empty, and the C2 fix only emits a one-time warn — the read still **fabricates two zero bytes** which the firmware decodes as opcode `0x00` = TEST UNIT READY.
+4. Firmware happily processes the phantom TUR (handler returns success). No actual INQUIRY reaches the firmware.
+5. NikonScan: "Nikon Scan was unable to find any active devices." Status bar shows "Ready." but TWAIN data source enumeration failed.
+
+Emulator log evidence (run `c0901a108b3948f9a775dea55fa7adeb`):
+```
+WARN  peripherals::isp1581] ISP1581: EP1 OUT FIFO underrun (0 bytes available, 2 needed) — fabricated zeros may be misread as TUR opcode
+INFO  coolscan_emu::orchestrator] FW DISPATCH: handler returned after 5188 instructions
+WARN  peripherals::isp1581] ISP1581: EP1 OUT FIFO underrun ...
+INFO  coolscan_emu::orchestrator] FW DISPATCH: handler returned after 1547 instructions
+```
+
+The single `usbip] Got connection from 192.168.122.115:49685` event confirms one (and only one — see also: usbip server only accepts one attach per emulator instance) successful TCP attachment, but no `MILESTONE: SCSI: INQUIRY handler` lines fire after that point. Just phantom TURs.
+
+**M14 closed C2 with a warn-once flag, but the underlying fabrication is still happening.** That was sufficient for `--gadget` and the smoke test (where pushers pre-populate the FIFO before reads), but insufficient for live usbscan-driven traffic.
+
+**Fix direction (sketch)**:
+- Make EP1 OUT FIFO reads block (or NAK at the USB level) when underrun rather than fabricate zeros.
+- Modeling: when firmware tries to read 2 bytes from an empty FIFO during IRQ1 dispatch, defer the read until the orchestrator's `poll_usbip` has actually pushed CDB bytes into the FIFO. Could use a "pending read" state in ISP1581 + an interrupt-pending hold.
+- Alternatively (simpler but heavier): in `poll_usbip`, atomically push a complete CDB (full 12 or 16 bytes) into EP1 OUT FIFO and set the IRQ1-pending flag in one transaction, so the firmware only sees a transition from "empty" to "complete CDB ready" — never half-filled.
+- Verify with a *new* HIL test: drive usbip-win2 from Linux (`vhci-hcd` + `usbip attach`) with rapid sequential INQUIRY/MODE SENSE/READ CAPACITY CDBs, assert the firmware sees those exact opcodes in the dispatcher milestones, not 0x00.
+
+**Why this blocks M15**: `preview_scan` and `full_scan` both need NikonScan to enumerate the device. Until N7 is fixed, recipes can't get past the "scanner-ready" expect.
+
+**Backlog item I8** (DcBufferLength accuracy, M14-deferred) is adjacent — fixing N7 may also unstick I8 since "did the host fully fill EP1 OUT" becomes meaningful.
+
+### N8. usbip server only accepts ONE attach per emulator instance [M16-prereq]
+
+**Discovered**: 2026-04-28 same session.
+**File**: `bridge/src/usbip_server.rs`
+
+After the first usbip TCP connection and disconnect, subsequent `usbip attach -r ... -b 1-1` calls fail with `error: Device not available.` The server logs `Remote closed the connection` + `Handler ended with Ok(())` but doesn't re-export the device. Manual recovery: kill and restart the emulator.
+
+This is awkward for live recipe runs because every snapshot revert + reattach burns the one available session. Workable for now (one emulator per recipe run), but it makes the orchestrator's "long-running emulator + many short recipes" model from M14.5 not actually achievable in practice.
+
+**Fix direction**: Make the USB/IP server idempotent — after a client disconnects, re-register the device into the server's exported-list and accept new connections.

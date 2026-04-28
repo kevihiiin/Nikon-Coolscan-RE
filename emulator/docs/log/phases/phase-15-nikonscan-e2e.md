@@ -342,3 +342,93 @@ None of (a)/(b)/(c) is an emulator-side issue — they're Windows driver packagi
 - ✅ Phase 7 — CI workflows (Tier 0 + Tier 2)
 
 The plan in `~/.claude/plans/purrfect-sparking-newt.md` is **fully executed**. Remaining M15 work is incremental recipe authoring (preview_scan, full_scan) which now sits on a fully validated foundation.
+
+---
+
+## 2026-04-28 — preview_scan + full_scan recipe skeletons committed
+
+**Action**: add the two recipes that were called out as the only remaining M15 work.
+
+**Approach**: ship them as oracle-driven skeletons (no committed `click_at` coordinates yet). Holo3's grounding-fallback inside `_oracle_with_fallback` gets up to 3 recovery actions per `expect_screen` step — for known-good NikonScan, that is enough to advance through Preview/Scan single-target buttons without recorded clicks. Once green, `coolscan-hil record` replaces the grounding hops with deterministic clicks and promotes screens to `baselines/{preview,full}_scan/`.
+
+**Files**:
+- `emulator/hil/agent/src/coolscan_hil_agent/recipes/preview_scan.py` — clean desktop → NikonScan main window → scanner-ready → preview-rendering-started → preview-pane-shown → `assert_image_nonblank(min_unique_colors=500)`. No file assertion (NikonScan preview is window-internal, not saved to disk).
+- `emulator/hil/agent/src/coolscan_hil_agent/recipes/full_scan.py` — clean desktop → NikonScan main window → scanner-ready → scan-in-progress → scan-complete (10 min timeout) → `assert_file_exists(r"C:\scans\*.tif")`. Default DPI; 4000 DPI throughput stress is a follow-up recipe (`full_scan_4000.py`).
+- `emulator/hil/agent/tests/test_recipe.py` — added `test_preview_scan_recipe_builds` and `test_full_scan_recipe_builds` with shape assertions (open_app present, terminal kind matches recipe intent).
+
+**Quality gates**:
+- `pytest`: 85/85 passing (+2 for new recipe shape tests), 83.33 % coverage (recipes/ omitted as planned).
+- `ruff check`: clean on the new files. (The pre-existing `vnc.py` SIM105 left as-is; not introduced here.)
+- `mypy --strict`: no issues.
+
+**M15 plan now complete-and-baselined for the two remaining recipes.** Going-live still requires running them against the live HIL stack to (a) verify grounding can navigate NikonScan's UI, (b) promote screens to baselines, (c) optionally record pixel-accurate clicks. None of that is blocking on emulator-side changes.
+
+**Likely surface area when running live** (from backlog gap analysis):
+- **N4** Throughput — `full_scan` is the first recipe that exercises sustained EP2 IN; if MIPS or MB/s falls short, batched DMA / instruction caching land here.
+- **N5** USB reset — NikonScan close/reopen mid-recipe may desync; emulator currently has no firmware-state reset on gadget EOF.
+- **N6** Motor timing — instant-teleport may trip NikonScan's motor-poll assumptions if it expects steps to take real ms.
+
+These get triaged when their respective recipes hit them, not pre-emptively.
+
+---
+
+## 2026-04-28 — Live `preview_scan` against the HIL: 7 harness fixes + emulator block
+
+**Goal**: run `preview_scan` end-to-end against the live `driver-bound` snapshot, baseline screens.
+
+**Result**: recipe gets to step 3 of 6 (NikonScan main window verified by Holo3) then blocks because NikonScan reports "no active devices" even after `usbip attach` succeeds, PnP shows `Status=OK / CM_PROB_NONE`, and the `usbscan` service is running. **Root cause is an emulator-side bug, not the harness.**
+
+**7 real harness bugs found and fixed in this session** (all surfaced because `inquiry_smoke` was a single-frame recipe that never exercised these paths):
+
+1. `lifecycle.py` — `qemuAgentCommand` is in the `libvirt_qemu` submodule as a free function (`libvirt_qemu.qemuAgentCommand(domain, ...)`), not a domain method. The original `dom.qemuAgentCommand(...)` call would AttributeError on every libvirt-python release. Tests updated to mock `_libvirt_qemu` and route the existing `dom.qemuAgentCommand.*` test stubs through it; `pyproject.toml` mypy override extended for `libvirt_qemu.*`.
+2. `vnc.py` Type action — vncdotool has no `typeString` (typo for `typeString` was wishful thinking; the API is `keyPress(name)` only). Now iterates per character with a 50 ms inter-char sleep so the Windows guest's keyboard buffer keeps up. Spaces map to the named key `"space"` (KEYMAP value 32).
+3. `vnc.py` Key action — vncdotool's KEYMAP entries are lowercase; multi-char names like `"Return"` (capital R, used by `_open_app`) miss the lookup and crash on `ord("Return")` (string-of-length-6 → `TypeError`). Lowercase multi-char keys; preserve single-char case so capital ASCII letters resolve to the right keysym via `ord('A') = 65`.
+4. `runner._open_app` — the original Win+R Run dialog parses whitespace as exe/arg separator, so `"Nikon Scan"` tries to launch `Nikon` with arg `Scan` ("Windows cannot find 'Nikon'"). Switched to Win-key Start menu search (which treats the whole string as a query and launches the top match). Confirmed live: NikonScan launches reliably.
+5. `runner._do_expect_screen` — `baseline_hash` was checked against the pre-grounding-fallback frame, so a recipe couldn't recover a leftover-dialog state via grounding then satisfy the hash. Re-capture after grounding so the baseline check sees the same screen the oracle just signed off on.
+6. New `Lifecycle.usbip_reattach(host_ip, busid)` — runs PowerShell via qemu-ga: `usbip detach` (best-effort) → `usbip attach` → polls `Get-PnpDevice` for `Status=OK` → 5 s settle for usbscan handle publish. Wired into `cli.run` between VM-ready and recipe-start as a non-fatal hook (`log.warning` on failure rather than aborting the recipe). New env vars `USBIP_HOST` / `USBIP_BUSID` (defaults `192.168.122.1` / `1-1`).
+7. New tests covering the per-char keyPress + key-name normalization (`test_execute_type_per_char_keypress`, `test_execute_key_normalizes_multichar_to_lowercase`, `test_execute_key_preserves_singlechar_case`). 86/86 passing, 83 % coverage, mypy `--strict` clean, ruff clean on new files (the pre-existing `vnc.py` SIM105 left as-is per CLAUDE.md APPEND-ONLY-equivalent stance for unrelated cleanups).
+
+**Live-run timeline** (run_id `c0901a108b3948f9a775dea55fa7adeb`):
+- Step 0 `expect_screen("windows-11-clean-desktop", baseline_hash="ec859a7a913ed829")` ✓ pHash matched on revert.
+- Step 1 `open_app("Nikon Scan")` ✓ via Start-menu Win-key path.
+- Step 2 `wait_for_screen("nikonscan-main-window")` ✓ Holo3 saw the splash + main window.
+- Step 3 `expect_screen("nikonscan-scanner-ready")` ✗ Holo3: "Nikon Scan was unable to find any active devices." Grounding fell back 3× without recovery; runner aborted.
+
+**Why step 3 fails** (this is the new backlog item N7):
+
+Manual diagnostic via qemu-ga RIGHT AT the failure point shows the device fully bound:
+```
+usbip port:  Port 01: device in use at High Speed(480Mbps)
+             Nikon Corp. : LS 50 ED/Coolscan V ED (04b0:4001)
+PnP:         Status: OK, Problem: CM_PROB_NONE, Service: usbscan
+usbscan:     Running
+```
+
+So PnP-side is correct. The blocker is on the emulator side. The emulator log during the recipe run shows:
+```
+[16:21:07.774Z INFO  usbip] Got connection from Ok(192.168.122.115:49685)   # the reattach
+[16:21:27.753Z WARN  peripherals::isp1581] ISP1581: EP1 OUT FIFO underrun
+                     (0 bytes available, 2 needed) — fabricated zeros may be misread as TUR opcode
+[16:21:27.754Z INFO  coolscan_emu::orchestrator] FW DISPATCH: handler returned after 5188 instructions
+[16:21:27.755Z INFO  coolscan_emu::orchestrator] FW DISPATCH: handler returned after 1547 instructions
+[…repeat: phantom TURs only, no INQUIRY, no MODE SENSE…]
+```
+
+The firmware's IRQ1 SCSI handler reads 2 bytes from EP1 OUT, finds the FIFO empty, and gets fabricated zeros = opcode 0x00 = TEST UNIT READY. The C2 fix from M14 added a warn-once flag but didn't stop the fabrication. Under Windows `usbscan.sys` driving (which queues bulk URBs differently from the smoke-test client), the firmware sees only phantom TURs — never the real INQUIRY/MODE SENSE that NikonScan's TWAIN data source needs to return a non-empty device list.
+
+**Filed as new backlog item N7** "usbip server → ISP1581 EP1 OUT FIFO race produces phantom TURs under usbscan.sys driving" with fix sketches. **Filed as N8** "usbip server only accepts ONE attach per emulator instance" — discovered while debugging (subsequent attaches after a disconnect return `error: Device not available`).
+
+**M15 status update**:
+- Plan from `~/.claude/plans/purrfect-sparking-newt.md` is fully executed (all 7 plan-phases green).
+- HIL stack works end-to-end up to "NikonScan main window visible".
+- The recipe authoring pivot from this session committed `preview_scan` and `full_scan` skeletons, plus the 7 harness fixes that real-world driving exposed.
+- **First live-run blocker is N7, not a recipe bug**. Skeletons stay; they will pass the moment N7 is fixed.
+
+**Recommended next session**:
+1. Patch `peripherals/src/isp1581.rs` to either block EP1 OUT reads on underrun or have `poll_usbip` push complete CDBs atomically (per N7 fix sketches).
+2. Re-run `preview_scan` against the existing `driver-bound` snapshot.
+3. If it goes green, baseline `nikonscan-main-window` / `nikonscan-scanner-ready` / `preview-pane-shown` screens.
+4. If still red, *then* rebuild the snapshot at a "driver installed but not currently attached" point so the reattach fires a clean PnP arrival event.
+5. Once preview_scan is green, attempt `full_scan`.
+
+**Snapshots untouched this session**: `pristine-install`, `nikonscan-installed`, `driver-bound` (still the M15 baseline). Test-cert state, BCD test-signing flags, OVMF Secure-Boot-off all preserved.

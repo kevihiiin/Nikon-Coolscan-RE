@@ -30,6 +30,15 @@ def _libvirt_mock() -> MagicMock:
 def lv(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = _libvirt_mock()
     monkeypatch.setattr("coolscan_hil_agent.lifecycle._libvirt", mock)
+    # libvirt_qemu provides qemuAgentCommand as a free function; route the
+    # tests' qemuAgentCommand stubs from `dom.qemuAgentCommand` through
+    # this mock so they keep working without each test having to mock the
+    # libvirt_qemu module separately.
+    qemu_mod = MagicMock()
+    monkeypatch.setattr("coolscan_hil_agent.lifecycle._libvirt_qemu", qemu_mod)
+    qemu_mod.qemuAgentCommand.side_effect = lambda dom, cmd, timeout, flags: dom.qemuAgentCommand(
+        cmd, timeout, flags
+    )
     return mock
 
 

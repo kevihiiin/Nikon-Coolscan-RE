@@ -8,6 +8,7 @@ available.
 
 from __future__ import annotations
 
+import base64
 import json
 import time
 from dataclasses import dataclass
@@ -20,11 +21,14 @@ log = get_logger(__name__)
 
 try:
     import libvirt
+    import libvirt_qemu
 
     _libvirt: Any = libvirt
-    del libvirt
+    _libvirt_qemu: Any = libvirt_qemu
+    del libvirt, libvirt_qemu
 except ImportError:
     _libvirt = None
+    _libvirt_qemu = None
 
 
 def _lv() -> Any:
@@ -138,6 +142,49 @@ class Lifecycle:
         )
         return result == 0
 
+    def usbip_reattach(self, host_ip: str, busid: str = "1-1", timeout_s: int = 45) -> None:
+        """Re-attach the emulator's USB/IP device inside the Windows VM.
+
+        The `driver-bound` snapshot remembers an active usbip-win2 session,
+        but after `revert_snapshot` the underlying TCP socket is dead and
+        the device shows up as `CM_PROB_PHANTOM` in PnP. This re-runs the
+        attach so NikonScan can find the scanner. Idempotent: detach is
+        attempted first and tolerated if the device is already dropped.
+        """
+        # Poll up to ~20 s for PnP Status=OK after attach (usbip-win2's
+        # driver bind is observed at 5-10 s per M15 phase log), then sleep
+        # an additional 5 s for usbscan kernel-mode service to publish the
+        # device handle. Without the post-OK settle, NikonScan launches
+        # before the handle is available and reports "no active devices."
+        ps_script = (
+            "$ErrorActionPreference = 'Continue'\n"
+            "$usbip = 'C:\\Program Files\\USBip\\usbip.exe'\n"
+            "& $usbip detach -p 1 2>&1 | Out-Null\n"
+            f"& $usbip attach -r {host_ip} -b {busid} 2>&1 | Out-String | Write-Output\n"
+            "for ($i = 0; $i -lt 20; $i++) {\n"
+            "    Start-Sleep -Seconds 1\n"
+            "    $dev = Get-PnpDevice -InstanceId 'USB\\VID_04B0&PID_4001\\*' "
+            "-ErrorAction SilentlyContinue\n"
+            "    if ($dev -and $dev.Status -eq 'OK') {\n"
+            "        Write-Output \"PnP OK after $i s; settling 5 s for usbscan\"\n"
+            "        Start-Sleep -Seconds 5\n"
+            "        exit 0\n"
+            "    }\n"
+            "}\n"
+            "Write-Output \"PnP did not reach OK after 20 s\"\n"
+            "exit 1\n"
+        )
+        encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode()
+        result = self._guest_exec(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            timeout_s=timeout_s,
+        )
+        if result != 0:
+            raise VmStateError(
+                f"usbip reattach to {host_ip} bus {busid} failed (exit code {result}); "
+                "PnP device did not reach Status=OK within 20s"
+            )
+
     # --- internals ---
 
     def _domain(self) -> Any:
@@ -185,6 +232,11 @@ class Lifecycle:
         raise VmStateError(f"guest-exec {argv!r} timed out after {timeout_s}s")
 
     def _qemu_agent_command(self, payload: dict[str, object]) -> dict[str, object]:
+        # qemuAgentCommand is exposed by the libvirt_qemu submodule as a free
+        # function taking (domain, command, timeout, flags) — not as a method
+        # on the domain object as the C API docs imply.
+        if _libvirt_qemu is None:
+            raise VmStateError("libvirt_qemu module not available")
         dom = self._domain()
-        raw = dom.qemuAgentCommand(json.dumps(payload), 5, 0)
+        raw = _libvirt_qemu.qemuAgentCommand(dom, json.dumps(payload), 5, 0)
         return dict(json.loads(raw))

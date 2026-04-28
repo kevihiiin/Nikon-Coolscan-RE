@@ -113,6 +113,15 @@ async def _run_recipe(settings: Settings, recipe: object) -> None:
     vnc.connect()
     try:
         with Lifecycle(settings.libvirt_uri, settings.libvirt_domain) as lc:
+            # Re-attach the emulator's USB/IP device into the VM. The
+            # `driver-bound` snapshot remembers the attachment but the TCP
+            # session is dead post-revert, so the device shows up as
+            # CM_PROB_PHANTOM until we re-run `usbip attach`. Without this,
+            # NikonScan launches but reports "no active devices."
+            try:
+                lc.usbip_reattach(settings.usbip_host, settings.usbip_busid)
+            except HilError as e:
+                log.warning("usbip_reattach_failed", error=str(e))
             runner = RecipeRunner(
                 vnc=vnc,
                 holo3=holo3,

@@ -82,10 +82,23 @@ class VncClient:
                 client.mousePress(1)
                 client.mousePress(1)
             case Type():
-                # vncdotool's keyPress handles ASCII directly; for unicode use typeString
-                client.typeString(action.text)
+                # vncdotool exposes keyPress(name) but no string-typing helper;
+                # iterate per character. Spaces map to "space"; printable ASCII
+                # passes through verbatim. Small inter-character sleep so the
+                # Windows guest's keyboard buffer keeps up — without it,
+                # subsequent characters get dropped after ~5-6 key events.
+                for ch in action.text:
+                    client.keyPress("space" if ch == " " else ch)
+                    time.sleep(0.05)
             case Key():
-                client.keyPress(action.key)
+                # vncdotool's KEYMAP uses lowercase entries for named keys
+                # (e.g. "return", "space", "super") and falls back to
+                # ord(name) for single chars. Multi-char names with mixed
+                # case (e.g. "Return") miss the KEYMAP and crash on ord().
+                # Normalize multi-char names; preserve single-char case
+                # since uppercase letters intentionally encode keysyms.
+                name = action.key.lower() if len(action.key) > 1 else action.key
+                client.keyPress(name)
             case Scroll():
                 button = 4 if action.direction == "up" else 5
                 for _ in range(action.amount):

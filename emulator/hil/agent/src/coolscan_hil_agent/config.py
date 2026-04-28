@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     libvirt_snapshot: str = Field(
         default="nikonscan-installed", validation_alias="LIBVIRT_SNAPSHOT"
     )
+    # Where the emulator's USB/IP server is reachable from inside the VM.
+    # virbr0 gateway by default — matches the address baked into the
+    # `driver-bound` snapshot's PnP record.
+    usbip_host: str = Field(default="192.168.122.1", validation_alias="USBIP_HOST")
+    usbip_busid: str = Field(default="1-1", validation_alias="USBIP_BUSID")
 
     artifacts_dir: Path = Field(default=Path("artifacts"), validation_alias="ARTIFACTS_DIR")
     recordings_dir: Path = Field(default=Path("recordings"), validation_alias="RECORDINGS_DIR")

@@ -86,7 +86,7 @@ no_implicit_optional = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["vncdotool.*", "imagehash.*", "libvirt.*"]
+module = ["vncdotool.*", "imagehash.*", "libvirt.*", "libvirt_qemu.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

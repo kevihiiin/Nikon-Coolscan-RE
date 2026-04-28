@@ -51,3 +51,34 @@ def test_inquiry_smoke_recipe_builds() -> None:
     r = recipes["inquiry_smoke"]()
     assert r.name == "inquiry_smoke"
     assert len(r.steps) >= 1
+
+
+def test_preview_scan_recipe_builds() -> None:
+    from coolscan_hil_agent.recipes import discover
+
+    recipes = discover()
+    assert "preview_scan" in recipes
+    r = recipes["preview_scan"]()
+    assert r.name == "preview_scan"
+    kinds = [s.kind for s in r.steps]
+    # Must launch the app, wait for the main window, and end on a
+    # nonblank-image assertion (preview is window-internal, no file).
+    assert "open_app" in kinds
+    assert "wait_for_screen" in kinds
+    assert kinds[-1] == "assert_image_nonblank"
+
+
+def test_full_scan_recipe_builds() -> None:
+    from coolscan_hil_agent.recipes import discover
+
+    recipes = discover()
+    assert "full_scan" in recipes
+    r = recipes["full_scan"]()
+    assert r.name == "full_scan"
+    kinds = [s.kind for s in r.steps]
+    # Must launch the app and end on a file-exists assertion (TIFF is the
+    # whole point of this recipe).
+    assert "open_app" in kinds
+    assert kinds[-1] == "assert_file_exists"
+    last = r.steps[-1].payload["path"]
+    assert isinstance(last, str) and "scans" in last and last.endswith(".tif")

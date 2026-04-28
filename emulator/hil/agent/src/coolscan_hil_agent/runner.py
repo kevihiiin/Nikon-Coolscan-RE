@@ -232,13 +232,18 @@ class RecipeRunner:
         await asyncio.to_thread(self._vnc.execute, action)
 
     async def _open_app(self, exe: str) -> None:
-        # Win+R, type exe, Enter. Plenty fast on a snapshotted VM.
+        # Open via Start menu search rather than Win+R Run dialog: Run
+        # treats whitespace as exe/arg separator (so "Nikon Scan" tries
+        # to launch "Nikon" with arg "Scan"), but Start search treats
+        # the whole string as a query and launches the top match. That
+        # plays nicely with multi-word app names like "Nikon Scan".
         for action in (
-            Key(type="key", key="super-r"),
-            Wait(type="wait", ms=500),
+            Key(type="key", key="super"),
+            Wait(type="wait", ms=800),
             Type(type="type", text=exe),
+            Wait(type="wait", ms=800),
             Key(type="key", key="Return"),
-            Wait(type="wait", ms=2000),
+            Wait(type="wait", ms=3000),
         ):
             await asyncio.to_thread(self._vnc.execute, action)
 
@@ -264,7 +269,11 @@ class RecipeRunner:
             artifacts_dir=artifacts_dir,
         )
         if baseline_hash is not None:
-            self._check_baseline(img, str(baseline_hash))
+            # Re-capture so the baseline check sees the screen the oracle
+            # just signed off on, not the pre-grounding-fallback frame. If
+            # grounding closed a leftover dialog, the baseline hash should
+            # match the recovered state, not the disrupted one.
+            self._check_baseline(self._vnc.capture(), str(baseline_hash))
 
     async def _do_wait_for_screen(
         self,
